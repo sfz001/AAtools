@@ -453,9 +453,8 @@ async function handleTranscribeVideo(message, tabId) {
 
   if (!key) return { error: '请先在扩展设置中填入 Gemini API Key' };
 
-  // 读取用户配置的 Gemini 模型，默认用 flash
-  const storage = await chrome.storage.sync.get(['geminiModel']);
-  const model = storage.geminiModel || 'gemini-3.1-flash-lite-preview';
+  // 视频转录强制使用 flash-lite（上下文窗口最大、速度最快、成本最低）
+  const model = 'gemini-3.1-flash-lite-preview';
 
   const stopKeepalive = startKeepalive();
 
@@ -473,8 +472,7 @@ async function handleTranscribeVideo(message, tabId) {
 // ── 视频转录：单次请求 + 流式输出 ──────────────────────────
 async function _fallbackVideoTranscribe(key, model, videoUrl, videoDuration, tabId) {
   const durationSec = videoDuration || 0;
-  const durationMin = durationSec ? Math.ceil(durationSec / 60) : 0;
-  console.log('[AATube] 视频转录开始, 时长:', durationMin, '分钟');
+  console.log('[AATube] 视频转录开始, 时长:', durationSec ? Math.ceil(durationSec / 60) + '分钟' : '未知');
 
   if (tabId) {
     chrome.tabs.sendMessage(tabId, {
@@ -483,30 +481,28 @@ async function _fallbackVideoTranscribe(key, model, videoUrl, videoDuration, tab
     }).catch(() => {});
   }
 
-  const prompt = `You are a speech-to-text transcription tool. Your ONLY job is to listen to the AUDIO track of this video and write down exactly what the speakers say, word for word.
+  const prompt = `You are a speech-to-text transcription tool. Process ONLY the AUDIO TRACK of this video. Ignore all video frames, images, and visual content entirely — treat this as if it were an audio-only file.
+
+Your ONLY job: listen to the audio and write down exactly what the speakers say, word for word.
 
 CRITICAL RULES:
-- ONLY transcribe what you HEAR from the audio. IGNORE all visual elements: on-screen text, subtitles, captions, title cards, video description, and any other written text visible in the video.
-- If the video has on-screen text or subtitles in a DIFFERENT script/style than the spoken audio, that is a clear sign you are reading the screen instead of listening. STOP and only output what is spoken.
-- Output ONLY the spoken words. No summaries, no descriptions, no commentary, no introductions.
-- Preserve the original language exactly as spoken (English stays English, Chinese stays Chinese, etc.)
-- Keep all filler words, stutters, verbal tics — this is a verbatim transcript.
-- Do NOT fabricate or hallucinate any content that was not actually spoken in the audio.
+- Process AUDIO ONLY. Skip all visual information: on-screen text, subtitles, captions, title cards, slides, and any written text visible in the video frames. Pretend there is no video, only audio.
+- LANGUAGE: Output in the SAME language as spoken. If Chinese is spoken, output Chinese. If English is spoken, output English. Do NOT translate into any other language.
+- Output ONLY the spoken words. No summaries, no descriptions, no commentary.
+- Keep filler words, stutters, verbal tics — this is verbatim.
+- Do NOT fabricate or hallucinate content not actually spoken.
 
 TIMESTAMP FORMAT:
-- Insert timestamps like [MM:SS] or [H:MM:SS] that reflect the ACTUAL video playback time when those words are spoken.
-- Each timestamp segment should be on its own line: [MM:SS] followed by the spoken text for that segment.
-- Timestamps should appear at natural speech boundaries (pauses, topic changes, new sentences), roughly every 20-40 seconds — but NOT at rigid fixed intervals.
-- NEVER use perfectly regular intervals (like exactly every 30s) — that is a sign of fabrication.
+- Insert [MM:SS] or [H:MM:SS] timestamps reflecting actual video playback time.
+- One timestamp per line, at natural speech boundaries, roughly every 20-40 seconds.
+- NEVER use rigid fixed intervals — that indicates fabrication.
 
-IMPORTANT: Transcribe as much of the video as possible. Do NOT stop early. Keep going until you reach the end of the video or your output limit.
-
-OUTPUT: Plain text only, no Markdown formatting.`;
+IMPORTANT: Transcribe the COMPLETE audio from start to finish. Do NOT stop early. Maximize output length.
+OUTPUT: Plain text only, no Markdown.`;
 
   const res = await _callGeminiTranscribe(key, model, videoUrl, prompt, tabId);
   if (res.error) return res;
 
-  // 通知前端 flush 缓冲区
   if (tabId) {
     chrome.tabs.sendMessage(tabId, {
       type: 'TRANSCRIBE_SEGMENT', index: 0, total: 1,

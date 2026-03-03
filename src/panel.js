@@ -531,11 +531,11 @@
       if (!body) return;
       YTX._transcribeBuffer = '';
       body.innerHTML = '<div id="ytx-seg-container"></div>';
+      YTX._transcribeReceiving = false;
       var status = YTX.panel.querySelector('#ytx-seg-status');
       if (status) {
         status.style.color = '#7c3aed';
         if (YTX._transcribeTimer) clearInterval(YTX._transcribeTimer);
-        YTX._transcribeReceiving = false;
         var startTime = Date.now();
         function updateTimer() {
           var elapsed = Math.floor((Date.now() - startTime) / 1000);
@@ -545,7 +545,7 @@
           if (YTX._transcribeReceiving) {
             status.textContent = '正在转录（' + timeStr + '）...';
           } else {
-            status.textContent = 'Gemini 正在处理视频（' + timeStr + '）...';
+            status.textContent = 'Gemini 正在处理音频（' + timeStr + '）...';
           }
         }
         updateTimer();
