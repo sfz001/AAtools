@@ -53,7 +53,7 @@ YTX.features.cards = {
 
       chrome.runtime.sendMessage(Object.assign({
         type: 'GENERATE_CARDS',
-        prompt: YTX.prompts.CARDS,
+        prompt: settings.promptCards || YTX.prompts.CARDS,
         provider: settings.provider,
         activeKey: settings.activeKey,
         model: settings.model,

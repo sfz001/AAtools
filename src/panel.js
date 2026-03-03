@@ -335,7 +335,7 @@
     columns.style.display = 'flex';
     columns.style.flexWrap = 'nowrap';
 
-    // 默认分栏：视频占 3/5，AATube 占 2/5
+    // 默认分栏：视频占 3/5，AAtools 占 2/5
     var resizerWidth = 24;
     var splitRatio = 3 / 5; // 当前 primary 占比，拖动时更新
 

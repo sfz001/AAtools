@@ -7,15 +7,29 @@
 <body>
   <div class="container">
     <div class="header">
-      <h1>AATube</h1>
-      <span class="subtitle">YouTube 视频 AI 助手</span>
+      <h1>AAtools</h1>
+      <span class="subtitle">YouTube 视频助手 & 划词翻译</span>
     </div>
 
-    <div class="section">
-      <div class="provider-tabs">
-        <button class="provider-tab active" data-provider="claude">Claude</button>
-        <button class="provider-tab" data-provider="openai">OpenAI</button>
-        <button class="provider-tab" data-provider="gemini">Gemini</button>
+    <!-- Card 1: AI 模型配置 -->
+    <div class="card card-hero">
+      <div class="card-header">
+        <div class="card-header-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6" rx="1"/>
+            <path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3"/>
+          </svg>
+        </div>
+        <div class="card-title">AI 模型配置</div>
+      </div>
+
+      <div class="field">
+        <label for="providerSelect">AI 服务商</label>
+        <select id="providerSelect">
+          <option value="claude">Claude</option>
+          <option value="openai">OpenAI</option>
+          <option value="gemini">Gemini</option>
+        </select>
       </div>
 
       <div class="field">
@@ -25,29 +39,62 @@
         </label>
         <div class="input-wrap">
           <input type="password" id="currentKey" placeholder="sk-ant-api03-...">
-          <button id="toggleKey" class="btn-icon" title="显示/隐藏">👁</button>
+          <button id="toggleKey" class="btn-icon" title="显示/隐藏">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          </button>
         </div>
       </div>
 
       <div class="field">
-        <label for="model">模型</label>
-        <select id="model"></select>
+        <label for="model">
+          <span>模型</span>
+          <button id="fetchModels" class="btn-link">从官网获取最新列表</button>
+        </label>
+        <div class="input-wrap">
+          <select id="model"></select>
+          <button id="fetchModelsBtn" class="btn-icon" title="获取最新模型列表">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+          </button>
+        </div>
       </div>
     </div>
 
-    <div class="section">
+    <!-- Card 2: 自定义 Prompt -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-header-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+        </div>
+        <div class="card-title">自定义 Prompt</div>
+        <button id="resetAllPrompts" class="btn-link" style="margin-left:auto">恢复所有默认</button>
+      </div>
+
+      <div class="prompt-tabs">
+        <button class="prompt-tab active" data-prompt="summary">总结</button>
+        <button class="prompt-tab" data-prompt="html">HTML 笔记</button>
+        <button class="prompt-tab" data-prompt="cards">知识卡片</button>
+        <button class="prompt-tab" data-prompt="mindmap">思维导图</button>
+        <button class="prompt-tab" data-prompt="vocab">词汇提取</button>
+      </div>
+
       <div class="field">
         <div class="label-row">
-          <label for="prompt">自定义 Prompt</label>
-          <button id="resetPrompt" class="btn-link">恢复默认</button>
+          <label for="prompt">Prompt 模板</label>
+          <button id="resetPrompt" class="btn-link">恢复当前默认</button>
         </div>
         <textarea id="prompt" rows="12" spellcheck="false"></textarea>
         <div class="hint">用 <code>{transcript}</code> 表示字幕内容插入位置</div>
       </div>
     </div>
 
-    <div class="section">
-      <div class="section-header">Notion 导出</div>
+    <!-- Card 3: Notion 导出 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-header-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+        </div>
+        <div class="card-title">Notion 导出</div>
+      </div>
 
       <div class="field">
         <label for="notionKey">
@@ -56,7 +103,9 @@
         </label>
         <div class="input-wrap">
           <input type="password" id="notionKey" placeholder="ntn_...">
-          <button id="toggleNotionKey" class="btn-icon" title="显示/隐藏">👁</button>
+          <button id="toggleNotionKey" class="btn-icon" title="显示/隐藏">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          </button>
         </div>
       </div>
 
@@ -67,18 +116,28 @@
       </div>
     </div>
 
-    <div class="section">
-      <div class="section-header">GitHub Gist（原文件上传）</div>
-      <div class="hint" style="margin-bottom:10px">导出到 Notion 时，将 HTML 笔记 / SVG 导图原文件上传到 Gist 并在页面中嵌入链接</div>
+    <!-- Card 4: GitHub Gist -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-header-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+        </div>
+        <div>
+          <div class="card-title">GitHub Gist（原文件上传）</div>
+          <div class="card-desc">导出到 Notion 时，将 HTML 笔记 / SVG 导图原文件上传到 Gist 并在页面中嵌入链接</div>
+        </div>
+      </div>
 
       <div class="field">
         <label for="githubKey">
           <span>Personal Access Token</span>
-          <a href="https://github.com/settings/tokens/new?scopes=gist&description=AATube" target="_blank" class="help-link">获取</a>
+          <a href="https://github.com/settings/tokens/new?scopes=gist&description=AAtools" target="_blank" class="help-link">获取</a>
         </label>
         <div class="input-wrap">
           <input type="password" id="githubKey" placeholder="ghp_...">
-          <button id="toggleGithubKey" class="btn-icon" title="显示/隐藏">&#128065;</button>
+          <button id="toggleGithubKey" class="btn-icon" title="显示/隐藏">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          </button>
         </div>
         <div class="hint">仅需 gist 权限，无 token 时导出 Notion 不受影响</div>
       </div>
@@ -91,6 +150,12 @@
       <input type="file" id="importFile" accept=".json" hidden>
     </div>
     <div id="status" class="status"></div>
+
+    <div class="footer">
+      <span id="version-badge">v1.1.0</span>
+      <span class="footer-sep">&middot;</span>
+      <a href="https://github.com/sfz001/AAtools" target="_blank">GitHub</a>
+    </div>
   </div>
   <script src="options.js"></script>
 </body>

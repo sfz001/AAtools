@@ -51,7 +51,7 @@ YTX.features.html = {
 
       chrome.runtime.sendMessage(Object.assign({
         type: 'GENERATE_HTML',
-        prompt: YTX.prompts.HTML,
+        prompt: settings.promptHtml || YTX.prompts.HTML,
         provider: settings.provider,
         activeKey: settings.activeKey,
         model: settings.model,

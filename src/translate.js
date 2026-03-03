@@ -275,7 +275,7 @@
 
     getSettings(function (settings) {
       if (!settings.activeKey) {
-        showError('请先在 AATube 扩展设置中填入 API Key');
+        showError('请先在 AAtools 扩展设置中填入 API Key');
         return;
       }
 
@@ -327,7 +327,7 @@
       // 头部（可拖拽）
       '<div class="ytx-translate-header">' +
         '<div class="ytx-translate-logo">译</div>' +
-        '<span class="ytx-translate-title">AATube Translate</span>' +
+        '<span class="ytx-translate-title">AAtools Translate</span>' +
         '<button class="ytx-translate-pin" title="固定弹窗">' + SVG_PIN + '</button>' +
         '<button class="ytx-translate-close" title="关闭">' + SVG_CLOSE + '</button>' +
       '</div>' +
@@ -356,7 +356,7 @@
       '</div>' +
       // 底部
       '<div class="ytx-translate-footer">' +
-        '<span class="ytx-translate-footer-text">Powered by AATube</span>' +
+        '<span class="ytx-translate-footer-text">Powered by AAtools</span>' +
       '</div>';
 
     popup.style.display = 'flex';

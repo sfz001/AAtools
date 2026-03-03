@@ -85,7 +85,7 @@ async function scrapeTranscriptFromDOM(videoId) {
   const log = [];
   function addLog(msg) {
     log.push(msg);
-    console.log('[AATube]', msg);
+    console.log('[AAtools]', msg);
   }
 
   function sleep(ms) {
@@ -453,16 +453,16 @@ async function handleTranscribeVideo(message, tabId) {
 
   if (!key) return { error: '请先在扩展设置中填入 Gemini API Key' };
 
-  // 视频转录强制使用 flash-lite（上下文窗口最大、速度最快、成本最低）
-  const model = 'gemini-3.1-flash-lite-preview';
+  // 视频转录强制使用 flash-lite-latest
+  const model = 'gemini-flash-lite-latest';
 
   const stopKeepalive = startKeepalive();
 
   try {
-    console.log('[AATube] 视频转录开始:', videoUrl, '时长(秒):', videoDuration || '未知', '模型:', model);
+    console.log('[AAtools] 视频转录开始:', videoUrl, '时长(秒):', videoDuration || '未知', '模型:', model);
     return await _fallbackVideoTranscribe(key, model, videoUrl, videoDuration, tabId);
   } catch (err) {
-    console.error('[AATube] 视频转录异常:', err);
+    console.error('[AAtools] 视频转录异常:', err);
     return { error: '视频分析失败: ' + (err.message || '') };
   } finally {
     stopKeepalive();
@@ -472,7 +472,7 @@ async function handleTranscribeVideo(message, tabId) {
 // ── 视频转录：单次请求 + 流式输出 ──────────────────────────
 async function _fallbackVideoTranscribe(key, model, videoUrl, videoDuration, tabId) {
   const durationSec = videoDuration || 0;
-  console.log('[AATube] 视频转录开始, 时长:', durationSec ? Math.ceil(durationSec / 60) + '分钟' : '未知');
+  console.log('[AAtools] 视频转录开始, 时长:', durationSec ? Math.ceil(durationSec / 60) + '分钟' : '未知');
 
   if (tabId) {
     chrome.tabs.sendMessage(tabId, {
@@ -511,7 +511,7 @@ OUTPUT: Plain text only, no Markdown.`;
     }).catch(() => {});
   }
 
-  console.log('[AATube] 转录完成，长度:', res.text.length);
+  console.log('[AAtools] 转录完成，长度:', res.text.length);
   return { text: res.text };
 }
 
@@ -532,7 +532,7 @@ async function _callGeminiTranscribe(key, model, videoUrl, prompt, tabId) {
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     if (attempt > 0) {
       const waitSec = attempt * 10;
-      console.log(`[AATube] 第 ${attempt} 次重试，等待 ${waitSec} 秒...`);
+      console.log(`[AAtools] 第 ${attempt} 次重试，等待 ${waitSec} 秒...`);
       await new Promise(r => setTimeout(r, waitSec * 1000));
     }
 
@@ -549,7 +549,7 @@ async function _callGeminiTranscribe(key, model, videoUrl, prompt, tabId) {
       const errText = await response.text();
       lastError = classifyApiError(response.status, errText, 'gemini');
       if ((response.status === 503 || response.status === 429) && attempt < MAX_RETRIES) {
-        console.warn(`[AATube] 请求返回 ${response.status}，将重试`);
+        console.warn(`[AAtools] 请求返回 ${response.status}，将重试`);
         continue;
       }
       return { error: lastError };
@@ -852,7 +852,7 @@ async function handleUploadGist(message) {
         'Accept': 'application/vnd.github+json',
       },
       body: JSON.stringify({
-        description: description || 'AATube export',
+        description: description || 'AAtools export',
         public: false,
         files: { [filename]: { content } },
       }),

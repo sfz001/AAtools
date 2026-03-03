@@ -1,14 +1,14 @@
-# Privacy Policy - AATube
+# Privacy Policy - AAtools
 
 Last updated: 2026-02-27
 
 ## Overview
 
-AATube is a Chrome extension that summarizes YouTube videos using AI services. This privacy policy explains how user data is handled.
+AAtools is a Chrome extension that provides AI-powered YouTube video summarization and cross-site text translation. This privacy policy explains how user data is handled.
 
 ## Data Collection
 
-AATube does **not** collect, store, or transmit any personal data to the developer or any third party.
+AAtools does **not** collect, store, or transmit any personal data to the developer or any third party.
 
 ## Data Stored Locally
 
@@ -23,14 +23,14 @@ This data never leaves your browser except when sent directly to the AI service 
 
 ## Third-Party API Calls
 
-When you use AATube, your video subtitle content is sent directly from your browser to the AI provider you selected:
+When you use AAtools, your video subtitle content or selected text is sent directly from your browser to the AI provider you selected:
 
 - **Anthropic** (api.anthropic.com) — when using Claude
 - **OpenAI** (api.openai.com) — when using OpenAI
 - **Google** (generativelanguage.googleapis.com) — when using Gemini
 - **Notion** (api.notion.com) — only when you explicitly export to Notion
 
-These API calls are made directly from your browser using your own API keys. AATube does not proxy, log, or intercept any of this data.
+These API calls are made directly from your browser using your own API keys. AAtools does not proxy, log, or intercept any of this data.
 
 ## Permissions
 
@@ -41,7 +41,7 @@ These API calls are made directly from your browser using your own API keys. AAT
 
 ## Remote Code
 
-AATube does not use any remote code. All JavaScript is bundled locally in the extension package.
+AAtools does not use any remote code. All JavaScript is bundled locally in the extension package.
 
 ## Changes
 
@@ -49,4 +49,4 @@ If this policy changes, the updated version will be posted at this URL.
 
 ## Contact
 
-If you have questions, open an issue at https://github.com/sfz001/AAtube/issues
+If you have questions, open an issue at https://github.com/sfz001/AAtools/issues

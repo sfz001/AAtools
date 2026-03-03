@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**AATube** — 自用 Chrome 扩展（Manifest V3），在 YouTube 页面内直接用 AI 总结视频内容。支持 Claude / OpenAI / Gemini 三个 API 提供商，无字幕视频可通过 Gemini 视频模式分析。
+**AAtools** — 自用 Chrome 扩展（Manifest V3），两大核心功能：① YouTube 视频 AI 助手（总结/笔记/问答/卡片/导图/词汇提取）② 全网划词翻译。支持 Claude / OpenAI / Gemini 三个 API 提供商，无字幕视频可通过 Gemini 视频模式分析。
 
 **技术栈**: 原生 HTML/CSS/JS，零依赖，无构建步骤。
 
@@ -73,7 +73,7 @@ YouTube 页面 (content scripts)          Service Worker
 - 所有 prompt 常量集中在 `src/prompts.js`，用 `{transcript}` 占位符插入字幕
 - 字幕截断保护：`YTX.TRANSCRIPT_MAX_CHARS = 60000`（约 15k tokens）
 - JSON 输出解析使用 `YTX.extractJSON(text, 'array'|'object')`，自动剥离 markdown 围栏
-- 结果缓存到 IndexedDB（`AATubeCache`），切换视频时自动恢复
+- 结果缓存到 IndexedDB（`AAtoolsCache`），切换视频时自动恢复
 - 导出功能统一在 `src/export.js`（Markdown 下载 / HTML→Notion blocks / 导图→Notion blocks）
 - YouTube SPA 适配：监听 `yt-navigate-finish` 事件
 - 面板注入位置：YouTube 右侧栏 `#secondary` 最前面

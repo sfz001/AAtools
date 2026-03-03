@@ -1,12 +1,12 @@
-# AATube
+# AAtools
 
-Chrome 扩展 — 在 YouTube 页面内用 AI 学习视频内容。
+Chrome 扩展 — AI 驱动的 YouTube 视频助手 & 全网划词翻译。
 
 ## 安装
 
 ### 方式一：从 Release 下载
 
-1. 前往 [Releases](https://github.com/sfz001/AAtube/releases) 下载最新的 `AATube-vX.X.X.zip`
+1. 前往 [Releases](https://github.com/sfz001/AAtools/releases) 下载最新的 `AAtools-vX.X.X.zip`
 2. 解压到任意文件夹
 3. 打开 `chrome://extensions/` → 开启右上角「开发者模式」
 4. 点击「加载已解压的扩展程序」→ 选择解压后的文件夹
@@ -15,7 +15,7 @@ Chrome 扩展 — 在 YouTube 页面内用 AI 学习视频内容。
 ### 方式二：从源码
 
 ```
-git clone https://github.com/sfz001/AAtube.git
+git clone https://github.com/sfz001/AAtools.git
 ```
 
 然后同上第 3-5 步。
@@ -32,9 +32,9 @@ git clone https://github.com/sfz001/AAtube.git
 
 > **建议同时配置 Gemini Key**：当视频无字幕时，扩展会自动使用 Gemini 视频模式获取内容。你也可以手动点击「使用视频模式」来切换。
 
-## 使用方法
+## 功能一：YouTube 视频助手
 
-打开任意 YouTube 视频页面，右侧会出现 AATube 面板：
+打开任意 YouTube 视频页面，右侧会出现 AAtools 面板：
 
 ### 全部生成
 
@@ -59,12 +59,21 @@ git clone https://github.com/sfz001/AAtube.git
 
 > 注意：视频模式仅用 Gemini 获取字幕内容，后续的总结、卡片等分析仍然使用你选择的 AI 模型。
 
+## 功能二：全网划词翻译
+
+在任意网页上选中文字，即可弹出翻译窗口：
+
+- 支持 Claude / OpenAI / Gemini 三种 AI 翻译
+- 可选目标语言
+- 支持固定弹窗、手动输入翻译
+- 自动识别源语言
+
 ### 其他功能
 
 - **可调分栏** — 拖拽视频和面板之间的分割条，自由调整宽度
 - **历史缓存** — 已生成的结果会缓存，再次打开同一视频自动恢复
 - **Notion 导出** — 在设置页填入 Notion Integration Token 和页面 ID，笔记和导图可一键导出
-- **自定义 Prompt** — 在设置页可修改总结提示词
+- **自定义 Prompt** — 在设置页可修改各功能的提示词
 - **亮/暗色适配** — 自动跟随 YouTube 主题
 
 ## 许可

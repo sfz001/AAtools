@@ -215,7 +215,7 @@
 
         chrome.runtime.sendMessage(Object.assign({
           type: 'GENERATE_MINDMAP',
-          prompt: YTX.prompts.MINDMAP,
+          prompt: settings.promptMindmap || YTX.prompts.MINDMAP,
           provider: settings.provider,
           activeKey: settings.activeKey,
           model: settings.model,

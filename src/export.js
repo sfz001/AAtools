@@ -384,22 +384,22 @@ YTX.Export = {
         token: token,
         filename: filename,
         content: content,
-        description: description || 'AATube export'
+        description: description || 'AAtools export'
       }).then(function (resp) {
         if (resp.error) {
-          console.warn('[AATube] Gist 上传失败:', resp.error);
+          console.warn('[AAtools] Gist 上传失败:', resp.error);
           return null;
         }
         return resp;
       }).catch(function (err) {
-        console.warn('[AATube] Gist 上传异常:', err);
+        console.warn('[AAtools] Gist 上传异常:', err);
         return null;
       });
     });
   },
 
   sendToNotionWithGist: function (title, blocks, filename, content, fileLabel, callback) {
-    YTX.Export.uploadGist(filename, content, 'AATube: ' + title).then(function (gist) {
+    YTX.Export.uploadGist(filename, content, 'AAtools: ' + title).then(function (gist) {
       if (gist && gist.rawUrl) {
         // gist.githubusercontent.com 强制 text/plain，替换为 gist.githack.com 以正确 Content-Type 渲染
         var viewUrl = gist.rawUrl.replace('gist.githubusercontent.com', 'gist.githack.com');
@@ -426,7 +426,7 @@ YTX.Export = {
       'title: "' + title.replace(/"/g, '\\"') + '"\n' +
       'source: ' + url + '\n' +
       'date: ' + date + '\n' +
-      'tags:\n  - youtube\n  - aatube\n' +
+      'tags:\n  - youtube\n  - aatools\n' +
       '---\n\n';
     var content = frontmatter + md;
     var filename = this.getSafeFilename(title) + '.md';

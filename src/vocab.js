@@ -53,7 +53,7 @@ YTX.features.vocab = {
 
       chrome.runtime.sendMessage(Object.assign({
         type: 'GENERATE_VOCAB',
-        prompt: YTX.prompts.VOCAB,
+        prompt: settings.promptVocab || YTX.prompts.VOCAB,
         provider: settings.provider,
         activeKey: settings.activeKey,
         model: settings.model,
@@ -155,10 +155,11 @@ YTX.features.vocab = {
     btn.innerHTML = YTX.icons.spinner;
     contentEl.innerHTML = '<div class="ytx-loading" style="padding:14px 16px"><div class="ytx-spinner"></div><span>正在换一批词汇...</span></div>';
 
-    var refreshPrompt = YTX.prompts.VOCAB + '\n\n注意：以下词汇已经提取过，请排除它们，提取其他不同的词汇：\n' + excludeList;
     var payload = YTX.getContentPayload();
 
     YTX.getSettings().then(function (settings) {
+      var basePrompt = settings.promptVocab || YTX.prompts.VOCAB;
+      var refreshPrompt = basePrompt + '\n\n注意：以下词汇已经提取过，请排除它们，提取其他不同的词汇：\n' + excludeList;
       chrome.runtime.sendMessage(Object.assign({
         type: 'GENERATE_VOCAB',
         prompt: refreshPrompt,

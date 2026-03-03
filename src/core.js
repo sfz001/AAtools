@@ -61,7 +61,8 @@ YTX.timeToSeconds = function (str) {
 YTX.getSettings = function () {
   return new Promise(function (resolve) {
     chrome.storage.sync.get(
-      ['provider', 'claudeKey', 'openaiKey', 'geminiKey', 'claudeModel', 'openaiModel', 'geminiModel', 'model', 'prompt'],
+      ['provider', 'claudeKey', 'openaiKey', 'geminiKey', 'claudeModel', 'openaiModel', 'geminiModel', 'model',
+       'prompt', 'promptHtml', 'promptCards', 'promptMindmap', 'promptVocab'],
       function (data) {
         var provider = data.provider || 'claude';
         var KEY_MAP = { claude: 'claudeKey', openai: 'openaiKey', gemini: 'geminiKey' };
@@ -71,6 +72,10 @@ YTX.getSettings = function () {
           activeKey: data[KEY_MAP[provider]] || '',
           model: data[MODEL_MAP[provider]] || '',
           prompt: data.prompt,
+          promptHtml: data.promptHtml,
+          promptCards: data.promptCards,
+          promptMindmap: data.promptMindmap,
+          promptVocab: data.promptVocab,
         });
       }
     );
@@ -354,7 +359,7 @@ YTX.ensureTranscript = async function () {
 // ── 历史记录持久化（IndexedDB）──────────────────────
 
 YTX.cache = {
-  DB_NAME: 'AATubeCache',
+  DB_NAME: 'AAtoolsCache',
   DB_VERSION: 1,
   STORE: 'results',
   _db: null,
