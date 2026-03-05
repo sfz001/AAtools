@@ -157,6 +157,18 @@ const PROVIDERS = {
       { value: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro — 最强' },
       { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash — 稳定' },
     ]
+  },
+  minimax: {
+    label: 'MiniMax API Key',
+    keyField: 'minimaxKey',
+    placeholder: 'eyJ...',
+    helpUrl: 'https://platform.minimax.io/user-center/basic-information/interface-key',
+    models: [
+      { value: 'MiniMax-M2.5', label: 'MiniMax-M2.5 — 推荐' },
+      { value: 'MiniMax-M2.5-highspeed', label: 'MiniMax-M2.5 高速 — 更快' },
+      { value: 'MiniMax-M2.1', label: 'MiniMax-M2.1' },
+      { value: 'MiniMax-M2', label: 'MiniMax-M2' },
+    ]
   }
 };
 
@@ -164,8 +176,8 @@ const $ = (sel) => document.querySelector(sel);
 
 let currentProvider = 'claude';
 let currentPromptTab = 'summary';
-let keyCache = { claudeKey: '', openaiKey: '', geminiKey: '' };
-let modelCache = { claude: '', openai: '', gemini: '' };
+let keyCache = { claudeKey: '', openaiKey: '', geminiKey: '', minimaxKey: '' };
+let modelCache = { claude: '', openai: '', gemini: '', minimax: '' };
 // 各功能 prompt 缓存，切换 tab 时不丢失未保存的编辑
 let promptCache = {};
 
@@ -181,27 +193,30 @@ function parseNotionPageId(input) {
 
 document.addEventListener('DOMContentLoaded', () => {
   const STORAGE_KEYS = [
-    'provider', 'claudeKey', 'openaiKey', 'geminiKey',
-    'claudeModel', 'openaiModel', 'geminiModel', 'model',
+    'provider', 'claudeKey', 'openaiKey', 'geminiKey', 'minimaxKey',
+    'claudeModel', 'openaiModel', 'geminiModel', 'minimaxModel', 'model',
     'notionKey', 'notionPage', 'githubKey',
     'generateAllSummary', 'generateAllMindmap', 'generateAllHtml', 'generateAllCards', 'generateAllVocab',
     ...ALL_PROMPT_KEYS,
   ];
 
   // 先加载已拉取的模型列表，再加载设置
-  chrome.storage.local.get(['fetchedModels_claude', 'fetchedModels_openai', 'fetchedModels_gemini'], (local) => {
+  chrome.storage.local.get(['fetchedModels_claude', 'fetchedModels_openai', 'fetchedModels_gemini', 'fetchedModels_minimax'], (local) => {
     if (local.fetchedModels_claude) fetchedModelsCache.claude = local.fetchedModels_claude;
     if (local.fetchedModels_openai) fetchedModelsCache.openai = local.fetchedModels_openai;
     if (local.fetchedModels_gemini) fetchedModelsCache.gemini = local.fetchedModels_gemini;
+    if (local.fetchedModels_minimax) fetchedModelsCache.minimax = local.fetchedModels_minimax;
 
     chrome.storage.sync.get(STORAGE_KEYS, (data) => {
       keyCache.claudeKey = data.claudeKey || '';
       keyCache.openaiKey = data.openaiKey || '';
       keyCache.geminiKey = data.geminiKey || '';
+      keyCache.minimaxKey = data.minimaxKey || '';
 
       modelCache.claude = data.claudeModel || '';
       modelCache.openai = data.openaiModel || '';
       modelCache.gemini = data.geminiModel || '';
+      modelCache.minimax = data.minimaxModel || '';
 
       currentProvider = data.provider || 'claude';
       if (!modelCache[currentProvider] && data.model) {
@@ -282,15 +297,15 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   const SETTING_KEYS = [
-    'provider', 'claudeKey', 'openaiKey', 'geminiKey',
-    'claudeModel', 'openaiModel', 'geminiModel', 'model',
+    'provider', 'claudeKey', 'openaiKey', 'geminiKey', 'minimaxKey',
+    'claudeModel', 'openaiModel', 'geminiModel', 'minimaxModel', 'model',
     'notionKey', 'notionPage', 'githubKey',
     'generateAllSummary', 'generateAllMindmap', 'generateAllHtml', 'generateAllCards', 'generateAllVocab',
     'mindmapAlignTop',
     ...ALL_PROMPT_KEYS,
   ];
 
-  const LOCAL_KEYS = ['fetchedModels_claude', 'fetchedModels_openai', 'fetchedModels_gemini'];
+  const LOCAL_KEYS = ['fetchedModels_claude', 'fetchedModels_openai', 'fetchedModels_gemini', 'fetchedModels_minimax'];
 
   $('#exportSettings').addEventListener('click', () => {
     chrome.storage.sync.get(SETTING_KEYS, (syncData) => {
@@ -478,9 +493,11 @@ function saveSettings(isManual) {
     claudeKey: keyCache.claudeKey,
     openaiKey: keyCache.openaiKey,
     geminiKey: keyCache.geminiKey,
+    minimaxKey: keyCache.minimaxKey,
     claudeModel: modelCache.claude,
     openaiModel: modelCache.openai,
     geminiModel: modelCache.gemini,
+    minimaxModel: modelCache.minimax,
     model: $('#model').value,
     notionKey: $('#notionKey').value.trim(),
     notionPage: parseNotionPageId($('#notionPage').value),
@@ -551,4 +568,5 @@ const MODEL_FETCHERS = {
       .sort((a, b) => a.label.localeCompare(b.label));
     return models;
   },
+
 };

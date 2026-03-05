@@ -1,10 +1,5 @@
 // background.js — Service Worker: 字幕获取 + 多模型 API 流式调用
 
-// 点击扩展图标 → 打开设置页
-chrome.action.onClicked.addListener(() => {
-  chrome.runtime.openOptionsPage();
-});
-
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'FETCH_TRANSCRIPT') {
     handleFetchTranscript(message.videoId, sender.tab.id).then(sendResponse);
@@ -450,8 +445,9 @@ ${context ? '📌 该词在语境中的含义：一句话解释' : '搭配: 词�
 const MODEL_PREFIX = { claude: 'claude-', openai: 'gpt-', gemini: 'gemini-' };
 function sanitizeModel(provider, model) {
   if (!model) return '';
+  if (!(provider in MODEL_PREFIX)) return model; // 无前缀校验的 provider（如 minimax）
   const prefix = MODEL_PREFIX[provider];
-  return (prefix && model.startsWith(prefix)) ? model : '';
+  return model.startsWith(prefix) ? model : '';
 }
 
 // ── Service Worker 保活（防止视频处理期间被终止）──────────
@@ -613,7 +609,7 @@ async function _callGeminiTranscribe(key, model, videoUrl, prompt, tabId) {
 // ── API 错误分类提示 ─────────────────────────────────────
 function classifyApiError(status, body, provider) {
   const lower = body.toLowerCase();
-  const providerName = { claude: 'Claude', openai: 'OpenAI', gemini: 'Gemini' }[provider] || provider;
+  const providerName = { claude: 'Claude', openai: 'OpenAI', gemini: 'Gemini', minimax: 'MiniMax' }[provider] || provider;
 
   // 401 / 403 — 认证失败
   if (status === 401 || status === 403 || lower.includes('invalid_api_key') || lower.includes('invalid api key') || lower.includes('unauthorized') || lower.includes('api_key_invalid')) {
@@ -659,7 +655,7 @@ async function callProvider(provider, opts) {
   const model = sanitizeModel(provider, opts.model);
 
   // 计算实际使用的模型 ID
-  const DEFAULT_MODEL = { claude: 'claude-sonnet-4-6', openai: 'gpt-5-mini', gemini: 'gemini-3-flash-preview' };
+  const DEFAULT_MODEL = { claude: 'claude-sonnet-4-6', openai: 'gpt-5-mini', gemini: 'gemini-3-flash-preview', minimax: 'MiniMax-M2.5' };
   const actualModel = model || DEFAULT_MODEL[provider] || DEFAULT_MODEL.claude;
 
   // 通知 content.js 当前使用的模型
@@ -668,11 +664,14 @@ async function callProvider(provider, opts) {
   try {
     let response;
 
-    if (provider === 'openai') {
+    if (provider === 'openai' || provider === 'minimax') {
       const apiMessages = systemPrompt
         ? [{ role: 'system', content: systemPrompt }, ...messages]
         : messages;
-      response = await fetch('https://api.openai.com/v1/chat/completions', {
+      const endpoint = provider === 'minimax'
+        ? 'https://api.minimax.io/v1/text/chatcompletion_v2'
+        : 'https://api.openai.com/v1/chat/completions';
+      response = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -771,25 +770,25 @@ async function readSSEStream(response, tabId, PREFIX, provider) {
         const parsed = JSON.parse(data);
         let text;
 
-        if (provider === 'openai') {
+        let shouldDone = false;
+
+        if (provider === 'openai' || provider === 'minimax') {
           text = parsed.choices?.[0]?.delta?.content;
-          if (parsed.choices?.[0]?.finish_reason === 'stop' && !doneSent) {
-            safeSend(tabId, { type: `${PREFIX}_DONE` });
-            doneSent = true;
-          }
+          if (parsed.choices?.[0]?.finish_reason === 'stop') shouldDone = true;
         } else if (provider === 'gemini') {
           text = parsed.candidates?.[0]?.content?.parts?.[0]?.text;
         } else {
           // Claude
           if (parsed.type === 'content_block_delta') text = parsed.delta?.text;
-          if (parsed.type === 'message_stop' && !doneSent) {
-            safeSend(tabId, { type: `${PREFIX}_DONE` });
-            doneSent = true;
-          }
+          if (parsed.type === 'message_stop') shouldDone = true;
         }
 
         if (text) {
           safeSend(tabId, { type: `${PREFIX}_CHUNK`, text });
+        }
+        if (shouldDone && !doneSent) {
+          safeSend(tabId, { type: `${PREFIX}_DONE` });
+          doneSent = true;
         }
       } catch {}
     }

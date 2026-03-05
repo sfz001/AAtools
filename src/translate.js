@@ -128,10 +128,10 @@
       return;
     }
     try {
-      chrome.storage.sync.get(['provider', 'claudeKey', 'openaiKey', 'geminiKey', 'claudeModel', 'openaiModel', 'geminiModel', 'promptTranslateDict', 'promptTranslateSentence'], function (s) {
+      chrome.storage.sync.get(['provider', 'claudeKey', 'openaiKey', 'geminiKey', 'minimaxKey', 'claudeModel', 'openaiModel', 'geminiModel', 'minimaxModel', 'promptTranslateDict', 'promptTranslateSentence'], function (s) {
         var provider = s.provider || 'claude';
-        var keyMap = { claude: s.claudeKey, openai: s.openaiKey, gemini: s.geminiKey };
-        var modelMap = { claude: s.claudeModel, openai: s.openaiModel, gemini: s.geminiModel };
+        var keyMap = { claude: s.claudeKey, openai: s.openaiKey, gemini: s.geminiKey, minimax: s.minimaxKey };
+        var modelMap = { claude: s.claudeModel, openai: s.openaiModel, gemini: s.geminiModel, minimax: s.minimaxModel };
         callback({
           provider: provider,
           activeKey: keyMap[provider] || '',
@@ -569,7 +569,7 @@
   function updateFooter(provider, model) {
     var el = popup && popup.querySelector('.ytx-translate-footer-text');
     if (!el) return;
-    var name = { claude: 'Claude', openai: 'OpenAI', gemini: 'Gemini' }[provider] || provider;
+    var name = { claude: 'Claude', openai: 'OpenAI', gemini: 'Gemini', minimax: 'MiniMax' }[provider] || provider;
     el.textContent = 'Powered by ' + name + (model ? ' ' + model : '');
   }
 

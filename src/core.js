@@ -61,12 +61,12 @@ YTX.timeToSeconds = function (str) {
 YTX.getSettings = function () {
   return new Promise(function (resolve) {
     chrome.storage.sync.get(
-      ['provider', 'claudeKey', 'openaiKey', 'geminiKey', 'claudeModel', 'openaiModel', 'geminiModel', 'model',
+      ['provider', 'claudeKey', 'openaiKey', 'geminiKey', 'minimaxKey', 'claudeModel', 'openaiModel', 'geminiModel', 'minimaxModel', 'model',
        'prompt', 'promptHtml', 'promptCards', 'promptMindmap', 'promptVocab'],
       function (data) {
         var provider = data.provider || 'claude';
-        var KEY_MAP = { claude: 'claudeKey', openai: 'openaiKey', gemini: 'geminiKey' };
-        var MODEL_MAP = { claude: 'claudeModel', openai: 'openaiModel', gemini: 'geminiModel' };
+        var KEY_MAP = { claude: 'claudeKey', openai: 'openaiKey', gemini: 'geminiKey', minimax: 'minimaxKey' };
+        var MODEL_MAP = { claude: 'claudeModel', openai: 'openaiModel', gemini: 'geminiModel', minimax: 'minimaxModel' };
         resolve({
           provider: provider,
           activeKey: data[KEY_MAP[provider]] || '',
