@@ -417,7 +417,17 @@ YTX.cache = {
 
 YTX.generateAll = async function () {
   if (YTX.isFetchingTranscript) return;
-  var keys = ['summary', 'html', 'cards', 'mindmap', 'vocab'];
+
+  var settings = await new Promise(function (resolve) {
+    chrome.storage.sync.get(['generateAllSummary', 'generateAllMindmap', 'generateAllHtml', 'generateAllCards', 'generateAllVocab'], resolve);
+  });
+
+  var keys = [];
+  if (settings.generateAllSummary !== false) keys.push('summary');
+  if (settings.generateAllMindmap !== false) keys.push('mindmap');
+  if (settings.generateAllHtml !== false) keys.push('html');
+  if (settings.generateAllCards) keys.push('cards');
+  if (settings.generateAllVocab) keys.push('vocab');
   var allBtn = YTX.panel && YTX.panel.querySelector('#ytx-generate-all');
   if (allBtn) { allBtn.blur(); allBtn.disabled = true; allBtn.innerHTML = YTX.icons.spinner; }
 

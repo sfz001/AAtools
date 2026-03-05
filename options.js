@@ -184,6 +184,7 @@ document.addEventListener('DOMContentLoaded', () => {
     'provider', 'claudeKey', 'openaiKey', 'geminiKey',
     'claudeModel', 'openaiModel', 'geminiModel', 'model',
     'notionKey', 'notionPage', 'githubKey',
+    'generateAllSummary', 'generateAllMindmap', 'generateAllHtml', 'generateAllCards', 'generateAllVocab',
     ...ALL_PROMPT_KEYS,
   ];
 
@@ -213,6 +214,12 @@ document.addEventListener('DOMContentLoaded', () => {
         promptCache[tab] = data[PROMPT_STORAGE_KEYS[tab]] || '';
       });
       switchPromptTab('summary');
+
+      $('#generateAllSummary').checked = data.generateAllSummary !== false;
+      $('#generateAllMindmap').checked = data.generateAllMindmap !== false;
+      $('#generateAllHtml').checked = data.generateAllHtml !== false;
+      $('#generateAllCards').checked = !!data.generateAllCards;
+      $('#generateAllVocab').checked = !!data.generateAllVocab;
 
       $('#notionKey').value = data.notionKey || '';
       $('#notionPage').value = data.notionPage || '';
@@ -278,6 +285,7 @@ document.addEventListener('DOMContentLoaded', () => {
     'provider', 'claudeKey', 'openaiKey', 'geminiKey',
     'claudeModel', 'openaiModel', 'geminiModel', 'model',
     'notionKey', 'notionPage', 'githubKey',
+    'generateAllSummary', 'generateAllMindmap', 'generateAllHtml', 'generateAllCards', 'generateAllVocab',
     'mindmapAlignTop',
     ...ALL_PROMPT_KEYS,
   ];
@@ -477,6 +485,11 @@ function saveSettings(isManual) {
     notionKey: $('#notionKey').value.trim(),
     notionPage: parseNotionPageId($('#notionPage').value),
     githubKey: $('#githubKey').value.trim(),
+    generateAllSummary: $('#generateAllSummary').checked,
+    generateAllMindmap: $('#generateAllMindmap').checked,
+    generateAllHtml: $('#generateAllHtml').checked,
+    generateAllCards: $('#generateAllCards').checked,
+    generateAllVocab: $('#generateAllVocab').checked,
   };
 
   // 各功能 prompt：空值不存（使用默认），有值才写入

@@ -58,15 +58,17 @@ YouTube 页面 (content scripts)          Service Worker
 - `YTX.currentVideoId` — 当前视频 ID
 - `YTX.transcriptData` — `{ segments, full, truncated }`，null 表示未获取
 - `YTX.videoMode` — 是否使用 Gemini 视频模式
+- `YTX.isFetchingTranscript` — 正在获取字幕时为 true，禁止生成操作
 - `YTX.features` — 功能模块注册表
-- `YTX.featureOrder` — 标签页排列顺序数组
+- `YTX.featureOrder` — 标签页排列顺序：`['summary', 'mindmap', 'html', 'cards', 'vocab', 'chat']`
 
 关键工具函数：
 
 - `YTX.getSettings()` — 返回 Promise，自动从当前 provider 推导 `activeKey` 和 `model`
 - `YTX.ensureTranscript()` — 获取字幕的统一入口，有缓存则直接返回，失败自动回退 Gemini 视频模式
 - `YTX.getContentPayload()` — 返回 `{ transcript }` 用于发送到 background
-- `YTX.extractJSON(text, 'array'|'object')` — 健壮的 JSON 提取，5 层回退策略（直接解析 → 去尾逗号 → 修复控制字符 → 组合修复 → 截断到最后完整 `}`）
+- `YTX.sendToBg(message)` — Promise 包装的 `chrome.runtime.sendMessage`，所有 feature 用它与 background 通信
+- `YTX.extractJSON(text, 'array'|'object')` — 健壮的 JSON 提取，6 层回退策略（直接解析 → 去尾逗号 → 修复控制字符 → 组合修复 → 截断到最后完整 `}` → 截断后再修复）
 - `YTX.generateAll()` — 并行生成所有功能（chat 除外），临时 patch 每个 feature 的 `onDone`/`onError` 为 Promise resolve
 - `YTX.fmtTime(seconds)` / `YTX.timeToSeconds(str)` — 时间格式转换
 - `YTX.btnRefresh(btn)` / `YTX.btnPrimary(btn, icon)` — 按钮状态切换
@@ -145,6 +147,8 @@ YTX.features.KEY = {
 - `prompt`, `promptHtml`, `promptCards`, `promptMindmap`, `promptVocab` — 自定义 prompt（注意 summary 的 key 是 `prompt` 而非 `promptSummary`，向后兼容）
 - `promptTranslateDict`, `promptTranslateSentence` — 翻译自定义 prompt
 - `notionKey`, `notionPage`, `githubKey` — 导出集成
+- `generateAllSummary`, `generateAllMindmap`, `generateAllHtml` — 一键生成是否包含对应功能（boolean，默认 true，`!== false` 判断）
+- `generateAllCards`, `generateAllVocab` — 一键生成是否包含卡片/词汇（boolean，默认 false）
 - `mindmapAlignTop` — 导图对齐偏好
 
 **`chrome.storage.local`**（仅本地）：
