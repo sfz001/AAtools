@@ -399,6 +399,19 @@ YTX.cache = {
     }).catch(function () {});
   },
 
+  // 删除某个视频的缓存
+  remove: function (videoId) {
+    return this.open().then(function (db) {
+      return new Promise(function (resolve) {
+        var tx = db.transaction('results', 'readwrite');
+        var store = tx.objectStore('results');
+        store.delete(videoId);
+        tx.oncomplete = function () { resolve(); };
+        tx.onerror = function () { resolve(); };
+      });
+    }).catch(function () {});
+  },
+
   // 加载某个视频的全部缓存
   load: function (videoId) {
     return this.open().then(function (db) {

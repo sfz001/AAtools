@@ -161,6 +161,7 @@
             '<span class="arrow">\u25BC</span>' +
           '</button>' +
           '<span id="ytx-seg-status" style="flex:1;font-size:11px;color:#7c3aed;margin-left:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></span>' +
+          '<button id="ytx-clear-cache" class="ytx-btn ytx-btn-clear-cache" title="清除本视频缓存">清除缓存</button>' +
           '<button id="ytx-use-video-mode" class="ytx-btn ytx-btn-video-mode">使用视频模式</button>' +
         '</div>' +
         '<div id="ytx-transcript-body"></div>' +
@@ -200,6 +201,23 @@
         if (btn) { btn.disabled = false; btn.textContent = '使用视频模式'; }
         var body = panel.querySelector('#ytx-transcript-body');
         if (body) body.innerHTML = '<div class="ytx-error">' + (err.message || '视频模式切换失败') + '</div>';
+      });
+    });
+
+    // 绑定「清除缓存」按钮
+    panel.querySelector('#ytx-clear-cache').addEventListener('click', function () {
+      if (!YTX.currentVideoId) return;
+      var btn = panel.querySelector('#ytx-clear-cache');
+      YTX.cache.remove(YTX.currentVideoId).then(function () {
+        YTX.transcriptData = null;
+        YTX.videoMode = false;
+        var body = panel.querySelector('#ytx-transcript-body');
+        if (body) body.innerHTML = '<div style="padding:8px 12px;font-size:12px;color:#15803d;background:#f0fdf4;border-radius:6px">缓存已清除，下次操作将重新获取字幕</div>';
+        var banner = panel.querySelector('#ytx-video-mode-banner');
+        if (banner) banner.style.display = 'none';
+        var videoBtn = panel.querySelector('#ytx-use-video-mode');
+        if (videoBtn) { videoBtn.style.display = ''; videoBtn.disabled = false; videoBtn.textContent = '使用视频模式'; }
+        if (btn) { btn.textContent = '已清除'; setTimeout(function () { btn.textContent = '清除缓存'; }, 1500); }
       });
     });
 

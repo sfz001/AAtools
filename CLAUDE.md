@@ -10,7 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 2. **全网划词翻译** — 选词即译，字典/句段双模式
 3. **小红书体验增强** — 帖子弹窗滚动修复
 
-支持 Claude / OpenAI / Gemini 三个 API 提供商，无字幕视频可通过 Gemini 视频模式分析。
+支持 Claude / OpenAI / Gemini / MiniMax 四个 API 提供商，无字幕视频可通过 Gemini 视频模式分析。
 
 **技术栈**: 原生 HTML/CSS/JS，零依赖，无构建步骤。
 
@@ -134,9 +134,9 @@ YTX.features.KEY = {
 
 ### `callProvider()` — API 调用核心
 
-`background.js` 中统一处理三家 API 的流式调用：
+`background.js` 中统一处理四家 API 的流式调用：
 
-- **模型验证**: `sanitizeModel(provider, model)` 检查模型前缀（`claude-`/`gpt-`/`gemini-`），不匹配则静默回退到默认模型
+- **模型验证**: `sanitizeModel(provider, model)` 检查模型前缀（`claude-`/`gpt-`/`gemini-`/`minimax-`），不匹配则静默回退到默认模型
 - **SSE 解析**: 统一由 `readSSEStream()` 处理，按 provider 提取文本：
   - Claude: `content_block_delta` → `delta.text`，`message_stop` 结束
   - OpenAI: `choices[0].delta.content`，`[DONE]` 行结束
@@ -185,9 +185,9 @@ YTX.features.KEY = {
 ### 存储结构
 
 **`chrome.storage.sync`**（跨设备同步）：
-- `provider` — `'claude'` | `'openai'` | `'gemini'`
-- `claudeKey`, `openaiKey`, `geminiKey` — 各 provider 的 API Key
-- `claudeModel`, `openaiModel`, `geminiModel` — 各 provider 的模型 ID
+- `provider` — `'claude'` | `'openai'` | `'gemini'` | `'minimax'`
+- `claudeKey`, `openaiKey`, `geminiKey`, `minimaxKey` — 各 provider 的 API Key
+- `claudeModel`, `openaiModel`, `geminiModel`, `minimaxModel` — 各 provider 的模型 ID
 - `prompt`, `promptHtml`, `promptCards`, `promptMindmap`, `promptVocab` — 自定义 prompt（注意 summary 的 key 是 `prompt` 而非 `promptSummary`，向后兼容）
 - `promptTranslateDict`, `promptTranslateSentence` — 翻译自定义 prompt
 - `notionKey`, `notionPage`, `githubKey` — 导出集成

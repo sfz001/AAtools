@@ -691,6 +691,23 @@ html[dark] #ytx-resizer.ytx-resizer-active .ytx-resizer-dot,
   color: #6b7280;
 }
 
+.ytx-btn-clear-cache {
+  padding: 4px 10px;
+  font-size: 11px;
+  background: #fef2f2;
+  color: #dc2626;
+  border: 1px solid #fecaca;
+  border-radius: 14px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s;
+  margin-right: 6px;
+}
+.ytx-btn-clear-cache:hover {
+  background: #fee2e2;
+  border-color: #fca5a5;
+}
+
 .ytx-btn-video-mode {
   margin-right: 12px;
   padding: 4px 10px;
@@ -848,6 +865,15 @@ html[dark] #ytx-resizer.ytx-resizer-active .ytx-resizer-dot,
 }
 [dark] #ytx-video-mode-close {
   color: #c4b5fd;
+}
+[dark] .ytx-btn-clear-cache {
+  background: #2d1517;
+  color: #f87171;
+  border-color: #5c2325;
+}
+[dark] .ytx-btn-clear-cache:hover {
+  background: #3b1c1e;
+  border-color: #dc2626;
 }
 [dark] .ytx-btn-video-mode {
   background: #1e1346;

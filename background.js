@@ -87,8 +87,41 @@ async function scrapeTranscriptFromDOM(videoId) {
     return new Promise(r => setTimeout(r, ms));
   }
 
+  // 解析新版转录面板（PAmodern_transcript_view）中的 segments
+  function parseModernPanel() {
+    const panel = document.querySelector('[target-id="PAmodern_transcript_view"]');
+    if (!panel || panel.getAttribute('visibility') !== 'ENGAGEMENT_PANEL_VISIBILITY_EXPANDED') return null;
+    const segEls = panel.querySelectorAll('transcript-segment-view-model');
+    if (segEls.length === 0) return null;
+    const segments = [];
+    for (const seg of segEls) {
+      const timeEl = seg.querySelector('.ytwTranscriptSegmentViewModelTimestamp');
+      const textEl = seg.querySelector('span.yt-core-attributed-string');
+      const timeStr = timeEl?.textContent?.trim() || '';
+      const text = textEl?.textContent?.trim() || '';
+      if (!text) continue;
+      let startSec = 0;
+      const tm = timeStr.match(/(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+      if (tm) {
+        const h = tm[3] ? parseInt(tm[1]) : 0;
+        const m = tm[3] ? parseInt(tm[2]) : parseInt(tm[1]);
+        const s = tm[3] ? parseInt(tm[3]) : parseInt(tm[2]);
+        startSec = h * 3600 + m * 60 + s;
+      }
+      segments.push({ start: startSec, text });
+    }
+    return segments.length > 0 ? segments : null;
+  }
+
   try {
-    // 检查字幕面板是否已经打开
+    // 优先检测新版面板（可能已经打开）
+    const modernSegments = parseModernPanel();
+    if (modernSegments) {
+      addLog('新版转录面板已打开，段数: ' + modernSegments.length);
+      return { segments: modernSegments };
+    }
+
+    // 检查旧版面板是否已经打开
     let transcriptPanel = document.querySelector('ytd-transcript-renderer');
     let wasAlreadyOpen = !!transcriptPanel;
 
@@ -204,17 +237,26 @@ async function scrapeTranscriptFromDOM(videoId) {
         return { error: '未找到字幕/转录按钮，该视频可能没有字幕\n' + log.join('\n') };
       }
 
-      // 等待字幕面板加载
+      // 等待字幕面板加载（兼容新版和旧版）
+      let foundPanel = false;
       for (let i = 0; i < 20; i++) {
         await sleep(300);
+        // 检查新版面板
+        const modernSegs = parseModernPanel();
+        if (modernSegs) {
+          addLog('新版字幕面板已加载 (等待' + ((i + 1) * 300) + 'ms), 段数: ' + modernSegs.length);
+          return { segments: modernSegs };
+        }
+        // 检查旧版面板
         transcriptPanel = document.querySelector('ytd-transcript-renderer');
         if (transcriptPanel) {
-          addLog('字幕面板已加载 (等待' + ((i + 1) * 300) + 'ms)');
+          addLog('旧版字幕面板已加载 (等待' + ((i + 1) * 300) + 'ms)');
+          foundPanel = true;
           break;
         }
       }
 
-      if (!transcriptPanel) {
+      if (!foundPanel) {
         return { error: '字幕面板加载超时\n' + log.join('\n') };
       }
     } else {

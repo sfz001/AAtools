@@ -7,7 +7,21 @@
       "WebFetch(domain:platform.openai.com)",
       "WebSearch",
       "WebFetch(domain:ai.google.dev)",
-      "WebFetch(domain:www.kommunicate.io)"
+      "WebFetch(domain:www.kommunicate.io)",
+      "Bash(rm:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git remote:*)",
+      "Bash(git push:*)",
+      "Bash(powershell:*)",
+      "Bash(gh release:*)",
+      "Bash(where gh:*)",
+      "Bash(wc:*)",
+      "Bash(grep:*)",
+      "Bash(git status:*)",
+      "Bash(git rm:*)",
+      "Bash(npm update:*)",
+      "Bash(ls:*)"
     ]
   }
 }
