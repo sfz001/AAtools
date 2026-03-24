@@ -75,19 +75,19 @@ async function handleFetchTranscript(videoId, tabId) {
   }
 }
 
-// ── 在页面 MAIN world 中执行：打开字幕面板并抓取 DOM ──────
+// ── 在页面 MAIN world 中执行：获取字幕 ──────────────────
 async function scrapeTranscriptFromDOM(videoId) {
   const log = [];
-  function addLog(msg) {
-    log.push(msg);
-    console.log('[AAtools]', msg);
+  function addLog(msg) { log.push(msg); console.log('[AAtools]', msg); }
+  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+  function parseTime(str) {
+    const m = (str || '').match(/(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+    if (!m) return 0;
+    return (m[3] ? parseInt(m[1]) : 0) * 3600 + (m[3] ? parseInt(m[2]) : parseInt(m[1])) * 60 + parseInt(m[3] || m[2]);
   }
 
-  function sleep(ms) {
-    return new Promise(r => setTimeout(r, ms));
-  }
-
-  // 解析新版转录面板（PAmodern_transcript_view）中的 segments
+  // 解析新版面板 segments
   function parseModernPanel() {
     const panel = document.querySelector('[target-id="PAmodern_transcript_view"]');
     if (!panel) return null;
@@ -97,267 +97,110 @@ async function scrapeTranscriptFromDOM(videoId) {
     for (const seg of segEls) {
       const timeEl = seg.querySelector('.ytwTranscriptSegmentViewModelTimestamp');
       const textEl = seg.querySelector('span.yt-core-attributed-string');
-      const timeStr = timeEl?.textContent?.trim() || '';
       const text = textEl?.textContent?.trim() || '';
-      if (!text) continue;
-      let startSec = 0;
-      const tm = timeStr.match(/(\d{1,2}):(\d{2})(?::(\d{2}))?/);
-      if (tm) {
-        const h = tm[3] ? parseInt(tm[1]) : 0;
-        const m = tm[3] ? parseInt(tm[2]) : parseInt(tm[1]);
-        const s = tm[3] ? parseInt(tm[3]) : parseInt(tm[2]);
-        startSec = h * 3600 + m * 60 + s;
-      }
-      segments.push({ start: startSec, text });
+      if (text) segments.push({ start: parseTime(timeEl?.textContent), text });
+    }
+    return segments.length > 0 ? segments : null;
+  }
+
+  // 解析旧版面板 segments
+  function parseOldPanel() {
+    const panel = document.querySelector('ytd-transcript-renderer');
+    if (!panel) return null;
+    const segEls = panel.querySelectorAll('ytd-transcript-segment-renderer');
+    if (segEls.length === 0) return null;
+    const segments = [];
+    for (const el of segEls) {
+      const timeEl = el.querySelector('.segment-timestamp, [class*="timestamp"]');
+      const textEl = el.querySelector('.segment-text, yt-formatted-string, [class*="text"]');
+      const text = textEl?.textContent?.trim() || el.textContent?.replace(timeEl?.textContent || '', '')?.trim() || '';
+      if (text) segments.push({ start: parseTime(timeEl?.textContent), text });
     }
     return segments.length > 0 ? segments : null;
   }
 
   try {
-    // 优先检测新版面板（可能已经打开）
-    const modernSegments = parseModernPanel();
-    if (modernSegments) {
-      addLog('新版转录面板已打开，段数: ' + modernSegments.length);
-      return { segments: modernSegments };
+    // === 1. 检查已打开的面板 ===
+    const existing = parseModernPanel() || parseOldPanel();
+    if (existing) {
+      addLog('面板已打开，段数: ' + existing.length);
+      return { segments: existing };
     }
 
-    // 检查旧版面板是否已经打开
-    let transcriptPanel = document.querySelector('ytd-transcript-renderer');
-    let wasAlreadyOpen = !!transcriptPanel;
+    // === 2. 点击按钮打开转录面板 ===
+    addLog('字幕面板未打开，尝试打开...');
 
-    if (!transcriptPanel) {
-      addLog('字幕面板未打开，尝试打开...');
-      let opened = false;
+    // 展开描述区
+    const expand = document.querySelector('tp-yt-paper-button#expand') || document.querySelector('#expand');
+    if (expand) { expand.click(); await sleep(600); }
 
-      // === 步骤1: 展开视频描述区 ===
-      const expandSelectors = [
-        'tp-yt-paper-button#expand',
-        '#expand',
-        '#description-inline-expander #expand',
-        'ytd-text-inline-expander #expand',
-      ];
-      for (const sel of expandSelectors) {
-        const btn = document.querySelector(sel);
-        if (btn) {
-          addLog('展开描述区: ' + sel);
-          btn.click();
-          await sleep(600);
-          break;
-        }
-      }
+    // 点击"内容转文字"按钮
+    const section = document.querySelector('ytd-video-description-transcript-section-renderer');
+    if (section) {
+      const btn = section.querySelector('button') || section.querySelector('[role="button"]');
+      if (btn) { addLog('点击转录按钮'); btn.click(); }
+    }
 
-      // === 步骤2: 在描述区找 "显示转录稿" 按钮 ===
-      const transcriptSection = document.querySelector('ytd-video-description-transcript-section-renderer');
-      if (transcriptSection) {
-        const btn = transcriptSection.querySelector('button')
-          || transcriptSection.querySelector('a')
-          || transcriptSection.querySelector('[role="button"]');
-        if (btn) {
-          addLog('找到描述区转录按钮');
-          btn.click();
-          opened = true;
-        }
-      }
-
-      // === 步骤3: 通过 "..." 菜单打开 ===
-      if (!opened) {
-        addLog('尝试通过 "..." 菜单...');
-
-        const moreButtons = document.querySelectorAll(
-          'ytd-watch-metadata ytd-menu-renderer button, ' +
-          'ytd-watch-metadata ytd-menu-renderer yt-button-shape button, ' +
-          '#actions ytd-menu-renderer button, ' +
-          '#menu-container ytd-menu-renderer button'
-        );
-
-        let moreBtn = null;
-        for (const btn of moreButtons) {
-          const label = btn.getAttribute('aria-label') || '';
-          if (label.includes('更多') || label.includes('More') || label.includes('操作')) {
-            moreBtn = btn;
-            break;
-          }
-        }
-        if (!moreBtn && moreButtons.length > 0) {
-          moreBtn = moreButtons[moreButtons.length - 1];
-        }
-
-        if (moreBtn) {
-          addLog('点击 "..." 菜单按钮');
-          moreBtn.click();
-          await sleep(500);
-
-          const menuItems = document.querySelectorAll(
-            'tp-yt-paper-listbox ytd-menu-service-item-renderer, ' +
-            'ytd-menu-popup-renderer ytd-menu-service-item-renderer, ' +
-            'tp-yt-paper-listbox yt-formatted-string, ' +
-            'ytd-menu-popup-renderer yt-formatted-string'
-          );
-
-          addLog('菜单项数量: ' + menuItems.length);
-
-          for (const item of menuItems) {
-            const text = item.textContent?.trim() || '';
-            addLog('菜单项: "' + text + '"');
-            if (text.includes('转录') || text.includes('Transcript') || text.includes('transcript')) {
-              addLog('找到转录菜单项: ' + text);
-              item.click();
-              opened = true;
-              break;
-            }
-          }
-
-          if (!opened) {
-            document.body.click();
-            await sleep(200);
+    // 有 transcript section 说明有字幕，耐心等（最多60秒）
+    const hasSection = !!section;
+    const maxWait = hasSection ? 200 : 20;
+    let lastCount = 0;
+    let stableRounds = 0;
+    for (let i = 0; i < maxWait; i++) {
+      await sleep(300);
+      const segs = parseModernPanel() || parseOldPanel();
+      if (segs) {
+        if (segs.length === lastCount) {
+          stableRounds++;
+          // 数量连续3轮不变（~1秒），认为加载完成
+          if (stableRounds >= 3) {
+            addLog('面板加载完成 (' + ((i + 1) * 300) + 'ms), 段数: ' + segs.length);
+            return { segments: segs };
           }
         } else {
-          addLog('"..." 按钮未找到');
+          lastCount = segs.length;
+          stableRounds = 0;
         }
       }
-
-      // === 步骤4: 暴力搜索 ===
-      if (!opened) {
-        addLog('暴力搜索转录按钮...');
-        const clickables = document.querySelectorAll('button, a, [role="button"], ytd-button-renderer, yt-formatted-string');
-        for (const el of clickables) {
-          const text = el.textContent?.trim() || '';
-          if (text && text.length < 30 &&
-            (text.includes('转录') || text.includes('Transcript') ||
-             text.includes('transcript') || text === '显示转录稿' || text === 'Show transcript')) {
-            addLog('暴力搜索找到: "' + text + '" tag=' + el.tagName);
-            el.click();
-            opened = true;
-            break;
-          }
-        }
-      }
-
-      if (!opened) {
-        return { error: '未找到字幕/转录按钮，该视频可能没有字幕\n' + log.join('\n') };
-      }
-
-      // 等待字幕面板加载（兼容新版和旧版）
-      let foundPanel = false;
-      for (let i = 0; i < 20; i++) {
-        await sleep(300);
-        // 检查新版面板
-        const modernSegs = parseModernPanel();
-        if (modernSegs) {
-          addLog('新版字幕面板已加载 (等待' + ((i + 1) * 300) + 'ms), 段数: ' + modernSegs.length);
-          return { segments: modernSegs };
-        }
-        // 检查旧版面板
-        transcriptPanel = document.querySelector('ytd-transcript-renderer');
-        if (transcriptPanel) {
-          addLog('旧版字幕面板已加载 (等待' + ((i + 1) * 300) + 'ms)');
-          foundPanel = true;
-          break;
-        }
-      }
-
-      if (!foundPanel) {
-        return { error: '字幕面板加载超时\n' + log.join('\n') };
-      }
-    } else {
-      addLog('字幕面板已打开');
     }
 
-    // 等待内容渲染
-    await sleep(500);
-
-    // 从 DOM 中读取字幕段落
-    const segments = [];
-
-    // 优先用 ytd-transcript-segment-renderer，找不到再用 .segment，避免重复匹配
-    let segmentElements = transcriptPanel.querySelectorAll('ytd-transcript-segment-renderer');
-    if (segmentElements.length === 0) {
-      segmentElements = transcriptPanel.querySelectorAll('ytd-transcript-segment-list-renderer .segment');
-    }
-
-    addLog('找到 segment 元素: ' + segmentElements.length);
-
-    if (segmentElements.length === 0) {
-      await sleep(1500);
-      const retryElements = transcriptPanel.querySelectorAll('ytd-transcript-segment-renderer');
-      addLog('重试找到 segment: ' + retryElements.length);
-
-      if (retryElements.length === 0) {
-        const allText = transcriptPanel.innerText;
-        addLog('面板文本长度: ' + allText.length + ' 前200字: ' + allText.substring(0, 200));
-
-        if (allText.length > 50) {
-          const lines = allText.split('\n').filter(l => l.trim());
-          let currentTime = 0;
-          for (const line of lines) {
-            const timeMatch = line.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
-            if (timeMatch) {
-              const h = timeMatch[3] ? parseInt(timeMatch[1]) : 0;
-              const m = timeMatch[3] ? parseInt(timeMatch[2]) : parseInt(timeMatch[1]);
-              const s = timeMatch[3] ? parseInt(timeMatch[3]) : parseInt(timeMatch[2]);
-              currentTime = h * 3600 + m * 60 + s;
-            } else if (line.trim() && currentTime >= 0) {
-              segments.push({ start: currentTime, text: line.trim() });
-              currentTime = -1;
+    // === 3. 按钮没效果，强制展开旧版面板 ===
+    addLog('按钮点击未生效，尝试强制展开旧版面板...');
+    const panels = document.querySelectorAll('ytd-engagement-panel-section-list-renderer');
+    for (const p of panels) {
+      if (p.getAttribute('target-id') === 'engagement-panel-searchable-transcript') {
+        p.setAttribute('visibility', 'ENGAGEMENT_PANEL_VISIBILITY_EXPANDED');
+        addLog('已强制展开 engagement-panel-searchable-transcript');
+        let fLastCount = 0;
+        let fStable = 0;
+        for (let i = 0; i < 200; i++) {
+          await sleep(300);
+          const segs = parseOldPanel();
+          if (segs) {
+            if (segs.length === fLastCount) {
+              fStable++;
+              if (fStable >= 3) {
+                addLog('强制展开成功，段数: ' + segs.length + ' (' + ((i + 1) * 300) + 'ms)');
+                p.setAttribute('visibility', 'ENGAGEMENT_PANEL_VISIBILITY_HIDDEN');
+                return { segments: segs };
+              }
+            } else {
+              fLastCount = segs.length;
+              fStable = 0;
             }
           }
-          addLog('纯文本解析段数: ' + segments.length);
         }
-      } else {
-        for (const el of retryElements) {
-          parseSegmentElement(el, segments);
-        }
-      }
-    } else {
-      for (const el of segmentElements) {
-        parseSegmentElement(el, segments);
+        p.setAttribute('visibility', 'ENGAGEMENT_PANEL_VISIBILITY_HIDDEN');
+        break;
       }
     }
 
-    function parseSegmentElement(el, segments) {
-      const timeEl = el.querySelector('.segment-timestamp, [class*="timestamp"]');
-      const textEl = el.querySelector('.segment-text, yt-formatted-string, [class*="text"]');
-      const timeStr = timeEl?.textContent?.trim() || '';
-      const text = textEl?.textContent?.trim() || el.textContent?.replace(timeStr, '')?.trim() || '';
-
-      if (text) {
-        let startSec = 0;
-        const tm = timeStr.match(/(\d{1,2}):(\d{2})(?::(\d{2}))?/);
-        if (tm) {
-          const h = tm[3] ? parseInt(tm[1]) : 0;
-          const m = tm[3] ? parseInt(tm[2]) : parseInt(tm[1]);
-          const s = tm[3] ? parseInt(tm[3]) : parseInt(tm[2]);
-          startSec = h * 3600 + m * 60 + s;
-        }
-        segments.push({ start: startSec, text });
-      }
-    }
-
-    addLog('最终段数: ' + segments.length);
-
-    // 如果面板是我们打开的，关闭它
-    if (!wasAlreadyOpen) {
-      const closeBtn = transcriptPanel.querySelector('button[aria-label="关闭"]')
-        || transcriptPanel.closest('ytd-engagement-panel-section-list-renderer')?.querySelector('button[aria-label="Close"]')
-        || transcriptPanel.closest('ytd-engagement-panel-section-list-renderer')?.querySelector('#visibility-button button');
-      if (closeBtn) {
-        closeBtn.click();
-        addLog('已关闭字幕面板');
-      }
-    }
-
-    if (segments.length === 0) {
-      return { error: '无法从字幕面板读取内容\n' + log.join('\n') };
-    }
-
-    return { segments };
-
+    return { error: '字幕面板加载超时\n' + log.join('\n') };
   } catch (e) {
     addLog('异常: ' + e.message);
     return { error: '获取字幕异常: ' + e.message + '\n' + log.join('\n') };
   }
 }
-
 // ── 安全发送消息（忽略 tab 不存在的错误）─────────────────
 function safeSend(tabId, msg) {
   try {

@@ -100,6 +100,9 @@ YTX.fetchTranscript = async function () {
   if (result.error) throw new Error(result.error);
   if (!result.segments || result.segments.length === 0) throw new Error('字幕内容为空');
 
+  // 获取字幕后滚动到页面顶部
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+
   var segments = result.segments;
   var full = segments.map(function (s) { return '[' + YTX.fmtTime(s.start) + '] ' + s.text; }).join('\n');
   var wasTruncated = full.length > YTX.TRANSCRIPT_MAX_CHARS;
