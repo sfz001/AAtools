@@ -63,7 +63,28 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 // ── 字幕获取 ────────────────────────────────────────────
+// 优先尝试快速路径（player API + timedtext fetch，~300ms）
+// 失败回退到 DOM 抓取（点 transcript 按钮，6-30s）
 async function handleFetchTranscript(videoId, tabId) {
+  try {
+    const fastResults = await chrome.scripting.executeScript({
+      target: { tabId },
+      world: 'MAIN',
+      func: fastScrapeTranscriptViaPlayerAPI,
+      args: [videoId],
+    });
+    const fast = fastResults?.[0]?.result;
+    if (fast && fast.segments?.length > 0) {
+      console.log('[AAtools] 快速字幕获取成功，段数:', fast.segments.length);
+      return { segments: fast.segments };
+    }
+    if (fast && fast.error) {
+      console.log('[AAtools] 快速路径失败，回退 DOM 抓取:', fast.error);
+    }
+  } catch (err) {
+    console.log('[AAtools] 快速路径异常，回退 DOM 抓取:', err.message);
+  }
+
   try {
     const results = await chrome.scripting.executeScript({
       target: { tabId },
@@ -79,6 +100,100 @@ async function handleFetchTranscript(videoId, tabId) {
     return { error: '字幕内容为空' };
   } catch (err) {
     return { error: `获取字幕失败: ${err.message}` };
+  }
+}
+
+// ── 快速路径：通过 player API 触发 timedtext 请求并 fetch JSON3 ──
+// 在页面 MAIN world 执行（player API 只在 MAIN world 可见）
+async function fastScrapeTranscriptViaPlayerAPI(videoId) {
+  const _t0 = performance.now();
+  console.log('[AAtools] 快速路径开始 videoId=' + videoId);
+  try {
+    const player = document.querySelector('#movie_player');
+    if (!player || typeof player.getPlayerResponse !== 'function') {
+      console.log('[AAtools] 快速路径失败: player 未就绪');
+      return { error: 'player 未就绪' };
+    }
+    // 校验 player 当前视频与请求的 videoId 一致（避免 SPA 切视频后拿到旧视频字幕）
+    const pr = player.getPlayerResponse();
+    const playerVid = pr && pr.videoDetails && pr.videoDetails.videoId;
+    if (playerVid && videoId && playerVid !== videoId) {
+      return { error: 'player videoId 不匹配（可能视频未切换完成）' };
+    }
+    const tracks = pr && pr.captions && pr.captions.playerCaptionsTracklistRenderer && pr.captions.playerCaptionsTracklistRenderer.captionTracks;
+    if (!tracks || !tracks.length) {
+      return { error: '该视频没有字幕轨道' };
+    }
+
+    // 1. 优先看 performance entries 里有没有 player 之前发过的带 pot 的 timedtext URL
+    function findPotUrl() {
+      const entries = performance.getEntriesByType('resource').filter(
+        r => r.name.includes('/api/timedtext') && r.name.includes('pot=') && r.name.includes('v=' + videoId)
+      );
+      return entries.length ? entries[entries.length - 1].name : null;
+    }
+
+    let potUrl = findPotUrl();
+    let modifiedCaptions = false;
+
+    // 2. 没有则触发 player 加载 captions 模块（会自动发 timedtext 请求带 pot）
+    if (!potUrl) {
+      // 记录原始字幕开关状态以便恢复
+      let originalTrack = null;
+      try { originalTrack = player.getOption('captions', 'track'); } catch (e) {}
+      const wasCaptionsOff = !originalTrack || !originalTrack.languageCode;
+
+      try { player.loadModule('captions'); } catch (e) {}
+      // 优先选择非翻译的真实字幕轨（kind 为空通常是人工/asr 字幕，'asr' 也可）
+      const track = tracks.find(t => !t.kind || t.kind === 'asr') || tracks[0];
+      try {
+        player.setOption('captions', 'track', { languageCode: track.languageCode });
+        modifiedCaptions = true;
+      } catch (e) {}
+
+      // 轮询等待 timedtext 请求出现，最多 5s
+      const deadline = Date.now() + 5000;
+      while (Date.now() < deadline) {
+        await new Promise(r => setTimeout(r, 80));
+        potUrl = findPotUrl();
+        if (potUrl) break;
+      }
+
+      // 恢复原始字幕状态：用户原本没开就关掉，避免污染观看体验
+      if (modifiedCaptions && wasCaptionsOff) {
+        try { player.setOption('captions', 'track', {}); } catch (e) {}
+        try { player.unloadModule('captions'); } catch (e) {}
+      }
+    }
+
+    if (!potUrl) {
+      return { error: '触发后仍未捕获到 pot 字幕请求' };
+    }
+
+    // 3. fetch URL（确保 fmt=json3 拿 JSON 格式）
+    const url = potUrl.includes('fmt=json3') ? potUrl : potUrl + '&fmt=json3';
+    const res = await fetch(url);
+    if (!res.ok) return { error: 'timedtext HTTP ' + res.status };
+    const data = await res.json();
+
+    // 4. 解析 events → segments
+    const segments = (data.events || [])
+      .filter(e => e.segs && e.segs.length)
+      .map(e => ({
+        start: Math.round((e.tStartMs || 0) / 1000),
+        text: e.segs.map(s => s.utf8 || '').join('').replace(/\n+/g, ' ').trim(),
+      }))
+      .filter(s => s.text);
+
+    if (!segments.length) {
+      console.log('[AAtools] 快速路径失败: 解析后字幕为空');
+      return { error: '解析后字幕为空' };
+    }
+    console.log('[AAtools] 快速路径成功 段数=' + segments.length + ' 耗时=' + Math.round(performance.now() - _t0) + 'ms');
+    return { segments };
+  } catch (err) {
+    console.log('[AAtools] 快速路径异常:', err && err.message);
+    return { error: '快速路径异常: ' + (err && err.message ? err.message : String(err)) };
   }
 }
 
