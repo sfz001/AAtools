@@ -132,7 +132,7 @@ const PROVIDERS = {
     models: [
       { value: 'claude-sonnet-4-6', label: 'Sonnet 4.6 — 推荐' },
       { value: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5 — 更快' },
-      { value: 'claude-opus-4-6', label: 'Opus 4.6 — 最强' },
+      { value: 'claude-opus-4-7', label: 'Opus 4.7 — 最强' },
     ]
   },
   openai: {
@@ -141,9 +141,9 @@ const PROVIDERS = {
     placeholder: 'sk-...',
     helpUrl: 'https://platform.openai.com/api-keys',
     models: [
-      { value: 'gpt-5-mini', label: 'GPT-5 mini — 推荐' },
-      { value: 'gpt-5-nano', label: 'GPT-5 nano — 更快' },
-      { value: 'gpt-5.2', label: 'GPT-5.2 — 最强' },
+      { value: 'gpt-5.4-mini', label: 'GPT-5.4 mini — 推荐' },
+      { value: 'gpt-5.4-nano', label: 'GPT-5.4 nano — 更快' },
+      { value: 'gpt-5.5', label: 'GPT-5.5 — 最强' },
     ]
   },
   gemini: {
@@ -169,6 +169,54 @@ const PROVIDERS = {
       { value: 'MiniMax-M2.1', label: 'MiniMax-M2.1' },
       { value: 'MiniMax-M2', label: 'MiniMax-M2' },
     ]
+  },
+  sub2api: {
+    label: 'Sub2API #1 API Key',
+    keyField: 'sub2apiKey',
+    placeholder: 'sk-...',
+    helpUrl: 'https://github.com/Wei-Shaw/sub2api',
+    models: [
+      { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6（走 /v1/messages）' },
+      { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5（走 /v1/messages）' },
+      { value: 'claude-opus-4-7', label: 'Claude Opus 4.7（走 /v1/messages）' },
+      { value: 'gpt-5.4-mini', label: 'GPT-5.4 mini（走 /v1/responses）' },
+      { value: 'gpt-5.4', label: 'GPT-5.4（走 /v1/responses）' },
+      { value: 'gpt-5.5', label: 'GPT-5.5（走 /v1/responses）' },
+      { value: 'gemini-3-flash-preview', label: 'Gemini 3 Flash（走 /v1beta/...）' },
+      { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash（走 /v1beta/...）' },
+    ]
+  },
+  sub2api2: {
+    label: 'Sub2API #2 API Key',
+    keyField: 'sub2api2Key',
+    placeholder: 'sk-...',
+    helpUrl: 'https://github.com/Wei-Shaw/sub2api',
+    models: [
+      { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6（走 /v1/messages）' },
+      { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5（走 /v1/messages）' },
+      { value: 'claude-opus-4-7', label: 'Claude Opus 4.7（走 /v1/messages）' },
+      { value: 'gpt-5.4-mini', label: 'GPT-5.4 mini（走 /v1/responses）' },
+      { value: 'gpt-5.4', label: 'GPT-5.4（走 /v1/responses）' },
+      { value: 'gpt-5.5', label: 'GPT-5.5（走 /v1/responses）' },
+      { value: 'gemini-3-flash-preview', label: 'Gemini 3 Flash（走 /v1beta/...）' },
+      { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash（走 /v1beta/...）' },
+    ]
+  },
+  sub2api3: {
+    label: 'Sub2API #3 API Key',
+    keyField: 'sub2api3Key',
+    placeholder: 'sk-...',
+    helpUrl: 'https://github.com/Wei-Shaw/sub2api',
+    models: [
+      { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6（走 /v1/messages）' },
+      { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5（走 /v1/messages）' },
+      { value: 'claude-opus-4-7', label: 'Claude Opus 4.7（走 /v1/messages）' },
+      { value: 'gpt-5.4-mini', label: 'GPT-5.4 mini（走 /v1/responses）' },
+      { value: 'gpt-5.4', label: 'GPT-5.4（走 /v1/responses）' },
+      { value: 'gpt-5.5', label: 'GPT-5.5（走 /v1/responses）' },
+      { value: 'gemini-3-flash-preview', label: 'Gemini 3 Flash（走 /v1beta/...）' },
+      { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash（走 /v1beta/...）' },
+    ]
   }
 };
 
@@ -176,8 +224,11 @@ const $ = (sel) => document.querySelector(sel);
 
 let currentProvider = 'claude';
 let currentPromptTab = 'summary';
-let keyCache = { claudeKey: '', openaiKey: '', geminiKey: '', minimaxKey: '' };
-let modelCache = { claude: '', openai: '', gemini: '', minimax: '' };
+let keyCache = { claudeKey: '', openaiKey: '', geminiKey: '', minimaxKey: '', sub2apiKey: '', sub2api2Key: '', sub2api3Key: '' };
+let modelCache = { claude: '', openai: '', gemini: '', minimax: '', sub2api: '', sub2api2: '', sub2api3: '' };
+let sub2apiBaseUrl = '';
+let sub2api2BaseUrl = '';
+let sub2api3BaseUrl = '';
 // 各功能 prompt 缓存，切换 tab 时不丢失未保存的编辑
 let promptCache = {};
 
@@ -187,8 +238,9 @@ document.addEventListener('DOMContentLoaded', () => {
   chrome.storage.sync.remove(['notionKey', 'notionPage', 'githubKey']);
 
   const STORAGE_KEYS = [
-    'provider', 'claudeKey', 'openaiKey', 'geminiKey', 'minimaxKey',
-    'claudeModel', 'openaiModel', 'geminiModel', 'minimaxModel', 'model',
+    'provider', 'claudeKey', 'openaiKey', 'geminiKey', 'minimaxKey', 'sub2apiKey', 'sub2api2Key', 'sub2api3Key',
+    'claudeModel', 'openaiModel', 'geminiModel', 'minimaxModel', 'sub2apiModel', 'sub2api2Model', 'sub2api3Model',
+    'sub2apiBaseUrl', 'sub2api2BaseUrl', 'sub2api3BaseUrl', 'model',
     'generateAllSummary', 'generateAllMindmap', 'generateAllHtml', 'generateAllCards', 'generateAllVocab',
     'enableGestures',
     ...ALL_PROMPT_KEYS,
@@ -206,11 +258,23 @@ document.addEventListener('DOMContentLoaded', () => {
       keyCache.openaiKey = data.openaiKey || '';
       keyCache.geminiKey = data.geminiKey || '';
       keyCache.minimaxKey = data.minimaxKey || '';
+      keyCache.sub2apiKey = data.sub2apiKey || '';
+      keyCache.sub2api2Key = data.sub2api2Key || '';
+      keyCache.sub2api3Key = data.sub2api3Key || '';
 
       modelCache.claude = data.claudeModel || '';
       modelCache.openai = data.openaiModel || '';
       modelCache.gemini = data.geminiModel || '';
       modelCache.minimax = data.minimaxModel || '';
+      modelCache.sub2api = data.sub2apiModel || '';
+      modelCache.sub2api2 = data.sub2api2Model || '';
+      modelCache.sub2api3 = data.sub2api3Model || '';
+      sub2apiBaseUrl = data.sub2apiBaseUrl || '';
+      sub2api2BaseUrl = data.sub2api2BaseUrl || '';
+      sub2api3BaseUrl = data.sub2api3BaseUrl || '';
+      $('#sub2apiBaseUrl').value = sub2apiBaseUrl;
+      $('#sub2api2BaseUrl').value = sub2api2BaseUrl;
+      $('#sub2api3BaseUrl').value = sub2api3BaseUrl;
 
       currentProvider = data.provider || 'claude';
       if (!modelCache[currentProvider] && data.model) {
@@ -279,8 +343,9 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#fetchModelsBtn').addEventListener('click', handleFetchModels);
 
   const SETTING_KEYS = [
-    'provider', 'claudeKey', 'openaiKey', 'geminiKey', 'minimaxKey',
-    'claudeModel', 'openaiModel', 'geminiModel', 'minimaxModel', 'model',
+    'provider', 'claudeKey', 'openaiKey', 'geminiKey', 'minimaxKey', 'sub2apiKey', 'sub2api2Key', 'sub2api3Key',
+    'claudeModel', 'openaiModel', 'geminiModel', 'minimaxModel', 'sub2apiModel', 'sub2api2Model', 'sub2api3Model',
+    'sub2apiBaseUrl', 'sub2api2BaseUrl', 'sub2api3BaseUrl', 'model',
     'generateAllSummary', 'generateAllMindmap', 'generateAllHtml', 'generateAllCards', 'generateAllVocab',
     'enableGestures',
     'mindmapAlignTop',
@@ -364,6 +429,11 @@ function switchProvider(id) {
   $('#currentKey').value = keyCache[cfg.keyField] || '';
   $('#currentKey').type = 'password';
   $('#helpLink').href = cfg.helpUrl;
+
+  // sub2api 专属 base URL 字段，每个 sub2api 实例独立显示
+  $('#sub2apiBaseUrlField').style.display = (id === 'sub2api') ? '' : 'none';
+  $('#sub2api2BaseUrlField').style.display = (id === 'sub2api2') ? '' : 'none';
+  $('#sub2api3BaseUrlField').style.display = (id === 'sub2api3') ? '' : 'none';
 
   // 优先用拉取过的模型列表，否则用预设
   const models = fetchedModelsCache[id] || cfg.models;
@@ -476,10 +546,19 @@ function saveSettings(isManual) {
     openaiKey: keyCache.openaiKey,
     geminiKey: keyCache.geminiKey,
     minimaxKey: keyCache.minimaxKey,
+    sub2apiKey: keyCache.sub2apiKey,
+    sub2api2Key: keyCache.sub2api2Key,
+    sub2api3Key: keyCache.sub2api3Key,
     claudeModel: modelCache.claude,
     openaiModel: modelCache.openai,
     geminiModel: modelCache.gemini,
     minimaxModel: modelCache.minimax,
+    sub2apiModel: modelCache.sub2api,
+    sub2api2Model: modelCache.sub2api2,
+    sub2api3Model: modelCache.sub2api3,
+    sub2apiBaseUrl: $('#sub2apiBaseUrl').value.trim(),
+    sub2api2BaseUrl: $('#sub2api2BaseUrl').value.trim(),
+    sub2api3BaseUrl: $('#sub2api3BaseUrl').value.trim(),
     model: $('#model').value,
     generateAllSummary: $('#generateAllSummary').checked,
     generateAllMindmap: $('#generateAllMindmap').checked,

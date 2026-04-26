@@ -30,7 +30,34 @@
           <option value="openai">OpenAI</option>
           <option value="gemini">Gemini</option>
           <option value="minimax">MiniMax</option>
+          <option value="sub2api">Sub2API #1（claude）</option>
+          <option value="sub2api2">Sub2API #2（openai）</option>
+          <option value="sub2api3">Sub2API #3（gemini）</option>
         </select>
+      </div>
+
+      <div class="field" id="sub2apiBaseUrlField" style="display:none">
+        <label for="sub2apiBaseUrl">
+          <span>Sub2API #1 Base URL</span>
+        </label>
+        <input type="text" id="sub2apiBaseUrl" placeholder="https://your-sub2api.example.com">
+        <div class="hint">中转网关地址（不含 <code>/v1/messages</code>）。模型按前缀自动选格式：<code>claude-*</code> 走 Anthropic，<code>gemini-*</code> 走 Gemini，<code>gpt-*</code> 走 OpenAI</div>
+      </div>
+
+      <div class="field" id="sub2api2BaseUrlField" style="display:none">
+        <label for="sub2api2BaseUrl">
+          <span>Sub2API #2 Base URL</span>
+        </label>
+        <input type="text" id="sub2api2BaseUrl" placeholder="https://your-second-sub2api.example.com">
+        <div class="hint">第二个 Sub2API 中转网关地址（独立 Key/Model/URL）</div>
+      </div>
+
+      <div class="field" id="sub2api3BaseUrlField" style="display:none">
+        <label for="sub2api3BaseUrl">
+          <span>Sub2API #3 Base URL</span>
+        </label>
+        <input type="text" id="sub2api3BaseUrl" placeholder="https://your-third-sub2api.example.com">
+        <div class="hint">第三个 Sub2API 中转网关地址（独立 Key/Model/URL）</div>
       </div>
 
       <div class="field">

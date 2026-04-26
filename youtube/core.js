@@ -82,11 +82,11 @@ YTX.createDeferred = function () {
 YTX.getSettings = function () {
   return new Promise(function (resolve) {
     chrome.storage.sync.get(
-      ['provider', 'claudeModel', 'openaiModel', 'geminiModel', 'minimaxModel', 'model',
+      ['provider', 'claudeModel', 'openaiModel', 'geminiModel', 'minimaxModel', 'sub2apiModel', 'sub2api2Model', 'sub2api3Model', 'model',
        'prompt', 'promptHtml', 'promptCards', 'promptMindmap', 'promptVocab'],
       function (data) {
         var provider = data.provider || 'claude';
-        var MODEL_MAP = { claude: 'claudeModel', openai: 'openaiModel', gemini: 'geminiModel', minimax: 'minimaxModel' };
+        var MODEL_MAP = { claude: 'claudeModel', openai: 'openaiModel', gemini: 'geminiModel', minimax: 'minimaxModel', sub2api: 'sub2apiModel', sub2api2: 'sub2api2Model', sub2api3: 'sub2api3Model' };
         resolve({
           provider: provider,
           model: data[MODEL_MAP[provider]] || '',

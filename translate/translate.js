@@ -134,9 +134,9 @@
       return;
     }
     try {
-      chrome.storage.sync.get(['provider', 'claudeModel', 'openaiModel', 'geminiModel', 'minimaxModel', 'promptTranslateDict', 'promptTranslateSentence'], function (s) {
+      chrome.storage.sync.get(['provider', 'claudeModel', 'openaiModel', 'geminiModel', 'minimaxModel', 'sub2apiModel', 'sub2api2Model', 'sub2api3Model', 'promptTranslateDict', 'promptTranslateSentence'], function (s) {
         var provider = s.provider || 'claude';
-        var modelMap = { claude: s.claudeModel, openai: s.openaiModel, gemini: s.geminiModel, minimax: s.minimaxModel };
+        var modelMap = { claude: s.claudeModel, openai: s.openaiModel, gemini: s.geminiModel, minimax: s.minimaxModel, sub2api: s.sub2apiModel, sub2api2: s.sub2api2Model, sub2api3: s.sub2api3Model };
         callback({
           provider: provider,
           model: modelMap[provider] || '',
@@ -574,7 +574,7 @@
   function updateFooter(provider, model) {
     var el = popup && popup.querySelector('.ytx-translate-footer-text');
     if (!el) return;
-    var name = { claude: 'Claude', openai: 'OpenAI', gemini: 'Gemini', minimax: 'MiniMax' }[provider] || provider;
+    var name = { claude: 'Claude', openai: 'OpenAI', gemini: 'Gemini', minimax: 'MiniMax', sub2api: 'Sub2API #1', sub2api2: 'Sub2API #2', sub2api3: 'Sub2API #3' }[provider] || provider;
     el.textContent = 'Powered by ' + name + (model ? ' ' + model : '');
   }
 
