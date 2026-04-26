@@ -1,15 +1,6 @@
-// src/export.js — 导出模块：Markdown 下载 + Notion 导出
+// youtube/export.js — 导出模块：Markdown 下载 + Obsidian 导出
 
 YTX.Export = {
-
-  // ── 读取 Notion 设置 ─────────────────────────────────
-  getNotionSettings: function () {
-    return new Promise(function (resolve) {
-      chrome.storage.sync.get(['notionKey', 'notionPage'], function (data) {
-        resolve({ token: data.notionKey || '', pageId: data.notionPage || '' });
-      });
-    });
-  },
 
   // ── 视频标题 ─────────────────────────────────────────
   getVideoTitle: function () {
@@ -103,321 +94,6 @@ YTX.Export = {
     return line;
   },
 
-  // ── HTML → Notion blocks ──────────────────────────────
-  htmlToNotionBlocks: function (html) {
-    var parser = new DOMParser();
-    var doc = parser.parseFromString(html, 'text/html');
-    var body = doc.body;
-    if (!body) return [];
-
-    var blocks = [];
-
-    function parseRichText(node) {
-      var result = [];
-      if (!node) return result;
-      node.childNodes.forEach(function (child) {
-        if (child.nodeType === 3) {
-          var text = child.textContent;
-          if (text) result.push({ type: 'text', text: { content: text } });
-        } else if (child.nodeType === 1) {
-          var tag = child.tagName.toLowerCase();
-          var content = child.textContent || '';
-          if (!content) return;
-          var annotations = {};
-          if (tag === 'strong' || tag === 'b') annotations.bold = true;
-          if (tag === 'em' || tag === 'i') annotations.italic = true;
-          if (tag === 'code') annotations.code = true;
-          if (tag === 'a') {
-            result.push({
-              type: 'text',
-              text: { content: content, link: { url: child.getAttribute('href') || '' } },
-              annotations: annotations
-            });
-            return;
-          }
-          // For nested formatting, recurse
-          if (tag === 'strong' || tag === 'b' || tag === 'em' || tag === 'i' || tag === 'code') {
-            var inner = parseRichText(child);
-            inner.forEach(function (rt) {
-              rt.annotations = Object.assign({}, rt.annotations || {}, annotations);
-            });
-            result = result.concat(inner);
-            return;
-          }
-          result.push({ type: 'text', text: { content: content } });
-        }
-      });
-      return result;
-    }
-
-    function parseListItems(ul, type, depth) {
-      depth = depth || 0;
-      var items = [];
-      Array.from(ul.children).forEach(function (li) {
-        if (li.tagName !== 'LI') return;
-        var richText = [];
-        var nestedBlocks = [];
-        li.childNodes.forEach(function (child) {
-          if (child.nodeType === 3) {
-            var t = child.textContent;
-            if (t.trim()) richText.push({ type: 'text', text: { content: t } });
-          } else if (child.nodeType === 1) {
-            var ct = child.tagName.toLowerCase();
-            if (ct === 'ul' || ct === 'ol') {
-              var childType = ct === 'ol' ? 'numbered_list_item' : 'bulleted_list_item';
-              if (depth < 1) {
-                // Notion 最多 2 层嵌套，depth 0→1 可以嵌套
-                nestedBlocks = nestedBlocks.concat(parseListItems(child, childType, depth + 1));
-              } else {
-                // 超过 2 层：展平，用缩进前缀 "└ " 表示层级
-                var flat = parseListItems(child, childType, depth + 1);
-                flat.forEach(function (fb) {
-                  var prefix = '└ ';
-                  var rt = fb[fb.type].rich_text;
-                  if (rt.length > 0) rt[0].text.content = prefix + rt[0].text.content;
-                  else rt.push({ type: 'text', text: { content: prefix } });
-                  nestedBlocks.push(fb);
-                });
-              }
-            } else {
-              richText = richText.concat(parseRichText(child));
-            }
-          }
-        });
-        if (richText.length === 0) richText.push({ type: 'text', text: { content: ' ' } });
-        var block = { type: type };
-        block[type] = { rich_text: richText };
-        if (nestedBlocks.length > 0 && depth < 1) {
-          block[type].children = nestedBlocks;
-        } else if (nestedBlocks.length > 0) {
-          // depth >= 1: 不能再嵌套，追加为同级
-          items.push(block);
-          items = items.concat(nestedBlocks);
-          return;
-        }
-        items.push(block);
-      });
-      return items;
-    }
-
-    function walkElements(parent) {
-      Array.from(parent.children).forEach(function (el) {
-        var tag = el.tagName.toLowerCase();
-
-        if (/^h([1-6])$/.test(tag)) {
-          var level = parseInt(RegExp.$1, 10);
-          var hType = level <= 1 ? 'heading_1' : level <= 2 ? 'heading_2' : 'heading_3';
-          var rt = parseRichText(el);
-          if (rt.length === 0) rt.push({ type: 'text', text: { content: el.textContent || '' } });
-          var block = { type: hType };
-          block[hType] = { rich_text: rt };
-          blocks.push(block);
-          return;
-        }
-
-        if (tag === 'p') {
-          var rt = parseRichText(el);
-          if (rt.length === 0 && !el.textContent.trim()) return;
-          if (rt.length === 0) rt.push({ type: 'text', text: { content: el.textContent || '' } });
-          blocks.push({ type: 'paragraph', paragraph: { rich_text: rt } });
-          return;
-        }
-
-        if (tag === 'ul' || tag === 'ol') {
-          var type = tag === 'ol' ? 'numbered_list_item' : 'bulleted_list_item';
-          blocks = blocks.concat(parseListItems(el, type));
-          return;
-        }
-
-        if (tag === 'hr') {
-          blocks.push({ type: 'divider', divider: {} });
-          return;
-        }
-
-        if (tag === 'blockquote') {
-          var rt = parseRichText(el);
-          if (rt.length === 0) rt.push({ type: 'text', text: { content: el.textContent || '' } });
-          blocks.push({ type: 'quote', quote: { rich_text: rt } });
-          return;
-        }
-
-        // div/section/article → recurse
-        if (tag === 'div' || tag === 'section' || tag === 'article' || tag === 'main' || tag === 'header' || tag === 'footer') {
-          walkElements(el);
-          return;
-        }
-
-        // fallback: treat as paragraph if has text
-        if (el.textContent && el.textContent.trim()) {
-          blocks.push({ type: 'paragraph', paragraph: { rich_text: [{ type: 'text', text: { content: el.textContent } }] } });
-        }
-      });
-    }
-
-    walkElements(body);
-    return blocks;
-  },
-
-  // ── 导图 JSON → Notion blocks ─────────────────────────
-  mindmapToNotionBlocks: function (node) {
-    var blocks = [];
-
-    // 根节点 → heading_2
-    blocks.push({
-      type: 'heading_2',
-      heading_2: {
-        rich_text: [{ type: 'text', text: { content: node.label || '' } }]
-      }
-    });
-
-    function buildChildren(children, depth) {
-      depth = depth || 0;
-      var items = [];
-      if (!children) return items;
-      children.forEach(function (child) {
-        var label = child.label || '';
-        if (child.time) label += ' [' + child.time + ']';
-        var block = {
-          type: 'bulleted_list_item',
-          bulleted_list_item: {
-            rich_text: [{ type: 'text', text: { content: label } }]
-          }
-        };
-        if (child.children && child.children.length > 0) {
-          if (depth < 1) {
-            // Notion 最多 2 层嵌套
-            block.bulleted_list_item.children = buildChildren(child.children, depth + 1);
-          } else {
-            // 超过 2 层：展平为同级，加前缀标识层级
-            items.push(block);
-            var flat = buildChildren(child.children, depth + 1);
-            flat.forEach(function (fb) {
-              fb.bulleted_list_item.rich_text[0].text.content = '└ ' + fb.bulleted_list_item.rich_text[0].text.content;
-            });
-            items = items.concat(flat);
-            return;
-          }
-        }
-        items.push(block);
-      });
-      return items;
-    }
-
-    if (node.children && node.children.length > 0) {
-      blocks = blocks.concat(buildChildren(node.children));
-    }
-
-    return blocks;
-  },
-
-  // ── 文本 → Notion code block（自动分片，每片 ≤ 2000 字符）──
-  makeCodeBlock: function (text, language) {
-    var richText = [];
-    for (var i = 0; i < text.length; i += 2000) {
-      richText.push({ type: 'text', text: { content: text.slice(i, i + 2000) } });
-    }
-    return { type: 'code', code: { rich_text: richText, language: language || 'plain text' } };
-  },
-
-  // ── 发送到 Notion ─────────────────────────────────────
-  sendToNotion: function (title, blocks, callback) {
-    YTX.Export.getNotionSettings().then(function (settings) {
-      if (!settings.token) {
-        callback({ error: '请先在扩展设置中配置 Notion Integration Token' });
-        return;
-      }
-      if (!settings.pageId) {
-        callback({ error: '请先在扩展设置中配置 Notion 父级页面' });
-        return;
-      }
-      // 在最前面插入视频链接
-      var videoUrl = YTX.getVideoUrl();
-      var linkBlock = {
-        type: 'paragraph',
-        paragraph: {
-          rich_text: [
-            { type: 'text', text: { content: '视频链接：' } },
-            { type: 'text', text: { content: videoUrl, link: { url: videoUrl } } }
-          ]
-        }
-      };
-      YTX.sendToBg({
-        type: 'EXPORT_NOTION',
-        token: settings.token,
-        pageId: settings.pageId,
-        title: title,
-        blocks: [linkBlock].concat(blocks)
-      }).then(function (resp) {
-        callback(resp);
-      }).catch(function (err) {
-        callback({ error: err.message });
-      });
-    });
-  },
-
-  // ── 按钮状态闪烁 ─────────────────────────────────────
-  flashButton: function (btn, text, ms) {
-    var original = btn.textContent;
-    btn.textContent = text;
-    btn.disabled = true;
-    setTimeout(function () {
-      btn.textContent = original;
-      btn.disabled = false;
-    }, ms || 1500);
-  },
-
-  // ── GitHub Gist ────────────────────────────────────────
-
-  getGithubToken: function () {
-    return new Promise(function (resolve) {
-      chrome.storage.sync.get(['githubKey'], function (data) {
-        resolve(data.githubKey || '');
-      });
-    });
-  },
-
-  uploadGist: function (filename, content, description) {
-    return YTX.Export.getGithubToken().then(function (token) {
-      if (!token) return null;
-      return YTX.sendToBg({
-        type: 'UPLOAD_GIST',
-        token: token,
-        filename: filename,
-        content: content,
-        description: description || 'AAtools export'
-      }).then(function (resp) {
-        if (resp.error) {
-          console.warn('[AAtools] Gist 上传失败:', resp.error);
-          return null;
-        }
-        return resp;
-      }).catch(function (err) {
-        console.warn('[AAtools] Gist 上传异常:', err);
-        return null;
-      });
-    });
-  },
-
-  sendToNotionWithGist: function (title, blocks, filename, content, fileLabel, callback) {
-    YTX.Export.uploadGist(filename, content, 'AAtools: ' + title).then(function (gist) {
-      if (gist && gist.rawUrl) {
-        // gist.githubusercontent.com 强制 text/plain，替换为 gist.githack.com 以正确 Content-Type 渲染
-        var viewUrl = gist.rawUrl.replace('gist.githubusercontent.com', 'gist.githack.com');
-        var gistBlock = {
-          type: 'paragraph',
-          paragraph: {
-            rich_text: [
-              { type: 'text', text: { content: fileLabel + '：' } },
-              { type: 'text', text: { content: viewUrl, link: { url: viewUrl } } }
-            ]
-          }
-        };
-        blocks = [gistBlock].concat(blocks);
-      }
-      YTX.Export.sendToNotion(title, blocks, callback);
-    });
-  },
-
   // ── Obsidian 导出（带 YAML frontmatter 的 .md 下载）────
   downloadObsidian: function (md, title) {
     var url = YTX.getVideoUrl();
@@ -438,8 +114,72 @@ YTX.Export = {
     URL.revokeObjectURL(a.href);
   },
 
-  // ── 飞书预留 ─────────────────────────────────────────
-  sendToFeishu: function (title, blocks, callback) {
-    callback({ error: '飞书导出功能暂未实现，敬请期待' });
-  }
+  // ── HTML 清洗：剥离脚本/外部资源加载/事件属性，并强 CSP ──
+  sanitizeHtml: function (html) {
+    var parser = new DOMParser();
+    var doc = parser.parseFromString(html, 'text/html');
+    if (!doc || !doc.documentElement) return '';
+
+    // 删除可执行/外部资源加载/自动跳转元素：脚本、内嵌框架、对象、外部样式表与字体、import、meta refresh 等
+    doc.querySelectorAll(
+      'script, base, object, embed, iframe, frame, frameset, applet, ' +
+      'link[rel="import"], link[rel="stylesheet"], link[rel="preload"], link[rel="prefetch"], ' +
+      'link[rel="dns-prefetch"], link[rel="preconnect"], link[as], ' +
+      'meta[http-equiv]'
+    ).forEach(function (el) {
+      el.parentNode && el.parentNode.removeChild(el);
+    });
+
+    // 删除所有元素的 on* 事件属性 + javascript:/data:/vbscript: 链接
+    doc.querySelectorAll('*').forEach(function (el) {
+      var attrs = Array.from(el.attributes);
+      attrs.forEach(function (attr) {
+        var name = attr.name.toLowerCase();
+        var val = (attr.value || '').trim();
+        if (name.indexOf('on') === 0) {
+          el.removeAttribute(attr.name);
+          return;
+        }
+        if ((name === 'href' || name === 'src' || name === 'xlink:href' || name === 'action' || name === 'formaction' || name === 'srcset' || name === 'poster' || name === 'background') &&
+            /^\s*(javascript|data|vbscript):/i.test(val) &&
+            !/^\s*data:image\//i.test(val)) {
+          el.removeAttribute(attr.name);
+        }
+      });
+    });
+
+    // 注入严格 CSP：默认拒绝所有外部加载，仅放开内联样式 + data: 图（笔记里嵌入截图）
+    var head = doc.head || doc.createElement('head');
+    if (!doc.head) doc.documentElement.insertBefore(head, doc.documentElement.firstChild);
+    var meta = doc.createElement('meta');
+    meta.setAttribute('http-equiv', 'Content-Security-Policy');
+    meta.setAttribute('content',
+      "default-src 'none'; " +
+      "img-src data:; " +
+      "style-src 'unsafe-inline'; " +
+      "font-src 'none'; " +
+      "connect-src 'none'; " +
+      "frame-src 'none'; " +
+      "media-src 'none'; " +
+      "object-src 'none'; " +
+      "script-src 'none'; " +
+      "base-uri 'none'; " +
+      "form-action 'none'; " +
+      "navigate-to 'none';"
+    );
+    head.insertBefore(meta, head.firstChild);
+
+    return '<!DOCTYPE html>\n' + doc.documentElement.outerHTML;
+  },
+
+  // ── 按钮状态闪烁 ─────────────────────────────────────
+  flashButton: function (btn, text, ms) {
+    var original = btn.textContent;
+    btn.textContent = text;
+    btn.disabled = true;
+    setTimeout(function () {
+      btn.textContent = original;
+      btn.disabled = false;
+    }, ms || 1500);
+  },
 };

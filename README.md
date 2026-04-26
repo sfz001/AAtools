@@ -1,8 +1,8 @@
 # AAtools
 
-自用 Chrome 扩展（Manifest V3）— AI 驱动的 **YouTube 视频助手** & **全网划词翻译** & **小红书体验增强**。
+自用 Chrome 扩展（Manifest V3）— AI 驱动的 **YouTube 视频助手** & **全网划词翻译** & **小红书体验增强** & **鼠标手势**。
 
-原生 HTML/CSS/JS，零依赖，无构建步骤。支持 Claude / OpenAI / Gemini 三家 API。
+原生 HTML/CSS/JS，零依赖，无构建步骤。支持 Claude / OpenAI / Gemini / MiniMax 四家 API。
 
 ## 安装
 
@@ -38,8 +38,7 @@ git clone https://github.com/sfz001/AAtools.git
 
 ### 可选配置
 
-- **Notion 导出** — 填入 Integration Token + 父级页面 ID，笔记和导图可一键导出到 Notion
-- **GitHub Gist** — 填入 Personal Access Token（gist 权限），导出 Notion 时自动上传 HTML/SVG 原文件并嵌入链接
+- **导出 Obsidian** — 总结/笔记/导图可一键下载为带 YAML frontmatter 的 `.md`，直接拖进 Vault 即可
 - **设置导入/导出** — 支持将全部配置（含自定义 Prompt、已拉取的模型列表）导出为 JSON 文件，方便迁移
 
 ---
@@ -54,7 +53,7 @@ git clone https://github.com/sfz001/AAtools.git
 |------|------|
 | **总结** | 带时间戳的结构化摘要，点击时间戳跳转视频对应位置 |
 | **导图** | 交互式思维导图（SVG 渲染），支持缩放、平移、折叠展开、新标签打开 |
-| **笔记** | 精美 HTML 笔记（iframe 隔离渲染），可下载 / 新标签打开 / 导出 Notion |
+| **笔记** | 精美 HTML 笔记（iframe 隔离渲染），可下载 / 新标签打开 / 导出 Obsidian |
 | **卡片** | 提取关键概念生成可翻转闪卡 |
 | **单词** | 从英文字幕中提取高级词汇，附音标、词性、释义、原句、时间戳 |
 | **问答** | 基于视频内容多轮对话，保留最近 40 条上下文 |
@@ -103,6 +102,21 @@ git clone https://github.com/sfz001/AAtools.git
 
 ---
 
+## 功能四：鼠标手势
+
+任意网页按住鼠标右键拖动即可触发，可在设置页"功能开关"卡片一键启停。
+
+| 手势 | 动作 |
+|------|------|
+| `←` | 后退 |
+| `→` | 前进 |
+| `↓→` | 关闭当前标签页 |
+| `←↑` | 恢复刚关闭的标签页 |
+
+屏幕中央实时显示手势提示，未达识别阈值时不影响原生右键菜单。
+
+---
+
 ## 其他特性
 
 - **可调分栏** — 拖拽视频与面板之间的分割条自由调整宽度
@@ -129,7 +143,7 @@ git clone https://github.com/sfz001/AAtools.git
 │   ├── core.js                #   YTX 命名空间、共享状态、字幕获取、缓存
 │   ├── prompts.js             #   所有功能的默认 Prompt
 │   ├── markdown.js            #   Markdown 渲染
-│   ├── export.js              #   导出（Markdown 下载 / Notion / Gist）
+│   ├── export.js              #   导出（Markdown 下载 / Obsidian）
 │   ├── summary.js             #   总结
 │   ├── html-notes.js          #   HTML 笔记
 │   ├── chat.js                #   问答
@@ -141,8 +155,10 @@ git clone https://github.com/sfz001/AAtools.git
 ├── translate/                 # 划词翻译模块
 │   ├── translate.js           #   翻译功能（独立 IIFE，所有页面生效）
 │   └── translate.css          #   翻译弹窗样式
-└── xhs/                       # 小红书增强模块
-    └── xhs-scroll-fix.js      #   帖子弹窗滚动修复
+├── xhs/                       # 小红书增强模块
+│   └── xhs-scroll-fix.js      #   帖子弹窗滚动修复
+└── gestures/                  # 鼠标手势模块
+    └── gestures.js            #   右键拖拽手势识别（独立 IIFE）
 ```
 
 ## 许可

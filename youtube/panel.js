@@ -20,13 +20,38 @@
     onNavigate();
   }
 
-  function onNavigate() {
-    var videoId = getVideoId();
-    if (!videoId) { removePanel(); removeResizer(); return; }
-    if (videoId === YTX.currentVideoId && YTX.panel) return;
-    YTX.currentVideoId = videoId;
+  // 重置全部字幕/转写在途状态，导航离开视频页或切视频时调用
+  function resetTranscriptState() {
     YTX.transcriptData = null;
     YTX.videoMode = false;
+    YTX._transcriptPromise = null;
+    YTX._transcriptVideoId = null;
+    YTX._transcribeVideoId = null;
+    YTX._transcribeRequestId = null;
+    YTX._transcribeBuffer = '';
+    YTX._transcribeReceiving = false;
+    if (YTX._transcribeTimer) { clearInterval(YTX._transcribeTimer); YTX._transcribeTimer = null; }
+    YTX.isFetchingTranscript = false;
+  }
+
+  function onNavigate() {
+    var videoId = getVideoId();
+    if (!videoId) {
+      // 离开视频页（首页/搜索/频道页等）：清状态 + 重置功能模块，
+      // 否则旧 in-flight 转写会让下一个视频被错误拦截
+      resetTranscriptState();
+      YTX.currentVideoId = null;
+      YTX.featureOrder.forEach(function (key) {
+        var f = YTX.features[key];
+        if (f && f.reset) f.reset();
+      });
+      removePanel();
+      removeResizer();
+      return;
+    }
+    if (videoId === YTX.currentVideoId && YTX.panel) return;
+    YTX.currentVideoId = videoId;
+    resetTranscriptState();
     YTX.activeTab = 'summary';
 
     // 重置所有功能模块状态
@@ -43,6 +68,8 @@
 
   function restoreFromCache(videoId) {
     YTX.cache.load(videoId).then(function (record) {
+      // 异步竞态防护：缓存读取期间用户可能已切到别的视频
+      if (videoId !== YTX.currentVideoId) return;
       if (!record || !YTX.panel) return;
 
       // 字幕
@@ -211,6 +238,8 @@
       YTX.cache.remove(YTX.currentVideoId).then(function () {
         YTX.transcriptData = null;
         YTX.videoMode = false;
+        YTX._transcriptPromise = null;
+        YTX._transcriptVideoId = null;
         var body = panel.querySelector('#ytx-transcript-body');
         if (body) body.innerHTML = '<div style="padding:8px 12px;font-size:12px;color:#15803d;background:#f0fdf4;border-radius:6px">缓存已清除，下次操作将重新获取字幕</div>';
         var banner = panel.querySelector('#ytx-video-mode-banner');
@@ -494,6 +523,11 @@
 
     // 模型信息（调试用，显示在面板底部）
     if (message.type && message.type.endsWith('_MODEL')) {
+      // 与 _CHUNK/_DONE/_ERROR 同样的 requestId 过滤：避免旧请求的模型名更新当前 badge
+      var modelPrefix = message.type.slice(0, -('_MODEL'.length));
+      var modelFeature = prefixMap[modelPrefix];
+      if (modelFeature && message.requestId && message.requestId !== modelFeature.requestId) return;
+
       var badge = YTX.panel.querySelector('#ytx-model-badge');
       if (!badge) {
         badge = document.createElement('div');
@@ -506,6 +540,9 @@
 
     // ── 视频转录流式 chunk ──
     if (message.type === 'TRANSCRIBE_CHUNK') {
+      // videoId + requestId 双重过滤：切视频后旧转录、同视频下被取消的旧请求都丢弃
+      if (message.videoId && message.videoId !== YTX.currentVideoId) return;
+      if (message.requestId && message.requestId !== YTX._transcribeRequestId) return;
       // 首个 chunk 到达，切换计时器文案
       if (YTX._transcribeTimer && !YTX._transcribeReceiving) {
         YTX._transcribeReceiving = true;
@@ -545,6 +582,8 @@
 
     // ── 视频转录开始 ──
     if (message.type === 'TRANSCRIBE_PROGRESS') {
+      if (message.videoId && message.videoId !== YTX.currentVideoId) return;
+      if (message.requestId && message.requestId !== YTX._transcribeRequestId) return;
       var body = YTX.panel.querySelector('#ytx-transcript-body');
       if (!body) return;
       YTX._transcribeBuffer = '';
@@ -574,6 +613,8 @@
 
     // ── 视频转录完成 ──
     if (message.type === 'TRANSCRIBE_SEGMENT') {
+      if (message.videoId && message.videoId !== YTX.currentVideoId) return;
+      if (message.requestId && message.requestId !== YTX._transcribeRequestId) return;
       if (YTX._transcribeTimer) { clearInterval(YTX._transcribeTimer); YTX._transcribeTimer = null; }
       var body = YTX.panel.querySelector('#ytx-transcript-body');
       if (!body) return;
@@ -623,6 +664,9 @@
     var action = parts[2];
     var feature = prefixMap[prefix];
     if (!feature) return;
+
+    // 过滤过期请求：message 带 requestId 但与 feature 当前请求不匹配（含 feature.requestId 为 null 的情况）则丢弃
+    if (message.requestId && message.requestId !== feature.requestId) return;
 
     if (action === 'CHUNK' && feature.onChunk) {
       feature.onChunk(message.text);

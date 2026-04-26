@@ -7,6 +7,10 @@
   var currentModel = '';
   var isPinned = false;
   var userPinPreference = false;
+  // 当前请求 ID：每次 doTranslate 生成新 ID，CHUNK/DONE/ERROR/MODEL 必须匹配才处理
+  // 防止用户关弹窗后立刻发起下一次翻译时旧 chunk 污染新结果
+  var currentRequestId = null;
+  function makeReqId() { return 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
 
   // ── 拖拽状态 ──────────────────────────────────────────
   var isDragging = false;
@@ -43,6 +47,7 @@
         var doc = iframe.contentDocument;
         if (!doc) return;
         doc.addEventListener('mouseup', function (e) {
+          if (!e.isTrusted) return;
           var sel = doc.getSelection ? doc.getSelection() : null;
           var text = sel ? sel.toString().trim() : '';
           if (!text || text.length < 2 || text.length > 5000) return;
@@ -102,6 +107,7 @@
         e.stopPropagation();
       });
       icon.addEventListener('click', function (e) {
+        if (!e.isTrusted) return;
         e.preventDefault();
         e.stopPropagation();
         handleIconClick();
@@ -120,7 +126,7 @@
     try { return !!chrome.runtime && !!chrome.runtime.id; } catch (_) { return false; }
   }
 
-  // ── 读取 API 设置 ─────────────────────────────────────
+  // ── 读取 API 设置（仅非敏感字段；API key 由 background 自读，content script 不接触）──
   function getSettings(callback) {
     if (!isContextValid()) {
       showError('扩展已更新，请刷新页面后重试');
@@ -128,13 +134,11 @@
       return;
     }
     try {
-      chrome.storage.sync.get(['provider', 'claudeKey', 'openaiKey', 'geminiKey', 'minimaxKey', 'claudeModel', 'openaiModel', 'geminiModel', 'minimaxModel', 'promptTranslateDict', 'promptTranslateSentence'], function (s) {
+      chrome.storage.sync.get(['provider', 'claudeModel', 'openaiModel', 'geminiModel', 'minimaxModel', 'promptTranslateDict', 'promptTranslateSentence'], function (s) {
         var provider = s.provider || 'claude';
-        var keyMap = { claude: s.claudeKey, openai: s.openaiKey, gemini: s.geminiKey, minimax: s.minimaxKey };
         var modelMap = { claude: s.claudeModel, openai: s.openaiModel, gemini: s.geminiModel, minimax: s.minimaxModel };
         callback({
           provider: provider,
-          activeKey: keyMap[provider] || '',
           model: modelMap[provider] || '',
           promptDict: s.promptTranslateDict || '',
           promptSentence: s.promptTranslateSentence || '',
@@ -165,6 +169,7 @@
   // ── mouseup：检测选中文本 → 显示图标（基于鼠标位置） ────
   // 使用 capture 阶段，确保在 YouTube 等 SPA 框架的事件处理之前捕获选区
   document.addEventListener('mouseup', function (e) {
+    if (!e.isTrusted) return;
     if (icon && icon.contains(e.target)) return;
 
     // 弹窗内交互元素不触发
@@ -276,11 +281,8 @@
     if (isTranslating) return;
 
     getSettings(function (settings) {
-      if (!settings.activeKey) {
-        showError('请先在 AAtools 扩展设置中填入 API Key');
-        return;
-      }
-
+      // 不再前置校验 key（content script 不接触 key）；
+      // 缺 key 时 background 会回 TRANSLATE_ERROR，由消息路由统一显示
       isTranslating = true;
       resultText = '';
       hideIcon();
@@ -294,15 +296,16 @@
       addCursor();
       setStatus('Translating...', false);
 
+      currentRequestId = makeReqId();
       var msg = {
         type: 'TRANSLATE',
         text: text,
         targetLang: getTargetLang(),
         provider: settings.provider,
-        activeKey: settings.activeKey,
         model: settings.model,
         promptDict: settings.promptDict,
         promptSentence: settings.promptSentence,
+        requestId: currentRequestId,
       };
       // 传递上下文（textarea 全文），让字典模式结合语境解释
       if (context && context !== text) msg.context = context;
@@ -372,6 +375,7 @@
     autoResizeTextarea(textarea);
     textarea.addEventListener('input', function () { autoResizeTextarea(textarea); });
     textarea.addEventListener('keydown', function (e) {
+      if (!e.isTrusted) return;
       if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); handleSubmit(); }
     });
 
@@ -393,6 +397,7 @@
 
     // 绑定翻译按钮
     popup.querySelector('.ytx-translate-submit').addEventListener('click', function (e) {
+      if (!e.isTrusted) return;
       e.stopPropagation(); handleSubmit();
     });
 
@@ -666,6 +671,13 @@
 
   // ── 消息监听 ──────────────────────────────────────────
   chrome.runtime.onMessage.addListener(function (msg) {
+    // requestId 过滤：旧请求的响应（含 _MODEL/_CHUNK/_DONE/_ERROR）必须匹配当前 requestId
+    // 用户关弹窗后立刻发起下一次翻译时，旧 chunk 不会污染新弹窗
+    if (msg.type === 'TRANSLATE_MODEL' || msg.type === 'TRANSLATE_CHUNK' ||
+        msg.type === 'TRANSLATE_DONE' || msg.type === 'TRANSLATE_ERROR') {
+      if (msg.requestId && msg.requestId !== currentRequestId) return;
+    }
+
     if (msg.type === 'TRANSLATE_MODEL') {
       currentModel = msg.model || '';
       updateFooter(msg.provider, msg.model);

@@ -120,14 +120,15 @@
     html += '<text x="' + textX + '" y="' + textY + '" fill="' + textColor + '" font-size="' + fontSize + '" font-weight="' + (d === 0 ? 600 : 500) + '" text-anchor="start" dominant-baseline="central" font-family="-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,sans-serif"><tspan textLength="' + Math.max(0, maxTextW) + '" lengthAdjust="spacing">' + YTX.escapeHtml(node.label || '') + '</tspan></text>';
 
     // Timestamp badge
-    if (node.time) {
+    var safeT = YTX.safeTime(node.time);
+    if (safeT) {
       var badgeW = 40;
       var badgeX = node._x + node._width - badgeW - 6;
       var badgeY = node._y + node._height / 2;
-      var secs = YTX.timeToSeconds(node.time);
+      var secs = YTX.timeToSeconds(safeT);
       html += '<g class="ytx-mm-timestamp" data-time="' + secs + '" style="cursor:pointer">';
       html += '<rect x="' + badgeX + '" y="' + (badgeY - 10) + '" width="' + badgeW + '" height="20" rx="10" fill="' + (d === 0 ? 'rgba(255,255,255,0.25)' : '#ede9fe') + '" stroke="none"/>';
-      html += '<text x="' + (badgeX + badgeW / 2) + '" y="' + badgeY + '" fill="' + (d === 0 ? '#fff' : '#7c3aed') + '" font-size="10" font-weight="600" text-anchor="middle" dominant-baseline="central" font-family="Consolas,Monaco,monospace">' + node.time + '</text>';
+      html += '<text x="' + (badgeX + badgeW / 2) + '" y="' + badgeY + '" fill="' + (d === 0 ? '#fff' : '#7c3aed') + '" font-size="10" font-weight="600" text-anchor="middle" dominant-baseline="central" font-family="Consolas,Monaco,monospace">' + safeT + '</text>';
       html += '</g>';
     }
 
@@ -172,10 +173,12 @@
       this.data = null;
       this.rawText = '';
       this.isGenerating = false;
+      this.requestId = null;
       this.transform = { x: 0, y: 0, scale: 1 };
       this.collapsed = new Set();
       this._fitted = false;
       // alignTop 不重置，保留用户设置
+      if (this._deferred) { this._deferred.reject(new Error('视频已切换')); this._deferred = null; }
     },
 
     actionsHtml: function () {
@@ -188,44 +191,65 @@
 
     bindEvents: function (panel) {
       var self = this;
-      panel.querySelector('#ytx-generate-mindmap').addEventListener('click', function () { self.start(); });
+      panel.querySelector('#ytx-generate-mindmap').addEventListener('click', function () { self.start().catch(function () {}); });
     },
 
-    start: async function () {
-      if (this.isGenerating) return;
+    start: function () {
+      var self = this;
+      if (this.isGenerating) return Promise.resolve();
       this.isGenerating = true;
       this.rawText = '';
       this.data = null;
       this.collapsed = new Set();
       this.transform = { x: 0, y: 0, scale: 1 };
 
+      if (this._deferred) this._deferred.reject(new Error('已被新请求覆盖'));
+      this._deferred = YTX.createDeferred();
+      var deferred = this._deferred;
+
+      var startVideoId = YTX.currentVideoId;
+
       var btn = YTX.panel.querySelector('#ytx-generate-mindmap');
       var contentEl = YTX.panel.querySelector('#ytx-content-mindmap');
       btn.disabled = true;
 
-      try {
-        btn.innerHTML = YTX.icons.spinner;
-        contentEl.innerHTML = '<div class="ytx-empty"><div class="ytx-loading"><div class="ytx-spinner"></div><span>正在获取字幕...</span></div></div>';
-        await YTX.ensureTranscript();
-
-        contentEl.innerHTML = '<div class="ytx-empty"><div class="ytx-loading"><div class="ytx-spinner"></div><span>正在生成思维导图...</span></div></div>';
-
-        var settings = await YTX.getSettings();
-        var payload = YTX.getContentPayload();
-
-        chrome.runtime.sendMessage(Object.assign({
-          type: 'GENERATE_MINDMAP',
-          prompt: settings.promptMindmap || YTX.prompts.MINDMAP,
-          provider: settings.provider,
-          activeKey: settings.activeKey,
-          model: settings.model,
-        }, payload));
-      } catch (err) {
-        contentEl.innerHTML = '<div class="ytx-error" style="margin:14px 16px">' + err.message + '</div>';
-        btn.disabled = false;
-        YTX.btnPrimary(btn);
-        this.isGenerating = false;
+      function bailSilently() {
+        self.isGenerating = false;
+        if (self._deferred === deferred) { deferred.resolve(); self._deferred = null; }
       }
+
+      (async function () {
+        try {
+          btn.innerHTML = YTX.icons.spinner;
+          contentEl.innerHTML = '<div class="ytx-empty"><div class="ytx-loading"><div class="ytx-spinner"></div><span>正在获取字幕...</span></div></div>';
+          await YTX.ensureTranscript();
+          if (YTX.currentVideoId !== startVideoId) return bailSilently();
+
+          contentEl.innerHTML = '<div class="ytx-empty"><div class="ytx-loading"><div class="ytx-spinner"></div><span>正在生成思维导图...</span></div></div>';
+
+          var settings = await YTX.getSettings();
+          if (YTX.currentVideoId !== startVideoId) return bailSilently();
+          var payload = YTX.getContentPayload();
+
+          self.requestId = YTX.makeRequestId();
+          chrome.runtime.sendMessage(Object.assign({
+            type: 'GENERATE_MINDMAP',
+            prompt: settings.promptMindmap || YTX.prompts.MINDMAP,
+            provider: settings.provider,
+            model: settings.model,
+            requestId: self.requestId,
+          }, payload));
+        } catch (err) {
+          if (YTX.currentVideoId !== startVideoId) return bailSilently();
+          contentEl.innerHTML = '<div class="ytx-error" style="margin:14px 16px">' + err.message + '</div>';
+          btn.disabled = false;
+          YTX.btnPrimary(btn);
+          self.isGenerating = false;
+          if (self._deferred === deferred) { deferred.reject(err); self._deferred = null; }
+        }
+      })();
+
+      return deferred.promise;
     },
 
     onChunk: function (text) {
@@ -246,6 +270,7 @@
       YTX.btnRefresh(YTX.panel.querySelector('#ytx-generate-mindmap'));
       this.isGenerating = false;
       if (this.data) YTX.cache.save(YTX.currentVideoId, 'mindmap', { data: this.data });
+      if (this._deferred) { this._deferred.resolve(); this._deferred = null; }
     },
 
     onError: function (error) {
@@ -253,6 +278,7 @@
       YTX.panel.querySelector('#ytx-generate-mindmap').disabled = false;
       YTX.btnPrimary(YTX.panel.querySelector('#ytx-generate-mindmap'));
       this.isGenerating = false;
+      if (this._deferred) { this._deferred.reject(new Error(error)); this._deferred = null; }
     },
 
     render: function () {
@@ -282,7 +308,6 @@
           '<button class="ytx-mm-tool-btn" data-action="open-tab">新标签打开</button>' +
           '<button class="ytx-mm-tool-btn" data-action="export-svg">导出 SVG</button>' +
           '<button class="ytx-mm-tool-btn" data-action="export-obsidian">导出 Obsidian</button>' +
-          '<button class="ytx-mm-tool-btn" data-action="export-notion">导出到Notion</button>' +
         '</div>' +
         '<div class="ytx-mindmap-viewport">' +
           '<svg class="ytx-mindmap-svg" xmlns="http://www.w3.org/2000/svg">' +
@@ -405,7 +430,6 @@
           if (action === 'open-tab') self.openInNewTab();
           else if (action === 'export-svg') self.exportSvg();
           else if (action === 'export-obsidian') self.exportObsidian();
-          else if (action === 'export-notion') self.exportNotionMindmap();
         });
       });
     },
@@ -509,37 +533,6 @@
       URL.revokeObjectURL(url);
     },
 
-    exportNotionMindmap: function () {
-      if (!this.data) return;
-      var btn = YTX.panel.querySelector('.ytx-mm-tool-btn[data-action="export-notion"]');
-      btn.textContent = '导出到Notion...';
-      btn.disabled = true;
-      var blocks = YTX.Export.mindmapToNotionBlocks(this.data);
-      var title = YTX.Export.getVideoTitle() + ' - 导图';
-      var callback = function (resp) {
-        if (resp.error) {
-          btn.textContent = '导出失败';
-          btn.disabled = false;
-          alert(resp.error);
-          setTimeout(function () { btn.textContent = '导出到Notion'; }, 1500);
-        } else {
-          YTX.Export.flashButton(btn, '已导出', 2000);
-          if (resp.url) window.open(resp.url, '_blank');
-        }
-      };
-      // 尝试上传 SVG 到 Gist
-      var svgContent = null;
-      var result = this.buildExportSvg();
-      if (result) {
-        svgContent = new XMLSerializer().serializeToString(result.svg);
-      }
-      if (svgContent) {
-        var filename = YTX.Export.getSafeFilename(YTX.Export.getVideoTitle()) + '-导图.svg';
-        YTX.Export.sendToNotionWithGist(title, blocks, filename, svgContent, '思维导图 SVG', callback);
-      } else {
-        YTX.Export.sendToNotion(title, blocks, callback);
-      }
-    },
   };
 
   // 从存储加载对齐设置

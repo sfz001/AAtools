@@ -9,9 +9,7 @@
     "https://api.openai.com/*",
     "https://generativelanguage.googleapis.com/*",
     "https://api.minimax.io/*",
-    "https://www.youtube.com/*",
-    "https://api.notion.com/*",
-    "https://api.github.com/*"
+    "https://www.youtube.com/*"
   ],
   "background": {
     "service_worker": "background.js"

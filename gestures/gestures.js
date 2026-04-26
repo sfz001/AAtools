@@ -67,6 +67,7 @@
 
   document.addEventListener('mousedown', function (e) {
     if (!enabled) return;
+    if (!e.isTrusted) return;
     if (e.button !== 2) return;
     tracking = true;
     lastPoint = { x: e.clientX, y: e.clientY };
@@ -77,6 +78,7 @@
 
   document.addEventListener('mousemove', function (e) {
     if (!tracking) return;
+    if (!e.isTrusted) return;
     const dx = e.clientX - lastPoint.x;
     const dy = e.clientY - lastPoint.y;
     const dist = Math.hypot(dx, dy);
@@ -95,6 +97,7 @@
 
   document.addEventListener('mouseup', function (e) {
     if (!tracking || e.button !== 2) return;
+    if (!e.isTrusted) return;
     tracking = false;
     hideIndicator();
 

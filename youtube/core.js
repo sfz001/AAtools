@@ -56,20 +56,39 @@ YTX.timeToSeconds = function (str) {
   return parts[0] * 60 + parts[1];
 };
 
+// AI 返回的 time 字段：仅允许 H:MM:SS / MM:SS / M:SS 格式，否则返回 null
+// 用途：cards/vocab/mindmap 渲染时拼到 innerHTML，必须先校验防 DOM 注入
+YTX.safeTime = function (str) {
+  if (typeof str !== 'string') return null;
+  var t = str.trim();
+  return /^\d{1,2}(:\d{2}){1,2}$/.test(t) ? t : null;
+};
+
 // ── Settings ──────────────────────────────────────────
 
+// 为每次 AI 请求生成唯一 ID，用于过滤切视频/重发后到达的过期 chunk
+YTX.makeRequestId = function () {
+  return 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+};
+
+// Deferred 工具：feature.start() 返回它的 promise，由 onDone/onError/reset 来 resolve/reject
+YTX.createDeferred = function () {
+  var d = {};
+  d.promise = new Promise(function (resolve, reject) { d.resolve = resolve; d.reject = reject; });
+  return d;
+};
+
+// 仅读非敏感字段；API key 由 background loadProviderConfig() 自读，content script 不接触
 YTX.getSettings = function () {
   return new Promise(function (resolve) {
     chrome.storage.sync.get(
-      ['provider', 'claudeKey', 'openaiKey', 'geminiKey', 'minimaxKey', 'claudeModel', 'openaiModel', 'geminiModel', 'minimaxModel', 'model',
+      ['provider', 'claudeModel', 'openaiModel', 'geminiModel', 'minimaxModel', 'model',
        'prompt', 'promptHtml', 'promptCards', 'promptMindmap', 'promptVocab'],
       function (data) {
         var provider = data.provider || 'claude';
-        var KEY_MAP = { claude: 'claudeKey', openai: 'openaiKey', gemini: 'geminiKey', minimax: 'minimaxKey' };
         var MODEL_MAP = { claude: 'claudeModel', openai: 'openaiModel', gemini: 'geminiModel', minimax: 'minimaxModel' };
         resolve({
           provider: provider,
-          activeKey: data[KEY_MAP[provider]] || '',
           model: data[MODEL_MAP[provider]] || '',
           prompt: data.prompt,
           promptHtml: data.promptHtml,
@@ -216,14 +235,6 @@ YTX.getVideoUrl = function () {
   return 'https://www.youtube.com/watch?v=' + YTX.currentVideoId;
 };
 
-YTX.getGeminiKey = function () {
-  return new Promise(function (resolve) {
-    chrome.storage.sync.get(['geminiKey'], function (data) {
-      resolve(data.geminiKey || '');
-    });
-  });
-};
-
 // 获取内容参数（统一返回 transcript）
 YTX.getContentPayload = function () {
   return { transcript: YTX.transcriptData.full };
@@ -240,11 +251,12 @@ YTX.showVideoModeBanner = function () {
 // ── 通过 Gemini 分析视频（内部复用）───────────────────
 
 YTX._analyzeVideoWithGemini = async function () {
-  var geminiKey = await YTX.getGeminiKey();
-  if (!geminiKey) {
-    throw new Error('该视频无字幕。配置 Gemini API Key 后可直接分析视频内容');
-  }
+  // 早绑定：整个回退流程（抓 URL、发请求、写结果）都用这个 ID 校验
+  var startVideoId = YTX.currentVideoId;
+  // 立即抓 videoUrl，避免后续 await 期间页面切走后取到错的 URL
+  var videoUrl = YTX.getVideoUrl();
 
+  // 不在 content script 读 Gemini key —— 缺 key 时由 background 在 TRANSCRIBE 响应里回错
   YTX.videoMode = true;
   YTX.showVideoModeBanner();
 
@@ -253,7 +265,6 @@ YTX._analyzeVideoWithGemini = async function () {
     if (body) body.innerHTML = '<div class="ytx-warning" style="padding:8px 12px;font-size:12px;color:#7c3aed;background:#ede9fe;border-radius:6px">正在通过 Gemini 视频模式转录字幕，长视频会自动分段处理，请耐心等待...</div>';
   }
 
-  var videoUrl = YTX.getVideoUrl();
   // 获取视频时长（秒），用于判断是否需要分段转录
   var videoDuration = 0;
   try {
@@ -263,13 +274,21 @@ YTX._analyzeVideoWithGemini = async function () {
     }
   } catch (e) { /* ignore */ }
 
+  // 转录消息流用 startVideoId + requestId 双重隔离：
+  // - videoId 防 SPA 切视频污染
+  // - requestId 防同视频下旧请求未取消时新请求 chunk 混入（如手动取消未完成的转录后再启动）
+  var transcribeRequestId = YTX.makeRequestId();
+  YTX._transcribeVideoId = startVideoId;
+  YTX._transcribeRequestId = transcribeRequestId;
+
   var result = await new Promise(function (resolve, reject) {
     try {
       chrome.runtime.sendMessage({
         type: 'TRANSCRIBE_VIDEO',
         videoUrl: videoUrl,
-        activeKey: geminiKey,
         videoDuration: videoDuration,
+        videoId: startVideoId,
+        requestId: transcribeRequestId,
       }, function (resp) {
         if (chrome.runtime.lastError) {
           reject(new Error(chrome.runtime.lastError.message || '视频分析请求失败'));
@@ -282,6 +301,11 @@ YTX._analyzeVideoWithGemini = async function () {
       reject(new Error('无法连接到扩展后台: ' + e.message));
     }
   });
+
+  // 转录完成后切视频检查：把结果丢弃，避免污染新视频
+  if (YTX.currentVideoId !== startVideoId) {
+    throw new Error('视频已切换，转录结果已丢弃');
+  }
 
   // 如果续写过程中已经通过 TRANSCRIBE_SEGMENT 消息渲染了内容，
   // 只更新 transcriptData（供总结等功能使用），不重新渲染
@@ -302,61 +326,104 @@ YTX._analyzeVideoWithGemini = async function () {
 
 // ── 手动切换到视频模式 ──────────────────────────────
 
-YTX.switchToVideoMode = async function () {
-  if (YTX.isFetchingTranscript) return;
+YTX.switchToVideoMode = function () {
+  // busy 时直接 throw，让调用方的 catch 能恢复按钮，不会被当成"切换成功"
+  if (YTX.isFetchingTranscript) return Promise.reject(new Error('字幕正在获取中，请稍候'));
+
+  // 早绑定：异步期间用户可能切到别的视频/重建面板
+  var startVideoId = YTX.currentVideoId;
+  var panelAtStart = YTX.panel;
   YTX.isFetchingTranscript = true;
 
   // 禁用所有生成按钮
-  ['#ytx-generate-all', '#ytx-summarize', '#ytx-generate-html', '#ytx-generate-cards', '#ytx-generate-mindmap', '#ytx-generate-vocab'].forEach(function (id) {
-    var b = YTX.panel && YTX.panel.querySelector(id);
+  var BTN_IDS = ['#ytx-generate-all', '#ytx-summarize', '#ytx-generate-html', '#ytx-generate-cards', '#ytx-generate-mindmap', '#ytx-generate-vocab'];
+  BTN_IDS.forEach(function (id) {
+    var b = panelAtStart && panelAtStart.querySelector(id);
     if (b) b.disabled = true;
   });
 
   // 清空字幕数据（保留各模块已生成的内容）
   YTX.transcriptData = null;
 
-  try {
-    await YTX._analyzeVideoWithGemini();
-    // 缓存视频模式字幕
-    if (YTX.transcriptData && YTX.currentVideoId) {
-      YTX.cache.save(YTX.currentVideoId, 'transcript', {
-        segments: null,
-        full: YTX.transcriptData.full,
-        truncated: false,
-        videoMode: true,
-      });
+  // 与 ensureTranscript 共用 _transcriptPromise 去重：手动视频模式期间，
+  // 普通功能调用 ensureTranscript 会复用同一个 promise，不会再触发一路转录
+  YTX._transcriptVideoId = startVideoId;
+  YTX._transcriptPromise = (async function () {
+    try {
+      await YTX._analyzeVideoWithGemini();
+      // 缓存视频模式字幕（按 startVideoId 而非 currentVideoId）
+      if (YTX.transcriptData && YTX.currentVideoId === startVideoId) {
+        YTX.cache.save(startVideoId, 'transcript', {
+          segments: null,
+          full: YTX.transcriptData.full,
+          truncated: false,
+          videoMode: true,
+        });
+      }
+    } finally {
+      YTX.isFetchingTranscript = false;
+      // 仅在仍是同一视频和同一面板时恢复按钮，避免污染新视频
+      if (YTX.currentVideoId === startVideoId && YTX.panel === panelAtStart) {
+        BTN_IDS.forEach(function (id) {
+          var b = panelAtStart.querySelector(id);
+          if (b) b.disabled = false;
+        });
+      }
+      // 清理 in-flight 标记（仅在仍是同一视频时清理）
+      if (YTX._transcriptVideoId === startVideoId) {
+        YTX._transcriptPromise = null;
+        YTX._transcriptVideoId = null;
+      }
     }
-  } finally {
-    YTX.isFetchingTranscript = false;
-    // 恢复所有生成按钮
-    ['#ytx-generate-all', '#ytx-summarize', '#ytx-generate-html', '#ytx-generate-cards', '#ytx-generate-mindmap', '#ytx-generate-vocab'].forEach(function (id) {
-      var b = YTX.panel && YTX.panel.querySelector(id);
-      if (b) b.disabled = false;
-    });
-  }
+  })();
+
+  return YTX._transcriptPromise;
 };
 
 // ── 确保字幕已加载（各模块共用）───────────────────────
 
-YTX.ensureTranscript = async function () {
-  if (YTX.transcriptData) return;
+YTX.ensureTranscript = function () {
+  if (YTX.transcriptData) return Promise.resolve();
 
-  try {
-    YTX.transcriptData = await YTX.fetchTranscript();
-    YTX.renderTranscript(); // defined in panel.js
-  } catch (err) {
-    await YTX._analyzeVideoWithGemini();
+  // in-flight 去重：同一视频并发调用复用同一个 promise，避免多次触发 Gemini 转录
+  var startVideoId = YTX.currentVideoId;
+  if (YTX._transcriptPromise && YTX._transcriptVideoId === startVideoId) {
+    return YTX._transcriptPromise;
   }
 
-  // 缓存字幕数据
-  if (YTX.transcriptData && YTX.currentVideoId) {
-    YTX.cache.save(YTX.currentVideoId, 'transcript', {
-      segments: YTX.transcriptData.segments || null,
-      full: YTX.transcriptData.full,
-      truncated: YTX.transcriptData.truncated || false,
-      videoMode: YTX.videoMode,
-    });
-  }
+  YTX._transcriptVideoId = startVideoId;
+  YTX._transcriptPromise = (async function () {
+    try {
+      try {
+        var data = await YTX.fetchTranscript();
+        if (YTX.currentVideoId !== startVideoId) return; // 已切视频，丢弃旧字幕
+        YTX.transcriptData = data;
+        YTX.renderTranscript(); // defined in panel.js
+      } catch (err) {
+        if (YTX.currentVideoId !== startVideoId) return;
+        await YTX._analyzeVideoWithGemini();
+        if (YTX.currentVideoId !== startVideoId) return;
+      }
+
+      // 缓存字幕数据：写入前再次校验，并按 startVideoId 而非 currentVideoId 写
+      if (YTX.transcriptData && YTX.currentVideoId === startVideoId) {
+        YTX.cache.save(startVideoId, 'transcript', {
+          segments: YTX.transcriptData.segments || null,
+          full: YTX.transcriptData.full,
+          truncated: YTX.transcriptData.truncated || false,
+          videoMode: YTX.videoMode,
+        });
+      }
+    } finally {
+      // 清理 in-flight 标记（仅在仍是同一视频时清理，避免 race）
+      if (YTX._transcriptVideoId === startVideoId) {
+        YTX._transcriptPromise = null;
+        YTX._transcriptVideoId = null;
+      }
+    }
+  })();
+
+  return YTX._transcriptPromise;
 };
 
 // ── 历史记录持久化（IndexedDB）──────────────────────
@@ -432,7 +499,26 @@ YTX.cache = {
 // ── 全部生成（并行，跳过 chat）───────────────────────
 
 YTX.generateAll = async function () {
-  if (YTX.isFetchingTranscript) return;
+  function showError(msg) {
+    if (!YTX.panel) return;
+    var errBar = YTX.panel.querySelector('#ytx-generate-all-error');
+    if (!errBar) {
+      errBar = document.createElement('div');
+      errBar.id = 'ytx-generate-all-error';
+      errBar.className = 'ytx-error';
+      errBar.style.cssText = 'margin:8px 12px;';
+      var firstChild = YTX.panel.firstChild;
+      if (firstChild) YTX.panel.insertBefore(errBar, firstChild);
+      else YTX.panel.appendChild(errBar);
+    }
+    errBar.textContent = msg;
+    setTimeout(function () { if (errBar && errBar.parentNode) errBar.parentNode.removeChild(errBar); }, 6000);
+  }
+
+  if (YTX.isFetchingTranscript) {
+    showError('一键生成失败：字幕正在获取中，请稍候');
+    return;
+  }
 
   var settings = await new Promise(function (resolve) {
     chrome.storage.sync.get(['generateAllSummary', 'generateAllMindmap', 'generateAllHtml', 'generateAllCards', 'generateAllVocab'], resolve);
@@ -447,32 +533,29 @@ YTX.generateAll = async function () {
   var allBtn = YTX.panel && YTX.panel.querySelector('#ytx-generate-all');
   if (allBtn) { allBtn.blur(); allBtn.disabled = true; allBtn.innerHTML = YTX.icons.spinner; }
 
-  // 先统一拿字幕，避免各模块重复获取
-  await YTX.ensureTranscript();
+  var startVideoId = YTX.currentVideoId;
 
-  // 同时启动所有模块，各模块自己管理按钮状态
-  var promises = keys.map(function (key) {
-    var f = YTX.features[key];
-    if (!f || !f.start || f.isGenerating) return Promise.resolve();
-    return new Promise(function (resolve) {
-      var origDone = f.onDone;
-      var origError = f.onError;
-      f.onDone = function () {
-        f.onDone = origDone;
-        f.onError = origError;
-        origDone.call(f);
-        resolve();
-      };
-      f.onError = function (err) {
-        f.onDone = origDone;
-        f.onError = origError;
-        origError.call(f, err);
-        resolve();
-      };
-      f.start();
+  try {
+    // 先统一拿字幕，避免各模块重复获取
+    await YTX.ensureTranscript();
+    if (YTX.currentVideoId !== startVideoId) return;
+
+    // 各 feature 的 start() 返回 Promise（来自内部 deferred），直接用 Promise.all 跟踪
+    // 单个失败不影响其他；不再 patch onDone/onError，避免 hook 残留与永不 resolve
+    var promises = keys.map(function (key) {
+      var f = YTX.features[key];
+      if (!f || !f.start || f.isGenerating) return Promise.resolve();
+      var p = f.start();
+      // 兼容老 feature 没返回 promise 的情况
+      return (p && typeof p.then === 'function')
+        ? p.catch(function (err) { console.warn('[AAtools] generateAll', key, err); })
+        : Promise.resolve();
     });
-  });
 
-  await Promise.all(promises);
-  if (allBtn) { allBtn.disabled = false; allBtn.innerHTML = YTX.icons.zap; }
+    await Promise.all(promises);
+  } catch (err) {
+    showError('一键生成失败：' + (err && err.message ? err.message : err));
+  } finally {
+    if (allBtn) { allBtn.disabled = false; allBtn.innerHTML = YTX.icons.zap; }
+  }
 };

@@ -16,6 +16,8 @@ YTX.features.vocab = {
     this.text = '';
     this.data = [];
     this.isGenerating = false;
+    this.requestId = null;
+    if (this._deferred) { this._deferred.reject(new Error('视频已切换')); this._deferred = null; }
   },
 
   actionsHtml: function () {
@@ -28,42 +30,63 @@ YTX.features.vocab = {
 
   bindEvents: function (panel) {
     var self = this;
-    panel.querySelector('#ytx-generate-vocab').addEventListener('click', function () { self.start(); });
+    panel.querySelector('#ytx-generate-vocab').addEventListener('click', function () { self.start().catch(function () {}); });
   },
 
-  start: async function () {
-    if (this.isGenerating) return;
+  start: function () {
+    var self = this;
+    if (this.isGenerating) return Promise.resolve();
     this.isGenerating = true;
     this.text = '';
     this.data = [];
+
+    if (this._deferred) this._deferred.reject(new Error('已被新请求覆盖'));
+    this._deferred = YTX.createDeferred();
+    var deferred = this._deferred;
+
+    var startVideoId = YTX.currentVideoId;
 
     var btn = YTX.panel.querySelector('#ytx-generate-vocab');
     var contentEl = YTX.panel.querySelector('#ytx-content-vocab');
     btn.disabled = true;
 
-    try {
-      btn.innerHTML = YTX.icons.spinner;
-      contentEl.innerHTML = '<div class="ytx-loading" style="padding:14px 16px"><div class="ytx-spinner"></div><span>正在获取字幕...</span></div>';
-      await YTX.ensureTranscript();
-
-      contentEl.innerHTML = '<div class="ytx-loading" style="padding:14px 16px"><div class="ytx-spinner"></div><span>正在提取词汇短语...</span></div>';
-
-      var settings = await YTX.getSettings();
-      var payload = YTX.getContentPayload();
-
-      chrome.runtime.sendMessage(Object.assign({
-        type: 'GENERATE_VOCAB',
-        prompt: settings.promptVocab || YTX.prompts.VOCAB,
-        provider: settings.provider,
-        activeKey: settings.activeKey,
-        model: settings.model,
-      }, payload));
-    } catch (err) {
-      contentEl.innerHTML = '<div class="ytx-error" style="margin:14px 16px">' + err.message + '</div>';
-      btn.disabled = false;
-      YTX.btnPrimary(btn);
-      this.isGenerating = false;
+    function bailSilently() {
+      self.isGenerating = false;
+      if (self._deferred === deferred) { deferred.resolve(); self._deferred = null; }
     }
+
+    (async function () {
+      try {
+        btn.innerHTML = YTX.icons.spinner;
+        contentEl.innerHTML = '<div class="ytx-loading" style="padding:14px 16px"><div class="ytx-spinner"></div><span>正在获取字幕...</span></div>';
+        await YTX.ensureTranscript();
+        if (YTX.currentVideoId !== startVideoId) return bailSilently();
+
+        contentEl.innerHTML = '<div class="ytx-loading" style="padding:14px 16px"><div class="ytx-spinner"></div><span>正在提取词汇短语...</span></div>';
+
+        var settings = await YTX.getSettings();
+        if (YTX.currentVideoId !== startVideoId) return bailSilently();
+        var payload = YTX.getContentPayload();
+
+        self.requestId = YTX.makeRequestId();
+        chrome.runtime.sendMessage(Object.assign({
+          type: 'GENERATE_VOCAB',
+          prompt: settings.promptVocab || YTX.prompts.VOCAB,
+          provider: settings.provider,
+          model: settings.model,
+          requestId: self.requestId,
+        }, payload));
+      } catch (err) {
+        if (YTX.currentVideoId !== startVideoId) return bailSilently();
+        contentEl.innerHTML = '<div class="ytx-error" style="margin:14px 16px">' + err.message + '</div>';
+        btn.disabled = false;
+        YTX.btnPrimary(btn);
+        self.isGenerating = false;
+        if (self._deferred === deferred) { deferred.reject(err); self._deferred = null; }
+      }
+    })();
+
+    return deferred.promise;
   },
 
   onChunk: function (text) {
@@ -84,6 +107,7 @@ YTX.features.vocab = {
     YTX.btnRefresh(YTX.panel.querySelector('#ytx-generate-vocab'));
     this.isGenerating = false;
     if (this.data && this.data.length > 0) YTX.cache.save(YTX.currentVideoId, 'vocab', { data: this.data });
+    if (this._deferred) { this._deferred.resolve(); this._deferred = null; }
   },
 
   onError: function (error) {
@@ -91,6 +115,7 @@ YTX.features.vocab = {
     YTX.panel.querySelector('#ytx-generate-vocab').disabled = false;
     YTX.btnPrimary(YTX.panel.querySelector('#ytx-generate-vocab'));
     this.isGenerating = false;
+    if (this._deferred) { this._deferred.reject(new Error(error)); this._deferred = null; }
   },
 
   render: function () {
@@ -107,11 +132,13 @@ YTX.features.vocab = {
       '</div>' +
       '<div class="ytx-vocab-list">' +
         this.data.map(function (item) {
+          var safeT = YTX.safeTime(item.time);
+          var tsHtml = safeT ? '<span class="ytx-timestamp ytx-vocab-time" data-time="' + YTX.timeToSeconds(safeT) + '">[' + safeT + ']</span>' : '';
           return '<div class="ytx-vocab-item">' +
             '<div class="ytx-vocab-header">' +
               '<span class="ytx-vocab-word">' + YTX.escapeHtml(item.word) + '</span>' +
               '<span class="ytx-vocab-phonetic">' + YTX.escapeHtml(item.phonetic || '') + '</span>' +
-              (item.time ? '<span class="ytx-timestamp ytx-vocab-time" data-time="' + YTX.timeToSeconds(item.time) + '">[' + item.time + ']</span>' : '') +
+              tsHtml +
             '</div>' +
             '<div class="ytx-vocab-meaning"><span class="ytx-vocab-pos">' + YTX.escapeHtml(item.pos || '') + '</span> ' + YTX.escapeHtml(item.meaning || '') + '</div>' +
             (item.example ? '<div class="ytx-vocab-example">' + YTX.escapeHtml(item.example) + '</div>' : '') +
@@ -148,6 +175,8 @@ YTX.features.vocab = {
     this.text = '';
     this.data = [];
 
+    var startVideoId = YTX.currentVideoId;
+
     var btn = YTX.panel.querySelector('#ytx-generate-vocab');
     var contentEl = YTX.panel.querySelector('#ytx-content-vocab');
     btn.disabled = true;
@@ -158,14 +187,16 @@ YTX.features.vocab = {
     var payload = YTX.getContentPayload();
 
     YTX.getSettings().then(function (settings) {
+      if (YTX.currentVideoId !== startVideoId) { YTX.features.vocab.isGenerating = false; return; }
       var basePrompt = settings.promptVocab || YTX.prompts.VOCAB;
       var refreshPrompt = basePrompt + '\n\n注意：以下词汇已经提取过，请排除它们，提取其他不同的词汇：\n' + excludeList;
+      YTX.features.vocab.requestId = YTX.makeRequestId();
       chrome.runtime.sendMessage(Object.assign({
         type: 'GENERATE_VOCAB',
         prompt: refreshPrompt,
         provider: settings.provider,
-        activeKey: settings.activeKey,
         model: settings.model,
+        requestId: YTX.features.vocab.requestId,
       }, payload));
     });
   },

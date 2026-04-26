@@ -23,7 +23,7 @@ AAtools/
 │   ├── core.js          YTX 命名空间、共享状态、工具函数
 │   ├── prompts.js       默认 Prompt 模板
 │   ├── markdown.js      Markdown 渲染
-│   ├── export.js        Notion / Gist 导出
+│   ├── export.js        Markdown / Obsidian 导出
 │   ├── summary.js       总结功能
 │   ├── html-notes.js    HTML 笔记
 │   ├── chat.js          问答
@@ -65,11 +65,12 @@ YouTube 页面 (content scripts)          Service Worker
 └────────────────────────────┘                       └──────────────┘
 ```
 
-- **content scripts → background**: 通过 `chrome.runtime.sendMessage` 发送请求（如 `SUMMARIZE`、`CHAT_ASK`）
+- **content scripts → background**: 通过 `chrome.runtime.sendMessage` 发送请求（如 `SUMMARIZE`、`CHAT_ASK`），消息体里**不携带 API key**（见下方"安全模型"）
 - **background → content scripts**: 通过 `chrome.tabs.sendMessage` 流式转发 `{PREFIX}_CHUNK` / `{PREFIX}_DONE` / `{PREFIX}_ERROR`
 - 流式开始前发送 `{PREFIX}_MODEL` 消息通知 content script 当前使用的 provider 和 model（显示模型徽章）
 - panel.js 中的消息路由用正则 `/^(.+?)_(CHUNK|DONE|ERROR)$/` 解析前缀，分发到 `YTX.features[key]`
 - 所有流式 handler 立即返回 `{ started: true }` 并 `return true` 保持消息通道
+- 每个请求带 `requestId`（`YTX.makeRequestId()` 生成），background 在所有 _MODEL/_CHUNK/_DONE/_ERROR 消息里回传；panel.js 路由层在 dispatch 给 feature 之前检查 `message.requestId === feature.requestId`，不匹配则丢弃 → 防止 SPA 切视频/重复触发产生的旧 chunk 污染新结果
 
 ### 消息类型完整列表
 
@@ -84,10 +85,10 @@ YouTube 页面 (content scripts)          Service Worker
 | `CHAT_ASK` | `CHAT` | 问答 |
 | `TRANSCRIBE_VIDEO` | `TRANSCRIBE` | 视频转录（特殊：`PROGRESS`/`CHUNK`/`SEGMENT`） |
 | `TRANSLATE` | `TRANSLATE` | 划词翻译 |
-| `EXPORT_NOTION` | — | 同步返回 |
-| `UPLOAD_GIST` | — | 同步返回 |
 | `GESTURE_CLOSE_TAB` | — | 关闭 sender 所在标签页 |
 | `GESTURE_REOPEN_TAB` | — | `chrome.sessions.restore()` 恢复刚关闭的标签页 |
+
+导出功能（Obsidian / Markdown）完全在 content script 端处理（生成 .md Blob 直接下载），不走 background。
 
 ### 全局命名空间 `YTX`
 
@@ -103,12 +104,15 @@ YouTube 页面 (content scripts)          Service Worker
 
 关键工具函数：
 
-- `YTX.getSettings()` — 返回 Promise，自动从当前 provider 推导 `activeKey` 和 `model`
-- `YTX.ensureTranscript()` — 获取字幕的统一入口，有缓存则直接返回，失败自动回退 Gemini 视频模式
+- `YTX.makeRequestId()` — 生成形如 `r<base36ts><rand6>` 的请求 ID，用于流式响应隔离
+- `YTX.getSettings()` — 返回 Promise，包含 provider/model/prompt 等**非敏感字段**；不读 `*Key` 字段（API key 完全由 background `loadProviderConfig()` 自读）
+- `YTX.safeTime(str)` — 校验 AI 返回的时间戳字符串（仅允许 `H:MM:SS` / `MM:SS` / `M:SS`），不合法返回 null。cards/vocab/mindmap 渲染时间戳到 innerHTML 必须先经此校验，防 DOM 注入
+- `YTX.ensureTranscript()` — 获取字幕的统一入口，有缓存则直接返回，失败自动回退 Gemini 视频模式。**in-flight 去重**：同一 videoId 的并发调用复用 `YTX._transcriptPromise`，避免多功能并行触发多次 Gemini 转录；切视频/清缓存都会清空该 promise。手动视频模式（`switchToVideoMode`）也写入同一个 `_transcriptPromise`，普通功能在视频模式运行期间调用 `ensureTranscript` 会复用同一路转录流，不会再触发新一路
 - `YTX.getContentPayload()` — 返回 `{ transcript }` 用于发送到 background
 - `YTX.sendToBg(message)` — Promise 包装的 `chrome.runtime.sendMessage`，所有 feature 用它与 background 通信
 - `YTX.extractJSON(text, 'array'|'object')` — 健壮的 JSON 提取，6 层回退策略（直接解析 → 去尾逗号 → 修复控制字符 → 组合修复 → 截断到最后完整 `}` → 截断后再修复）
-- `YTX.generateAll()` — 并行生成所有功能（chat 除外），临时 patch 每个 feature 的 `onDone`/`onError` 为 Promise resolve
+- `YTX.createDeferred()` — 返回 `{ promise, resolve, reject }`；feature `start()` 用它把流式生命周期包成可 await 的 Promise
+- `YTX.generateAll()` — 并行生成所有功能（chat 除外），直接用 `Promise.all(keys.map(k => YTX.features[k].start()))`；不再 patch `onDone`/`onError`，避免 hook 残留与永不 resolve；用 try/catch/finally 包裹，字幕获取失败时面板顶部显示错误条 6 秒，按钮状态在 finally 中无条件恢复
 - `YTX.fmtTime(seconds)` / `YTX.timeToSeconds(str)` — 时间格式转换
 - `YTX.btnRefresh(btn)` / `YTX.btnPrimary(btn, icon)` — 按钮状态切换
 
@@ -122,6 +126,7 @@ YTX.features.KEY = {
   tab: { key, label, icon },  prefix,  contentId,  actionsId,  displayMode,
   // 状态
   isGenerating: false,
+  requestId: null,            // 当前请求 ID（panel.js 路由按它过滤过期 chunk）
   // 生命周期（panel.js 调用）
   reset(), actionsHtml(), contentHtml(), bindEvents(panel),
   // 生成（start 内部调用 YTX.ensureTranscript → getSettings → sendMessage）
@@ -131,7 +136,7 @@ YTX.features.KEY = {
 };
 ```
 
-`start()` 模式：设 `isGenerating=true` → 禁用按钮显示 spinner → `ensureTranscript()` → `getSettings()` → `sendMessage` 到 background → 等待流式回调。`isGenerating` 在 `onDone`/`onError` 中才置回 false。
+`start()` 模式：设 `isGenerating=true` → 创建 `this._deferred = YTX.createDeferred()`（旧 deferred 先 reject 让位）→ **抓 `var startVideoId = YTX.currentVideoId`**（早绑定）→ 禁用按钮显示 spinner → `await YTX.ensureTranscript()` → **校验 `YTX.currentVideoId === startVideoId` 否则 `bailSilently()`（resolve deferred 静默退出）** → `getSettings()` → 再次校验 → `this.requestId = YTX.makeRequestId()` → `sendMessage` 到 background（带 requestId）→ `return deferred.promise`，等待流式回调。`isGenerating` 与 `_deferred` 在 `onDone`(resolve) / `onError`(reject) 中才清理；`reset()` 把 `requestId` 设 null 并 `reject('视频已切换')` 释放挂起的 deferred。路由层会拒绝任何 requestId 不匹配的过期 chunk（含 feature.requestId 为 null 时的旧 chunk）。这套 deferred 机制让 `generateAll` 可以直接 `Promise.all(features.map(f => f.start()))`，无需 patch handler。
 
 `onChunk` 差异：summary 用 80ms 节流批量渲染，chat 实时渲染，mindmap/cards/vocab 仅累积原始文本在 `onDone` 中一次性 `extractJSON` + 渲染。
 
@@ -141,15 +146,38 @@ YTX.features.KEY = {
 
 `background.js` 中统一处理四家 API 的流式调用：
 
+- **Key 自读**: `loadProviderConfig(provider)` 从 `chrome.storage.sync` 按 provider 字段名读取 key + model；content script（YouTube 模块 + translate）**完全不读取 `*Key` 字段**，缺 key 时由 background 在响应里回 `{PREFIX}_ERROR`
 - **模型验证**: `sanitizeModel(provider, model)` 检查模型前缀（`claude-`/`gpt-`/`gemini-`/`minimax-`），不匹配则静默回退到默认模型
 - **SSE 解析**: 统一由 `readSSEStream()` 处理，按 provider 提取文本：
   - Claude: `content_block_delta` → `delta.text`，`message_stop` 结束
   - OpenAI: `choices[0].delta.content`，`[DONE]` 行结束
   - Gemini: `candidates[0].content.parts[0].text`，流结束即完成
+- **请求 ID 透传**: `callProvider` + `readSSEStream` 内定义局部 `send(msg) = safeSend(tabId, {requestId, ...msg})`，所有发往 content script 的消息自动带上 requestId
 - **防重复**: `doneSent` 标志防止重复发送 `{PREFIX}_DONE`
 - **安全发送**: `safeSend(tabId, msg)` 包裹 try/catch + `.catch(() => {})`，tab 关闭不会崩溃
 - **错误分类**: `classifyApiError()` 将 HTTP 状态码映射为中文提示（401→Key 无效，429+quota→余额不足，400+token→内容太长）
 - **SW 保活**: `startKeepalive()` 每 20 秒 ping 一次防止 Service Worker 被杀（视频转录时使用）
+
+### 安全模型
+
+`<all_urls>` content script（translate + gestures）暴露在所有页面，恶意页面可合成 mouse/keyboard 事件触发它们。多道防线：
+
+1. **`isTrusted` 守卫** — 所有真实用户交互入口（translate 的 mouseup/click/Ctrl+Enter，gestures 的 mousedown/mousemove/mouseup）首行 `if (!e.isTrusted) return;`，合成事件无法触发任何 API 请求或浏览器导航
+2. **API key 不经 message channel，content script 不读 key** — content script（YouTube `youtube/*.js` + `<all_urls>` 的 translate.js）**完全不读取** `chrome.storage.sync` 里的 `*Key` 字段，也不再传 `activeKey`。所有 key 由 background `loadProviderConfig()` 自读，缺 key 时统一回 `{PREFIX}_ERROR`。Gemini 视频转录的"无 key 时提示用户配置"也走这条路径。即使 content script 被部分攻陷，也无法通过 message 通道或 page-context 直接劫持 key
+3. **AI 输出 time 字段防注入** — cards/vocab/mindmap 的 `time` 字段直接拼到 `innerHTML`/SVG，渲染前必须经 `YTX.safeTime(str)` 校验（仅允许 `H:MM:SS`/`MM:SS`/`M:SS`），不合法 → 返回 null → 不渲染时间戳。防止恶意/被劫持的 LLM 返回带 `<script>` 或事件处理器的 time 字符串导致 DOM 注入
+4. **HTML 笔记导出清洗 + 严格 CSP** — `YTX.Export.sanitizeHtml(html)` 用 DOMParser 删除所有可执行/外部加载元素：`<script>`、`<iframe>`、`<frame>`、`<object>`、`<embed>`、`<applet>`、`<link rel=stylesheet|preload|prefetch|...>`、`<link as=...>`、`<base>`；剥离所有 `on*` 事件属性、`javascript:`/`data:`/`vbscript:` 链接（仅放行 `data:image/`）。再注入严格 CSP：`default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src 'none'; connect-src 'none'; frame-src 'none'; media-src 'none'; object-src 'none'; script-src 'none'; base-uri 'none'; form-action 'none';`。openInNewTab、downloadHtml、面板内 iframe.srcdoc 全部走它，导出文件离线打开后**不会向任何外部域发请求**
+5. **请求隔离（videoId + requestId 双层）** — 见下方"请求隔离"。translate 也加了本地 `currentRequestId`，关弹窗后立刻发起下一次翻译时旧 chunk 不会污染新弹窗
+
+### 请求隔离
+
+YouTube SPA 切视频时旧异步操作会污染新视频结果。用四层防线封死所有竞态窗口：
+
+- **videoId 早绑定（feature 层）** — 各 feature `start()` / `vocab.refresh()` / `generateAll()` 入口立即抓 `var startVideoId = YTX.currentVideoId;`；`ensureTranscript()` / `getSettings()` 等 await 之后立即检查 `if (YTX.currentVideoId !== startVideoId) { this.isGenerating = false; return; }`，旧 promise 不会用新视频的 transcript 发出新请求
+- **videoId 早绑定（字幕层）** — `YTX.ensureTranscript()` 内部也抓 `startVideoId`，`fetchTranscript()` await 完成后校验，不匹配则丢弃结果不写 `YTX.transcriptData`，缓存写入按 `startVideoId` 而非 `currentVideoId`，避免把 A 视频的字幕落到 B
+- **缓存恢复竞态防护** — `panel.js restoreFromCache(videoId)` 的 `cache.load(videoId).then(...)` 第一行 `if (videoId !== YTX.currentVideoId) return;`，IndexedDB 异步读期间切视频不会把旧记录渲染到新面板
+- **requestId 透传 + 路由过滤** — 每次请求带 `requestId`（`YTX.makeRequestId()`），background 把 requestId 放到所有 `_MODEL/_CHUNK/_DONE/_ERROR` 消息里。`panel.js` 路由层在 dispatch 给 feature 之前严格校验 `message.requestId === feature.requestId`，**即使 feature.requestId 为 null 也丢弃**。`_MODEL` 消息也走同一过滤，防止旧请求的模型徽章覆盖当前
+- **视频转录 videoId + requestId 双重隔离** — `TRANSCRIBE_VIDEO` 请求带 `videoId` 和 `requestId`，background 在 `TRANSCRIBE_PROGRESS/CHUNK/SEGMENT` 消息里都回传；`panel.js` 三个入口同时校验 `message.videoId !== YTX.currentVideoId` 和 `message.requestId !== YTX._transcribeRequestId`，任一不匹配则丢弃。这样即使同一视频下旧请求未取消时启动新转写（如手动取消未完成转录后再启动），旧 chunk/segment 也不会污染新结果。`_analyzeVideoWithGemini` 在 promise resolve 后再次 videoId 校验，不匹配则抛错丢弃结果
+- **非视频页导航清理** — `panel.js onNavigate` 检测到 `!videoId`（首页/搜索/频道页等）时调 `resetTranscriptState()` 清空 `_transcriptPromise/_transcriptVideoId/_transcribeVideoId/_transcribeRequestId/_transcribeBuffer/_transcribeReceiving/_transcribeTimer/isFetchingTranscript`，避免 A 视频转录中跳到首页再进 B 视频时被旧 in-flight 状态错误拦截
 
 ### 字幕获取流程
 
@@ -164,6 +192,7 @@ YTX.features.KEY = {
 
 完全独立于 YTX 命名空间的 IIFE，运行在所有页面（`<all_urls>`）。
 
+- **`isTrusted` 守卫**: 5 个真实交互入口（document mouseup、icon click、iframe mouseup、textarea Ctrl+Enter、翻译按钮 click）首行检查，合成事件无法触发翻译请求
 - **字典/句段模式判定**（background.js 和 translate.js 各有一份相同逻辑）：CJK ≤4 字符或 Latin ≤3 单词走字典格式，否则走纯翻译
 - **语境查词**: 在翻译弹窗的原文区选中某词，自动带全文语境发送到 background
 - **iframe 支持**: MutationObserver 监听 DOM 变化，自动 hook `iframe.contentDocument` 的 mouseup 事件
@@ -197,6 +226,7 @@ YTX.features.KEY = {
 **识别逻辑**
 
 - 右键 `mousedown` 开始追踪 → `mousemove` 累计方向序列 → `mouseup` 匹配 `GESTURES` 表执行
+- **`isTrusted` 守卫**：mousedown/mousemove/mouseup 首行检查，合成事件不触发
 - **单段阈值** `MIN_SEGMENT = 30` 像素：超过才记一次方向
 - **总位移阈值** `MIN_GESTURE = 8` 像素：低于此值视为普通右键，放行原生菜单
 - **方向去重**: 连续相同方向只记一次，所以 `LL` 不存在，长拖动也只算 `L`
@@ -234,7 +264,6 @@ YTX.features.KEY = {
 - `claudeModel`, `openaiModel`, `geminiModel`, `minimaxModel` — 各 provider 的模型 ID
 - `prompt`, `promptHtml`, `promptCards`, `promptMindmap`, `promptVocab` — 自定义 prompt（注意 summary 的 key 是 `prompt` 而非 `promptSummary`，向后兼容）
 - `promptTranslateDict`, `promptTranslateSentence` — 翻译自定义 prompt
-- `notionKey`, `notionPage`, `githubKey` — 导出集成
 - `generateAllSummary`, `generateAllMindmap`, `generateAllHtml` — 一键生成是否包含对应功能（boolean，默认 true，`!== false` 判断）
 - `generateAllCards`, `generateAllVocab` — 一键生成是否包含卡片/词汇（boolean，默认 false）
 - `enableGestures` — 鼠标手势总开关（boolean，默认 true，`!== false` 判断）

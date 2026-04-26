@@ -8,7 +8,7 @@
   <div class="container">
     <div class="header">
       <h1>AAtools</h1>
-      <span class="subtitle">YouTube 视频助手 & 划词翻译 & 小红书增强</span>
+      <span class="subtitle">YouTube 视频助手 & 划词翻译 & 小红书增强 & 鼠标手势</span>
     </div>
 
     <!-- Card 1: AI 模型配置 -->
@@ -132,62 +132,6 @@
       </div>
       <div class="field">
         <label class="checkbox-label"><input type="checkbox" id="enableGestures" checked> 启用鼠标手势（右键拖拽：← 后退 / → 前进 / ↓→ 关闭 / ←↑ 恢复）</label>
-      </div>
-    </div>
-
-    <!-- Card 3: Notion 导出 -->
-    <div class="card">
-      <div class="card-header">
-        <div class="card-header-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
-        </div>
-        <div class="card-title">Notion 导出</div>
-      </div>
-
-      <div class="field">
-        <label for="notionKey">
-          <span>Integration Token</span>
-          <a href="https://www.notion.so/my-integrations" target="_blank" class="help-link">获取</a>
-        </label>
-        <div class="input-wrap">
-          <input type="password" id="notionKey" placeholder="ntn_...">
-          <button id="toggleNotionKey" class="btn-icon" title="显示/隐藏">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-          </button>
-        </div>
-      </div>
-
-      <div class="field">
-        <label for="notionPage">父级页面</label>
-        <input type="text" id="notionPage" placeholder="页面链接或 32 位 ID">
-        <div class="hint">需将集成邀请（Connections）到目标页面</div>
-      </div>
-    </div>
-
-    <!-- Card 4: GitHub Gist -->
-    <div class="card">
-      <div class="card-header">
-        <div class="card-header-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
-        </div>
-        <div>
-          <div class="card-title">GitHub Gist（原文件上传）</div>
-          <div class="card-desc">导出到 Notion 时，将 HTML 笔记 / SVG 导图原文件上传到 Gist 并在页面中嵌入链接</div>
-        </div>
-      </div>
-
-      <div class="field">
-        <label for="githubKey">
-          <span>Personal Access Token</span>
-          <a href="https://github.com/settings/tokens/new?scopes=gist&description=AAtools" target="_blank" class="help-link">获取</a>
-        </label>
-        <div class="input-wrap">
-          <input type="password" id="githubKey" placeholder="ghp_...">
-          <button id="toggleGithubKey" class="btn-icon" title="显示/隐藏">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-          </button>
-        </div>
-        <div class="hint">仅需 gist 权限，无 token 时导出 Notion 不受影响</div>
       </div>
     </div>
 

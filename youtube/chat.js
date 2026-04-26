@@ -16,6 +16,7 @@ YTX.features.chat = {
     this.messages = [];
     this.replyText = '';
     this.isChatting = false;
+    this.requestId = null;
   },
 
   actionsHtml: function () {
@@ -74,21 +75,27 @@ YTX.features.chat = {
     // 保留最近 40 条消息（约 20 轮对话），防止超 token 限制
     if (this.messages.length > 40) this.messages = this.messages.slice(-40);
 
+    var startVideoId = YTX.currentVideoId;
+
     try {
       aiBubble.innerHTML = '<div class="ytx-loading"><div class="ytx-spinner"></div><span>获取字幕中...</span></div>';
       await YTX.ensureTranscript();
+      if (YTX.currentVideoId !== startVideoId) { this.isChatting = false; return; }
 
       var settings = await YTX.getSettings();
+      if (YTX.currentVideoId !== startVideoId) { this.isChatting = false; return; }
       var payload = YTX.getContentPayload();
 
+      this.requestId = YTX.makeRequestId();
       chrome.runtime.sendMessage(Object.assign({
         type: 'CHAT_ASK',
         messages: this.messages,
         provider: settings.provider,
-        activeKey: settings.activeKey,
         model: settings.model,
+        requestId: this.requestId,
       }, payload));
     } catch (err) {
+      if (YTX.currentVideoId !== startVideoId) { this.isChatting = false; return; }
       aiBubble.innerHTML = '<span class="ytx-chat-err">' + err.message + '</span>';
       this.isChatting = false;
       sendBtn.disabled = false;

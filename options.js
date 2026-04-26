@@ -181,21 +181,14 @@ let modelCache = { claude: '', openai: '', gemini: '', minimax: '' };
 // 各功能 prompt 缓存，切换 tab 时不丢失未保存的编辑
 let promptCache = {};
 
-function parseNotionPageId(input) {
-  if (!input) return '';
-  input = input.trim();
-  var rawId = input.replace(/-/g, '');
-  if (/^[0-9a-f]{32}$/i.test(rawId)) return rawId;
-  var match = input.match(/([0-9a-f]{32})/i);
-  if (match) return match[1];
-  return input;
-}
-
 document.addEventListener('DOMContentLoaded', () => {
+  // 一次性迁移：移除旧版（已删除的 Notion / GitHub Gist 集成）残留 key
+  // 这些字段现在不再被读取，但老用户的 storage.sync 里仍有，会跨设备同步占空间
+  chrome.storage.sync.remove(['notionKey', 'notionPage', 'githubKey']);
+
   const STORAGE_KEYS = [
     'provider', 'claudeKey', 'openaiKey', 'geminiKey', 'minimaxKey',
     'claudeModel', 'openaiModel', 'geminiModel', 'minimaxModel', 'model',
-    'notionKey', 'notionPage', 'githubKey',
     'generateAllSummary', 'generateAllMindmap', 'generateAllHtml', 'generateAllCards', 'generateAllVocab',
     'enableGestures',
     ...ALL_PROMPT_KEYS,
@@ -238,10 +231,6 @@ document.addEventListener('DOMContentLoaded', () => {
       $('#generateAllVocab').checked = !!data.generateAllVocab;
 
       $('#enableGestures').checked = data.enableGestures !== false;
-
-      $('#notionKey').value = data.notionKey || '';
-      $('#notionPage').value = data.notionPage || '';
-      $('#githubKey').value = data.githubKey || '';
 
       var vb = document.getElementById('version-badge');
       if (vb) vb.textContent = 'v' + chrome.runtime.getManifest().version;
@@ -289,20 +278,9 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#fetchModels').addEventListener('click', handleFetchModels);
   $('#fetchModelsBtn').addEventListener('click', handleFetchModels);
 
-  $('#toggleNotionKey').addEventListener('click', () => {
-    const input = $('#notionKey');
-    input.type = input.type === 'password' ? 'text' : 'password';
-  });
-
-  $('#toggleGithubKey').addEventListener('click', () => {
-    const input = $('#githubKey');
-    input.type = input.type === 'password' ? 'text' : 'password';
-  });
-
   const SETTING_KEYS = [
     'provider', 'claudeKey', 'openaiKey', 'geminiKey', 'minimaxKey',
     'claudeModel', 'openaiModel', 'geminiModel', 'minimaxModel', 'model',
-    'notionKey', 'notionPage', 'githubKey',
     'generateAllSummary', 'generateAllMindmap', 'generateAllHtml', 'generateAllCards', 'generateAllVocab',
     'enableGestures',
     'mindmapAlignTop',
@@ -503,9 +481,6 @@ function saveSettings(isManual) {
     geminiModel: modelCache.gemini,
     minimaxModel: modelCache.minimax,
     model: $('#model').value,
-    notionKey: $('#notionKey').value.trim(),
-    notionPage: parseNotionPageId($('#notionPage').value),
-    githubKey: $('#githubKey').value.trim(),
     generateAllSummary: $('#generateAllSummary').checked,
     generateAllMindmap: $('#generateAllMindmap').checked,
     generateAllHtml: $('#generateAllHtml').checked,

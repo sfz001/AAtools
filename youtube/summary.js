@@ -15,7 +15,9 @@ YTX.features.summary = {
   reset: function () {
     this.text = '';
     this.isGenerating = false;
-    this._renderTimer = null;
+    if (this._renderTimer) { clearTimeout(this._renderTimer); this._renderTimer = null; }
+    this.requestId = null;
+    if (this._deferred) { this._deferred.reject(new Error('视频已切换')); this._deferred = null; }
   },
 
   actionsHtml: function () {
@@ -29,14 +31,22 @@ YTX.features.summary = {
 
   bindEvents: function (panel) {
     var self = this;
-    panel.querySelector('#ytx-summarize').addEventListener('click', function () { self.start(); });
+    panel.querySelector('#ytx-summarize').addEventListener('click', function () { self.start().catch(function () {}); });
     panel.querySelector('#ytx-generate-all').addEventListener('click', function () { YTX.generateAll(); });
   },
 
-  start: async function () {
-    if (this.isGenerating) return;
+  start: function () {
+    var self = this;
+    if (this.isGenerating) return Promise.resolve();
     this.isGenerating = true;
     this.text = '';
+
+    // 旧 deferred 让位（理论上 isGenerating 已挡住，但安全起见）
+    if (this._deferred) this._deferred.reject(new Error('已被新请求覆盖'));
+    this._deferred = YTX.createDeferred();
+    var deferred = this._deferred;
+
+    var startVideoId = YTX.currentVideoId; // 早绑定
 
     var btn = YTX.panel.querySelector('#ytx-summarize');
     var contentEl = YTX.panel.querySelector('#ytx-content');
@@ -45,28 +55,42 @@ YTX.features.summary = {
     btn.innerHTML = YTX.icons.spinner;
     contentEl.innerHTML = '<div class="ytx-loading"><div class="ytx-spinner"></div><span>正在获取字幕...</span></div>';
 
-    try {
-      await YTX.ensureTranscript();
-
-      contentEl.innerHTML = '<div class="ytx-loading"><div class="ytx-spinner"></div><span>正在生成总结...</span></div>';
-
-      var settings = await YTX.getSettings();
-      var payload = YTX.getContentPayload();
-
-      chrome.runtime.sendMessage(Object.assign({
-        type: 'SUMMARIZE',
-        prompt: settings.prompt || YTX.prompts.DEFAULT,
-        provider: settings.provider,
-        activeKey: settings.activeKey,
-        model: settings.model,
-      }, payload));
-
-    } catch (err) {
-      contentEl.innerHTML = '<div class="ytx-error">' + err.message + '</div>';
-      btn.disabled = false;
-      YTX.btnPrimary(btn);
-      this.isGenerating = false;
+    function bailSilently() {
+      self.isGenerating = false;
+      if (self._deferred === deferred) { deferred.resolve(); self._deferred = null; }
     }
+
+    (async function () {
+      try {
+        await YTX.ensureTranscript();
+        if (YTX.currentVideoId !== startVideoId) return bailSilently();
+
+        contentEl.innerHTML = '<div class="ytx-loading"><div class="ytx-spinner"></div><span>正在生成总结...</span></div>';
+
+        var settings = await YTX.getSettings();
+        if (YTX.currentVideoId !== startVideoId) return bailSilently();
+        var payload = YTX.getContentPayload();
+
+        self.requestId = YTX.makeRequestId();
+        chrome.runtime.sendMessage(Object.assign({
+          type: 'SUMMARIZE',
+          prompt: settings.prompt || YTX.prompts.DEFAULT,
+          provider: settings.provider,
+          model: settings.model,
+          requestId: self.requestId,
+        }, payload));
+        // deferred 由 onDone/onError 触发
+      } catch (err) {
+        if (YTX.currentVideoId !== startVideoId) return bailSilently();
+        contentEl.innerHTML = '<div class="ytx-error">' + err.message + '</div>';
+        btn.disabled = false;
+        YTX.btnPrimary(btn);
+        self.isGenerating = false;
+        if (self._deferred === deferred) { deferred.reject(err); self._deferred = null; }
+      }
+    })();
+
+    return deferred.promise;
   },
 
   onChunk: function (text) {
@@ -97,6 +121,7 @@ YTX.features.summary = {
     YTX.btnRefresh(YTX.panel.querySelector('#ytx-summarize'));
     this.isGenerating = false;
     YTX.cache.save(YTX.currentVideoId, 'summary', { text: this.text });
+    if (this._deferred) { this._deferred.resolve(); this._deferred = null; }
   },
 
   renderFinal: function () {
@@ -139,6 +164,7 @@ YTX.features.summary = {
     YTX.panel.querySelector('#ytx-summarize').disabled = false;
     YTX.btnPrimary(YTX.panel.querySelector('#ytx-summarize'));
     this.isGenerating = false;
+    if (this._deferred) { this._deferred.reject(new Error(error)); this._deferred = null; }
   },
 
 };

@@ -14,6 +14,8 @@ YTX.features.html = {
   reset: function () {
     this.text = '';
     this.isGenerating = false;
+    this.requestId = null;
+    if (this._deferred) { this._deferred.reject(new Error('视频已切换')); this._deferred = null; }
   },
 
   actionsHtml: function () {
@@ -26,43 +28,63 @@ YTX.features.html = {
 
   bindEvents: function (panel) {
     var self = this;
-    panel.querySelector('#ytx-generate-html').addEventListener('click', function () { self.start(); });
+    panel.querySelector('#ytx-generate-html').addEventListener('click', function () { self.start().catch(function () {}); });
   },
 
-  start: async function () {
-    if (this.isGenerating) return;
+  start: function () {
+    var self = this;
+    if (this.isGenerating) return Promise.resolve();
     this.isGenerating = true;
     this.text = '';
+
+    if (this._deferred) this._deferred.reject(new Error('已被新请求覆盖'));
+    this._deferred = YTX.createDeferred();
+    var deferred = this._deferred;
+
+    var startVideoId = YTX.currentVideoId;
 
     var btn = YTX.panel.querySelector('#ytx-generate-html');
     var contentEl = YTX.panel.querySelector('#ytx-content-html');
     btn.disabled = true;
 
-    try {
-      btn.innerHTML = YTX.icons.spinner;
-      contentEl.innerHTML = '<div class="ytx-loading" style="padding:14px 16px"><div class="ytx-spinner"></div><span>正在获取字幕...</span></div>';
-      await YTX.ensureTranscript();
-
-      btn.innerHTML = YTX.icons.spinner;
-      contentEl.innerHTML = '<div class="ytx-loading" style="padding:14px 16px"><div class="ytx-spinner"></div><span>正在生成笔记...</span></div>';
-
-      var settings = await YTX.getSettings();
-      var payload = YTX.getContentPayload();
-
-      chrome.runtime.sendMessage(Object.assign({
-        type: 'GENERATE_HTML',
-        prompt: settings.promptHtml || YTX.prompts.HTML,
-        provider: settings.provider,
-        activeKey: settings.activeKey,
-        model: settings.model,
-      }, payload));
-
-    } catch (err) {
-      contentEl.innerHTML = '<div class="ytx-error" style="margin:14px 16px">' + err.message + '</div>';
-      btn.disabled = false;
-      YTX.btnPrimary(btn);
-      this.isGenerating = false;
+    function bailSilently() {
+      self.isGenerating = false;
+      if (self._deferred === deferred) { deferred.resolve(); self._deferred = null; }
     }
+
+    (async function () {
+      try {
+        btn.innerHTML = YTX.icons.spinner;
+        contentEl.innerHTML = '<div class="ytx-loading" style="padding:14px 16px"><div class="ytx-spinner"></div><span>正在获取字幕...</span></div>';
+        await YTX.ensureTranscript();
+        if (YTX.currentVideoId !== startVideoId) return bailSilently();
+
+        btn.innerHTML = YTX.icons.spinner;
+        contentEl.innerHTML = '<div class="ytx-loading" style="padding:14px 16px"><div class="ytx-spinner"></div><span>正在生成笔记...</span></div>';
+
+        var settings = await YTX.getSettings();
+        if (YTX.currentVideoId !== startVideoId) return bailSilently();
+        var payload = YTX.getContentPayload();
+
+        self.requestId = YTX.makeRequestId();
+        chrome.runtime.sendMessage(Object.assign({
+          type: 'GENERATE_HTML',
+          prompt: settings.promptHtml || YTX.prompts.HTML,
+          provider: settings.provider,
+          model: settings.model,
+          requestId: self.requestId,
+        }, payload));
+      } catch (err) {
+        if (YTX.currentVideoId !== startVideoId) return bailSilently();
+        contentEl.innerHTML = '<div class="ytx-error" style="margin:14px 16px">' + err.message + '</div>';
+        btn.disabled = false;
+        YTX.btnPrimary(btn);
+        self.isGenerating = false;
+        if (self._deferred === deferred) { deferred.reject(err); self._deferred = null; }
+      }
+    })();
+
+    return deferred.promise;
   },
 
   onChunk: function (text) {
@@ -75,6 +97,7 @@ YTX.features.html = {
     YTX.btnRefresh(YTX.panel.querySelector('#ytx-generate-html'));
     this.isGenerating = false;
     YTX.cache.save(YTX.currentVideoId, 'html', { text: this.text });
+    if (this._deferred) { this._deferred.resolve(); this._deferred = null; }
   },
 
   onError: function (error) {
@@ -82,6 +105,7 @@ YTX.features.html = {
     YTX.panel.querySelector('#ytx-generate-html').disabled = false;
     YTX.btnPrimary(YTX.panel.querySelector('#ytx-generate-html'));
     this.isGenerating = false;
+    if (this._deferred) { this._deferred.reject(new Error(error)); this._deferred = null; }
   },
 
   renderContent: function () {
@@ -94,11 +118,10 @@ YTX.features.html = {
         '<button class="ytx-mm-tool-btn" data-action="open-tab">新标签打开</button>' +
         '<button class="ytx-mm-tool-btn" data-action="download">下载 HTML</button>' +
         '<button class="ytx-mm-tool-btn" data-action="export-obsidian">导出 Obsidian</button>' +
-        '<button class="ytx-mm-tool-btn" data-action="export-notion">导出到Notion</button>' +
       '</div>';
     var iframe = document.createElement('iframe');
     iframe.sandbox = 'allow-same-origin';
-    iframe.srcdoc = this.text;
+    iframe.srcdoc = YTX.Export.sanitizeHtml(this.text);
     contentEl.appendChild(iframe);
 
     // iframe 加载后注入时间戳点击跳转
@@ -140,13 +163,13 @@ YTX.features.html = {
         if (action === 'open-tab') self.openInNewTab();
         else if (action === 'download') self.downloadHtml();
         else if (action === 'export-obsidian') self.exportObsidian();
-        else if (action === 'export-notion') self.exportNotion();
       });
     });
   },
 
   openInNewTab: function () {
-    var blob = new Blob([this.text], { type: 'text/html' });
+    var safe = YTX.Export.sanitizeHtml(this.text);
+    var blob = new Blob([safe], { type: 'text/html' });
     var url = URL.createObjectURL(blob);
     window.open(url, '_blank');
     setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
@@ -155,7 +178,8 @@ YTX.features.html = {
   downloadHtml: function () {
     var title = YTX.Export.getVideoTitle();
     var filename = YTX.Export.getSafeFilename(title) + '-笔记.html';
-    var blob = new Blob([this.text], { type: 'text/html;charset=utf-8' });
+    var safe = YTX.Export.sanitizeHtml(this.text);
+    var blob = new Blob([safe], { type: 'text/html;charset=utf-8' });
     var url = URL.createObjectURL(blob);
     var a = document.createElement('a');
     a.href = url;
@@ -172,27 +196,5 @@ YTX.features.html = {
     YTX.Export.downloadObsidian(md, title);
     var btn = YTX.panel.querySelector('#ytx-content-html .ytx-mm-tool-btn[data-action="export-obsidian"]');
     if (btn) YTX.Export.flashButton(btn, '已导出', 1500);
-  },
-
-  exportNotion: function () {
-    var btn = YTX.panel.querySelector('#ytx-content-html .ytx-mm-tool-btn[data-action="export-notion"]');
-    if (!btn) return;
-    btn.textContent = '导出到Notion...';
-    btn.disabled = true;
-    var blocks = YTX.Export.htmlToNotionBlocks(this.text);
-    var title = YTX.Export.getVideoTitle() + ' - 笔记';
-    var filename = YTX.Export.getSafeFilename(YTX.Export.getVideoTitle()) + '-笔记.html';
-    var callback = function (resp) {
-      if (resp.error) {
-        btn.textContent = '导出失败';
-        btn.disabled = false;
-        alert(resp.error);
-        setTimeout(function () { btn.textContent = '导出到Notion'; }, 1500);
-      } else {
-        YTX.Export.flashButton(btn, '已导出', 2000);
-        if (resp.url) window.open(resp.url, '_blank');
-      }
-    };
-    YTX.Export.sendToNotionWithGist(title, blocks, filename, this.text, 'HTML 笔记', callback);
   },
 };
