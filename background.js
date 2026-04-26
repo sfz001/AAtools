@@ -512,40 +512,23 @@ function startKeepalive() {
 }
 
 // ── 视频转录主流程 ─────────────────────────────────────────
-// 优先用 sub2api3（用户约定的 Gemini 槽位，支持中转账户额度），缺配置时回落到原生 Gemini provider
+// 直连原生 Gemini API 走视频转字幕。sub2api 网关大多绑的是 OAuth/codeassist 账号
+// 不支持 file_data.file_uri 的 YouTube URL 视频处理，所以这里固定走原生通道
 async function handleTranscribeVideo(message, tabId) {
   const { videoUrl, videoDuration, videoId, requestId } = message;
+  const cfg = await loadProviderConfig('gemini');
+  const key = cfg.key;
 
-  // 优先 sub2api3：必须 key 和 baseUrl 都配齐
-  const sub2 = await loadProviderConfig('sub2api3');
-  const sub2Base = normalizeSub2ApiBase(sub2.baseUrl);
-  const useSub2 = !!sub2.key && !!sub2Base;
+  if (!key) return { error: '请先在扩展设置中填入 Gemini API Key' };
 
-  let key, baseUrl, model;
-  if (useSub2) {
-    key = sub2.key;
-    baseUrl = sub2Base;
-    // 用户在 sub2api #3 选了 gemini-* 模型就用它，否则用网关常见的 gemini-2.5-flash
-    // 不再用原生 gemini-flash-lite-latest（很多中转网关没接这个 alias）
-    model = (typeof sub2.model === 'string' && sub2.model.startsWith('gemini-'))
-      ? sub2.model
-      : 'gemini-2.5-flash';
-  } else {
-    const cfg = await loadProviderConfig('gemini');
-    key = cfg.key;
-    baseUrl = null; // null 表示直连 Google API
-    model = 'gemini-flash-lite-latest';
-    if (!key) {
-      return { error: '请配置 Sub2API #3（Gemini）的 Key + Base URL，或在原生 Gemini 槽位填入 API Key' };
-    }
-  }
+  // 视频转录强制使用 flash-lite-latest
+  const model = 'gemini-flash-lite-latest';
 
   const stopKeepalive = startKeepalive();
 
   try {
-    console.log('[AAtools] 视频转录开始:', videoUrl, '时长(秒):', videoDuration || '未知',
-      '模型:', model, '通道:', useSub2 ? `sub2api3 (${baseUrl})` : 'gemini direct');
-    return await _fallbackVideoTranscribe(key, model, videoUrl, videoDuration, tabId, videoId, requestId, baseUrl);
+    console.log('[AAtools] 视频转录开始:', videoUrl, '时长(秒):', videoDuration || '未知', '模型:', model);
+    return await _fallbackVideoTranscribe(key, model, videoUrl, videoDuration, tabId, videoId, requestId);
   } catch (err) {
     console.error('[AAtools] 视频转录异常:', err);
     return { error: '视频分析失败: ' + (err.message || '') };
@@ -555,8 +538,7 @@ async function handleTranscribeVideo(message, tabId) {
 }
 
 // ── 视频转录：单次请求 + 流式输出 ──────────────────────────
-// baseUrl 非空时走 sub2api 中转（{baseUrl}/v1beta/...），为空时直连 Google
-async function _fallbackVideoTranscribe(key, model, videoUrl, videoDuration, tabId, videoId, requestId, baseUrl) {
+async function _fallbackVideoTranscribe(key, model, videoUrl, videoDuration, tabId, videoId, requestId) {
   const durationSec = videoDuration || 0;
   console.log('[AAtools] 视频转录开始, 时长:', durationSec ? Math.ceil(durationSec / 60) + '分钟' : '未知');
 
@@ -587,7 +569,7 @@ TIMESTAMP FORMAT:
 IMPORTANT: Transcribe the COMPLETE audio from start to finish. Do NOT stop early. Maximize output length.
 OUTPUT: Plain text only, no Markdown.`;
 
-  const res = await _callGeminiTranscribe(key, model, videoUrl, prompt, tabId, videoId, requestId, baseUrl);
+  const res = await _callGeminiTranscribe(key, model, videoUrl, prompt, tabId, videoId, requestId);
   if (res.error) return res;
 
   if (tabId) {
@@ -604,8 +586,7 @@ OUTPUT: Plain text only, no Markdown.`;
 }
 
 // 调用 Gemini streamGenerateContent 流式转录，带重试
-// baseUrl 非空时走 sub2api 中转，否则直连 Google API
-async function _callGeminiTranscribe(key, model, videoUrl, prompt, tabId, videoId, requestId, baseUrl) {
+async function _callGeminiTranscribe(key, model, videoUrl, prompt, tabId, videoId, requestId) {
   const body = {
     contents: [{
       parts: [
@@ -625,22 +606,14 @@ async function _callGeminiTranscribe(key, model, videoUrl, prompt, tabId, videoI
       await new Promise(r => setTimeout(r, waitSec * 1000));
     }
 
-    // sub2api 中转：URL 用网关 base + Gemini 路径，三种鉴权全附以兼容不同网关；直连：标准 Google API
-    const url = baseUrl
-      ? `${baseUrl}/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${encodeURIComponent(key)}`
-      : `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${key}`;
-    const headers = baseUrl
-      ? {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${key}`,
-          'x-goog-api-key': key,
-        }
-      : { 'Content-Type': 'application/json' };
-    const response = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
-    });
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${key}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }
+    );
 
     if (!response.ok) {
       const errText = await response.text();
@@ -657,6 +630,21 @@ async function _callGeminiTranscribe(key, model, videoUrl, prompt, tabId, videoI
     const decoder = new TextDecoder();
     let buffer = '';
     let fullText = '';
+    let upstreamError = null;     // SSE 流里的错误事件
+    let blockReason = null;       // promptFeedback 拒绝原因
+    let abnormalFinish = null;    // SAFETY/RECITATION/OTHER 等异常 finishReason
+
+    // 首块响应超时：sub2api 中转网关可能收了请求但永不回内容（视频模态不支持 / 上游卡死）
+    // 180 秒还没拿到任何文本就主动取消，让上层 fallback 到下一通道
+    let firstChunkReceived = false;
+    let stallAborted = false;
+    const FIRST_CHUNK_TIMEOUT = 180000;
+    const stallTimer = setTimeout(() => {
+      if (!firstChunkReceived) {
+        stallAborted = true;
+        try { reader.cancel(); } catch (e) {}
+      }
+    }, FIRST_CHUNK_TIMEOUT);
 
     while (true) {
       const { done, value } = await reader.read();
@@ -672,8 +660,35 @@ async function _callGeminiTranscribe(key, model, videoUrl, prompt, tabId, videoI
         if (!data || data === '[DONE]') continue;
         try {
           const parsed = JSON.parse(data);
+
+          // 检测上游错误事件（200 + SSE error，常见于 YouTube URL 不被账号支持等情况）
+          if (parsed.error) {
+            upstreamError = parsed.error.message || parsed.error.code || JSON.stringify(parsed.error);
+            console.warn('[AAtools] Gemini SSE 错误事件:', upstreamError);
+            continue;
+          }
+
+          // 请求被拒绝（安全策略 / 视频不可访问 / 配额等）
+          const bf = parsed.promptFeedback?.blockReason;
+          if (bf) {
+            blockReason = bf + (parsed.promptFeedback?.blockReasonMessage ? ' - ' + parsed.promptFeedback.blockReasonMessage : '');
+            console.warn('[AAtools] Gemini 拒绝处理:', blockReason);
+            continue;
+          }
+
+          // candidates 异常完成原因
+          const fr = parsed.candidates?.[0]?.finishReason;
+          if (fr && fr !== 'STOP' && fr !== 'MAX_TOKENS' && !abnormalFinish) {
+            abnormalFinish = fr;
+            console.warn('[AAtools] Gemini finishReason 异常:', fr);
+          }
+
           const chunk = parsed.candidates?.[0]?.content?.parts?.[0]?.text;
           if (chunk) {
+            if (!firstChunkReceived) {
+              firstChunkReceived = true;
+              clearTimeout(stallTimer);  // 收到首块后取消超时，后续不再卡时间
+            }
             fullText += chunk;
             if (tabId) {
               chrome.tabs.sendMessage(tabId, {
@@ -684,6 +699,23 @@ async function _callGeminiTranscribe(key, model, videoUrl, prompt, tabId, videoI
           }
         } catch (e) { /* ignore parse errors */ }
       }
+    }
+    clearTimeout(stallTimer);
+
+    // 首块超时主动取消时，明确报错让上层 fallback
+    if (stallAborted) {
+      return { error: '通道无响应（180 秒未收到任何内容），可能不支持视频模态或被代理超时' };
+    }
+
+    // 流结束后没产出文本时，把已捕获的上游错误信息冒泡上来
+    if (!fullText && upstreamError) {
+      return { error: 'Gemini 上游错误：' + upstreamError + '（如使用 sub2api 中转，请检查网关账号是否支持 YouTube URL 视频处理）' };
+    }
+    if (!fullText && blockReason) {
+      return { error: 'Gemini 拒绝处理：' + blockReason };
+    }
+    if (!fullText && abnormalFinish) {
+      return { error: 'Gemini 异常结束（finishReason=' + abnormalFinish + '），可能视频太长或内容受限' };
     }
 
     if (!fullText) {
