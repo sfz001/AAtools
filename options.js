@@ -9,9 +9,10 @@ const PROVIDERS = {
     placeholder: 'sk-ant-api03-...',
     helpUrl: 'https://console.anthropic.com/settings/keys',
     models: [
-      { value: 'claude-sonnet-4-6', label: 'Sonnet 4.6 — 推荐' },
+      { value: 'claude-sonnet-5', label: 'Sonnet 5 — 推荐' },
       { value: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5 — 更快' },
-      { value: 'claude-opus-4-7', label: 'Opus 4.7 — 最强' },
+      { value: 'claude-opus-4-8', label: 'Opus 4.8 — 最强' },
+      { value: 'claude-sonnet-4-6', label: 'Sonnet 4.6 — 上一代' },
     ]
   },
   openai: {
@@ -55,9 +56,10 @@ const PROVIDERS = {
     placeholder: 'sk-...',
     helpUrl: 'https://github.com/Wei-Shaw/sub2api',
     models: [
-      { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6（走 /v1/messages）' },
+      { value: 'claude-sonnet-5', label: 'Claude Sonnet 5（走 /v1/messages）' },
       { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5（走 /v1/messages）' },
-      { value: 'claude-opus-4-7', label: 'Claude Opus 4.7（走 /v1/messages）' },
+      { value: 'claude-opus-4-8', label: 'Claude Opus 4.8（走 /v1/messages）' },
+      { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6（走 /v1/messages）' },
       { value: 'gpt-5.4-mini', label: 'GPT-5.4 mini（走 /v1/responses）' },
       { value: 'gpt-5.4', label: 'GPT-5.4（走 /v1/responses）' },
       { value: 'gpt-5.5', label: 'GPT-5.5（走 /v1/responses）' },
@@ -71,9 +73,10 @@ const PROVIDERS = {
     placeholder: 'sk-...',
     helpUrl: 'https://github.com/Wei-Shaw/sub2api',
     models: [
-      { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6（走 /v1/messages）' },
+      { value: 'claude-sonnet-5', label: 'Claude Sonnet 5（走 /v1/messages）' },
       { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5（走 /v1/messages）' },
-      { value: 'claude-opus-4-7', label: 'Claude Opus 4.7（走 /v1/messages）' },
+      { value: 'claude-opus-4-8', label: 'Claude Opus 4.8（走 /v1/messages）' },
+      { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6（走 /v1/messages）' },
       { value: 'gpt-5.4-mini', label: 'GPT-5.4 mini（走 /v1/responses）' },
       { value: 'gpt-5.4', label: 'GPT-5.4（走 /v1/responses）' },
       { value: 'gpt-5.5', label: 'GPT-5.5（走 /v1/responses）' },
@@ -87,9 +90,10 @@ const PROVIDERS = {
     placeholder: 'sk-...',
     helpUrl: 'https://github.com/Wei-Shaw/sub2api',
     models: [
-      { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6（走 /v1/messages）' },
+      { value: 'claude-sonnet-5', label: 'Claude Sonnet 5（走 /v1/messages）' },
       { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5（走 /v1/messages）' },
-      { value: 'claude-opus-4-7', label: 'Claude Opus 4.7（走 /v1/messages）' },
+      { value: 'claude-opus-4-8', label: 'Claude Opus 4.8（走 /v1/messages）' },
+      { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6（走 /v1/messages）' },
       { value: 'gpt-5.4-mini', label: 'GPT-5.4 mini（走 /v1/responses）' },
       { value: 'gpt-5.4', label: 'GPT-5.4（走 /v1/responses）' },
       { value: 'gpt-5.5', label: 'GPT-5.5（走 /v1/responses）' },
@@ -266,6 +270,11 @@ document.addEventListener('DOMContentLoaded', () => {
 // 缓存已拉取的模型列表（从 storage.local 加载）
 let fetchedModelsCache = {};
 
+// Claude 2.x / 3.x / instant 全系列已退役（API 返回 404）。
+// 旧缓存的拉取列表里可能还留着，渲染前过滤；存量选中值命中时视为未选择，
+// 让 UI 落到推荐默认值（与 background.js sanitizeModel 的回退行为一致）
+const RETIRED_CLAUDE = /^claude-(2[.-]|instant|3-)/;
+
 function switchProvider(id) {
   currentProvider = id;
   const cfg = PROVIDERS[id];
@@ -283,9 +292,14 @@ function switchProvider(id) {
   $('#sub2api2BaseUrlField').style.display = (id === 'sub2api2') ? '' : 'none';
   $('#sub2api3BaseUrlField').style.display = (id === 'sub2api3') ? '' : 'none';
 
-  // 优先用拉取过的模型列表，否则用预设
-  const models = fetchedModelsCache[id] || cfg.models;
-  populateModelSelect(models, modelCache[id]);
+  // 优先用拉取过的模型列表，否则用预设；claude 旧缓存里可能有已退役模型，过滤掉
+  let models = fetchedModelsCache[id] || cfg.models;
+  let selected = modelCache[id];
+  if (id === 'claude') {
+    models = models.filter(m => !RETIRED_CLAUDE.test(m.value));
+    if (RETIRED_CLAUDE.test(selected)) selected = '';
+  }
+  populateModelSelect(models, selected);
 }
 
 function populateModelSelect(models, selected) {
@@ -297,7 +311,15 @@ function populateModelSelect(models, selected) {
     opt.textContent = m.label;
     select.appendChild(opt);
   });
-  if (selected && models.some(m => m.value === selected)) {
+  if (selected) {
+    // 已存模型不在列表里时补一个选项显示真实值，
+    // 否则 UI 会误显示第一项，随后任意 autoSave 都会把存量配置静默改写
+    if (!models.some(m => m.value === selected)) {
+      const opt = document.createElement('option');
+      opt.value = selected;
+      opt.textContent = selected + '（当前已保存）';
+      select.appendChild(opt);
+    }
     select.value = selected;
   }
 }
