@@ -9,6 +9,8 @@ var YTX = {
   activeTab: 'summary',
   isFetchingTranscript: false, // true = 正在获取字幕，禁止生成操作
   resizerInjected: false,
+  panelCollapsed: true,
+  resizerSplitRatio: 3 / 5,
 
   // 各功能模块注册到这里
   features: {},

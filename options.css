@@ -182,6 +182,78 @@ h1 {
   margin-bottom: 0;
 }
 
+.settings-subsection-divided {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--color-border-light);
+}
+
+.setting-label {
+  margin-bottom: 8px;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.segmented-control {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 3px;
+  padding: 3px;
+  background: var(--color-bg-input);
+  border: 1px solid var(--color-border-input);
+  border-radius: var(--radius-input);
+}
+
+.segmented-option {
+  position: relative;
+  display: block;
+  margin: 0;
+  cursor: pointer;
+  user-select: none;
+}
+
+.segmented-option input[type="radio"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.segmented-option span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  padding: 6px 10px;
+  color: var(--color-text-tertiary);
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  transition: color 0.15s, background 0.15s, box-shadow 0.15s;
+}
+
+.segmented-option:hover span {
+  color: var(--color-text-primary);
+}
+
+.segmented-option input:checked + span {
+  color: var(--color-primary);
+  background: var(--color-bg-card);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+.segmented-option input:focus-visible + span {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+}
+
 label {
   display: flex;
   align-items: center;

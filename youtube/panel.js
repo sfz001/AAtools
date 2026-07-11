@@ -13,6 +13,9 @@
     }
   });
 
+  var collapsePanelIcon = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/><path d="m10 9 3 3-3 3"/></svg>';
+  var expandPanelIcon = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/><path d="m13 15-3-3 3-3"/></svg>';
+
   // ── 入口 ──────────────────────────────────────────────
 
   function init() {
@@ -148,6 +151,7 @@
     removePanel();
     var panel = document.createElement('div');
     panel.id = 'ytx-panel';
+    panel.classList.toggle('ytx-panel-collapsed', YTX.panelCollapsed);
     YTX.panel = panel;
 
     // 动态拼接 tabs（图标 + tooltip）
@@ -172,9 +176,11 @@
     }).join('');
 
     panel.innerHTML =
+      '<button id="ytx-panel-launcher" type="button" title="显示 AAtools 面板" aria-label="显示 AAtools 面板" aria-expanded="false">' + expandPanelIcon + '</button>' +
       '<div id="ytx-tabs">' +
-        tabsHtml +
+        '<div id="ytx-tab-list">' + tabsHtml + '</div>' +
         '<div id="ytx-actions">' + actionsHtml + '</div>' +
+        '<button id="ytx-panel-hide" type="button" title="隐藏 AAtools 面板" aria-label="隐藏 AAtools 面板" aria-expanded="true">' + collapsePanelIcon + '</button>' +
       '</div>' +
       '<div id="ytx-video-mode-banner" style="display:none">' +
         '<span>已通过 Gemini 视频模式获取内容</span>' +
@@ -206,6 +212,14 @@
     // 绑定 tab 切换
     panel.querySelectorAll('.ytx-tab').forEach(function (tab) {
       tab.addEventListener('click', function () { switchTab(tab.dataset.tab); });
+    });
+
+    // 面板收起后保留原 DOM，确保生成中的流式消息仍能正常更新。
+    panel.querySelector('#ytx-panel-hide').addEventListener('click', function () {
+      setPanelCollapsed(true);
+    });
+    panel.querySelector('#ytx-panel-launcher').addEventListener('click', function () {
+      setPanelCollapsed(false);
     });
 
     // 绑定字幕折叠
@@ -258,12 +272,30 @@
     // 面板级时间戳点击委托
     setupTimestampClickHandler(panel);
 
-    // 注入分栏条
-    injectResizer();
+    // 收起状态使用 YouTube 原生布局，展开时才注入分栏条。
+    if (!YTX.panelCollapsed) injectResizer();
   }
 
   function removePanel() {
     if (YTX.panel) { YTX.panel.remove(); YTX.panel = null; }
+  }
+
+  function setPanelCollapsed(collapsed) {
+    if (!YTX.panel || YTX.panelCollapsed === collapsed) return;
+    YTX.panelCollapsed = collapsed;
+    YTX.panel.classList.toggle('ytx-panel-collapsed', collapsed);
+
+    if (collapsed) {
+      removeResizer();
+      var launcher = YTX.panel.querySelector('#ytx-panel-launcher');
+      if (launcher) launcher.focus({ preventScroll: true });
+      return;
+    }
+
+    injectResizer();
+    switchTab(YTX.activeTab);
+    var activeTab = YTX.panel.querySelector('.ytx-tab.active');
+    if (activeTab) activeTab.focus({ preventScroll: true });
   }
 
   // ── 标签切换 ─────────────────────────────────────────
@@ -383,8 +415,8 @@
     columns.style.flexWrap = 'nowrap';
     columns.classList.add('ytx-columns-layout');
 
-    // 默认分栏：视频占 3/5，AAtools 占 2/5
-    var splitRatio = 3 / 5; // 当前 primary 占比，拖动时更新
+    // 默认分栏：视频占 3/5，AAtools 占 2/5；收起再展开时保留拖拽比例。
+    var splitRatio = YTX.resizerSplitRatio;
 
     function resetColumnWidths() {
       primary.style.width = '';
@@ -541,6 +573,7 @@
       var primaryWidth = e.clientX - metrics.rect.left - metrics.paddingLeft;
       primaryWidth = clampPrimaryWidth(primaryWidth, totalWidth, resizerWidth);
       splitRatio = primaryWidth / (totalWidth - resizerWidth);
+      YTX.resizerSplitRatio = splitRatio;
 
       primary.style.width = primaryWidth + 'px';
       primary.style.maxWidth = 'none';
@@ -881,5 +914,10 @@
   });
 
   // ── 启动 ─────────────────────────────────────────────
-  init();
+  chrome.storage.sync.get(['youtubePanelDefaultCollapsed'], function (data) {
+    if (!chrome.runtime.lastError && data) {
+      YTX.panelCollapsed = data.youtubePanelDefaultCollapsed !== false;
+    }
+    init();
+  });
 })();

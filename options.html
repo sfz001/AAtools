@@ -95,23 +95,39 @@
         </div>
         <div>
           <div class="card-title">YouTube 设置</div>
-          <div class="card-desc">「全部生成」时包含哪些功能</div>
+          <div class="card-desc">面板显示方式与「全部生成」范围</div>
         </div>
       </div>
-      <div class="field">
-        <label class="checkbox-label"><input type="checkbox" id="generateAllSummary" checked> 总结</label>
+      <div class="settings-subsection">
+        <div class="setting-label" id="youtubePanelDefaultLabel">面板默认状态</div>
+        <div class="segmented-control" role="radiogroup" aria-labelledby="youtubePanelDefaultLabel">
+          <label class="segmented-option">
+            <input type="radio" id="youtubePanelDefaultCollapsed" name="youtubePanelDefaultState" value="collapsed" checked>
+            <span>默认折叠</span>
+          </label>
+          <label class="segmented-option">
+            <input type="radio" id="youtubePanelDefaultOpen" name="youtubePanelDefaultState" value="open">
+            <span>默认打开</span>
+          </label>
+        </div>
       </div>
-      <div class="field">
-        <label class="checkbox-label"><input type="checkbox" id="generateAllMindmap" checked> 思维导图</label>
-      </div>
-      <div class="field">
-        <label class="checkbox-label"><input type="checkbox" id="generateAllHtml" checked> HTML 笔记</label>
-      </div>
-      <div class="field">
-        <label class="checkbox-label"><input type="checkbox" id="generateAllCards"> 知识卡片</label>
-      </div>
-      <div class="field">
-        <label class="checkbox-label"><input type="checkbox" id="generateAllVocab"> 词汇提取</label>
+      <div class="settings-subsection settings-subsection-divided">
+        <div class="setting-label">「全部生成」包含</div>
+        <div class="field">
+          <label class="checkbox-label"><input type="checkbox" id="generateAllSummary" checked> 总结</label>
+        </div>
+        <div class="field">
+          <label class="checkbox-label"><input type="checkbox" id="generateAllMindmap" checked> 思维导图</label>
+        </div>
+        <div class="field">
+          <label class="checkbox-label"><input type="checkbox" id="generateAllHtml" checked> HTML 笔记</label>
+        </div>
+        <div class="field">
+          <label class="checkbox-label"><input type="checkbox" id="generateAllCards"> 知识卡片</label>
+        </div>
+        <div class="field">
+          <label class="checkbox-label"><input type="checkbox" id="generateAllVocab"> 词汇提取</label>
+        </div>
       </div>
     </div>
 

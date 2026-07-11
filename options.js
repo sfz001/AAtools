@@ -121,6 +121,7 @@ document.addEventListener('DOMContentLoaded', () => {
     'provider', 'claudeKey', 'openaiKey', 'geminiKey', 'minimaxKey', 'sub2apiKey', 'sub2api2Key', 'sub2api3Key',
     'claudeModel', 'openaiModel', 'geminiModel', 'minimaxModel', 'sub2apiModel', 'sub2api2Model', 'sub2api3Model',
     'sub2apiBaseUrl', 'sub2api2BaseUrl', 'sub2api3BaseUrl', 'model',
+    'youtubePanelDefaultCollapsed',
     'generateAllSummary', 'generateAllMindmap', 'generateAllHtml', 'generateAllCards', 'generateAllVocab',
     'enableGestures', 'gestureKeepMenu',
     ...ALL_PROMPT_KEYS,
@@ -162,6 +163,10 @@ document.addEventListener('DOMContentLoaded', () => {
       }
       switchProvider(currentProvider);
 
+      const panelDefaultCollapsed = data.youtubePanelDefaultCollapsed !== false;
+      $('#youtubePanelDefaultCollapsed').checked = panelDefaultCollapsed;
+      $('#youtubePanelDefaultOpen').checked = !panelDefaultCollapsed;
+
       $('#generateAllSummary').checked = data.generateAllSummary !== false;
       $('#generateAllMindmap').checked = data.generateAllMindmap !== false;
       $('#generateAllHtml').checked = data.generateAllHtml !== false;
@@ -198,6 +203,7 @@ document.addEventListener('DOMContentLoaded', () => {
     'provider', 'claudeKey', 'openaiKey', 'geminiKey', 'minimaxKey', 'sub2apiKey', 'sub2api2Key', 'sub2api3Key',
     'claudeModel', 'openaiModel', 'geminiModel', 'minimaxModel', 'sub2apiModel', 'sub2api2Model', 'sub2api3Model',
     'sub2apiBaseUrl', 'sub2api2BaseUrl', 'sub2api3BaseUrl', 'model',
+    'youtubePanelDefaultCollapsed',
     'generateAllSummary', 'generateAllMindmap', 'generateAllHtml', 'generateAllCards', 'generateAllVocab',
     'enableGestures', 'gestureKeepMenu',
     'mindmapAlignTop',
@@ -411,6 +417,7 @@ function saveSettings(isManual) {
     sub2api2BaseUrl: $('#sub2api2BaseUrl').value.trim(),
     sub2api3BaseUrl: $('#sub2api3BaseUrl').value.trim(),
     model: $('#model').value,
+    youtubePanelDefaultCollapsed: $('#youtubePanelDefaultCollapsed').checked,
     generateAllSummary: $('#generateAllSummary').checked,
     generateAllMindmap: $('#generateAllMindmap').checked,
     generateAllHtml: $('#generateAllHtml').checked,
