@@ -25,6 +25,15 @@
 
   // 重置全部字幕/转写在途状态，导航离开视频页或切视频时调用
   function resetTranscriptState() {
+    // 先取消后清 ID：YTX.cancelRequest 不阻塞导航，旧流的后续消息
+    // 仍会被下方的 requestId/videoId 过滤丢弃。
+    var transcribeRequestId = YTX._transcribeRequestId;
+    if (transcribeRequestId && typeof YTX.cancelRequest === 'function') {
+      YTX.cancelRequest(transcribeRequestId);
+    }
+    YTX._transcriptGeneration = (YTX._transcriptGeneration || 0) + 1;
+    YTX._cacheRestoreToken = (YTX._cacheRestoreToken || 0) + 1;
+    YTX._generateAllToken = null;
     YTX.transcriptData = null;
     YTX.videoMode = false;
     YTX._transcriptPromise = null;
@@ -70,13 +79,23 @@
   }
 
   function restoreFromCache(videoId) {
+    var restoreToken = YTX._cacheRestoreToken || 0;
+    var transcriptGeneration = YTX._transcriptGeneration || 0;
+    var panelAtStart = YTX.panel;
+    var activityVersions = {};
+    YTX.featureOrder.forEach(function (key) {
+      var feature = YTX.features[key];
+      activityVersions[key] = feature ? (feature._activityVersion || 0) : 0;
+    });
     YTX.cache.load(videoId).then(function (record) {
       // 异步竞态防护：缓存读取期间用户可能已切到别的视频
-      if (videoId !== YTX.currentVideoId) return;
-      if (!record || !YTX.panel) return;
+      if (videoId !== YTX.currentVideoId || restoreToken !== (YTX._cacheRestoreToken || 0)) return;
+      if (!record || !YTX.panel || YTX.panel !== panelAtStart) return;
 
       // 字幕
-      if (record.transcript && record.transcript.full) {
+      if (record.transcript && record.transcript.full &&
+          (YTX._transcriptGeneration || 0) === transcriptGeneration &&
+          !YTX.transcriptData && !YTX._transcriptPromise && !YTX.isFetchingTranscript) {
         YTX.transcriptData = {
           segments: record.transcript.segments || null,
           full: record.transcript.full,
@@ -92,41 +111,51 @@
       // 总结
       if (record.summary && record.summary.text) {
         var s = YTX.features.summary;
-        s.text = record.summary.text;
-        s.renderFinal();
-        YTX.btnRefresh(YTX.panel.querySelector('#ytx-summarize'));
+        if ((s._activityVersion || 0) === activityVersions.summary && !s.isGenerating && !s.requestId && !s.text) {
+          s.text = record.summary.text;
+          s.renderFinal();
+          YTX.btnRefresh(YTX.panel.querySelector('#ytx-summarize'));
+        }
       }
 
       // 笔记
       if (record.html && record.html.text) {
         var h = YTX.features.html;
-        h.text = record.html.text;
-        h.renderContent();
-        YTX.btnRefresh(YTX.panel.querySelector('#ytx-generate-html'));
+        if ((h._activityVersion || 0) === activityVersions.html && !h.isGenerating && !h.requestId && !h.text) {
+          h.text = record.html.text;
+          h.renderContent();
+          YTX.btnRefresh(YTX.panel.querySelector('#ytx-generate-html'));
+        }
       }
 
       // 卡片
       if (record.cards && record.cards.data && record.cards.data.length > 0) {
         var c = YTX.features.cards;
-        c.data = record.cards.data;
-        c.render();
-        YTX.btnRefresh(YTX.panel.querySelector('#ytx-generate-cards'));
+        if ((c._activityVersion || 0) === activityVersions.cards && !c.isGenerating && !c.requestId && (!c.data || c.data.length === 0)) {
+          c.data = record.cards.data;
+          c.render();
+          YTX.btnRefresh(YTX.panel.querySelector('#ytx-generate-cards'));
+        }
       }
 
       // 导图
       if (record.mindmap && record.mindmap.data) {
         var m = YTX.features.mindmap;
-        m.data = record.mindmap.data;
-        m.render();
-        YTX.btnRefresh(YTX.panel.querySelector('#ytx-generate-mindmap'));
+        if ((m._activityVersion || 0) === activityVersions.mindmap && !m.isGenerating && !m.requestId && !m.data && !m.rawText) {
+          m.data = record.mindmap.data;
+          m.render();
+          YTX.btnRefresh(YTX.panel.querySelector('#ytx-generate-mindmap'));
+        }
       }
 
       // 词汇
       if (record.vocab && record.vocab.data && record.vocab.data.length > 0) {
         var v = YTX.features.vocab;
-        v.data = record.vocab.data;
-        v.render();
-        YTX.btnRefresh(YTX.panel.querySelector('#ytx-generate-vocab'));
+        if ((v._activityVersion || 0) === activityVersions.vocab && !v.isGenerating && !v.requestId && (!v.data || v.data.length === 0)) {
+          v.data = record.vocab.data;
+          v.render();
+          YTX.btnRefresh(YTX.panel.querySelector('#ytx-generate-vocab'));
+        }
       }
     });
   }
@@ -235,32 +264,73 @@
     panel.querySelector('#ytx-use-video-mode').addEventListener('click', function () {
       var btn = panel.querySelector('#ytx-use-video-mode');
       if (btn) { btn.disabled = true; btn.textContent = 'Gemini视频模式中...'; }
-      YTX.switchToVideoMode().then(function () {
+      var videoIdAtStart = YTX.currentVideoId;
+      var modePromise = YTX.switchToVideoMode();
+      var modeGeneration = YTX._transcriptGeneration || 0;
+      modePromise.then(function () {
+        if (YTX.currentVideoId !== videoIdAtStart || YTX.panel !== panel || (YTX._transcriptGeneration || 0) !== modeGeneration) return;
         // 切换成功后隐藏按钮
         if (btn) btn.style.display = 'none';
       }).catch(function (err) {
+        if (YTX.currentVideoId !== videoIdAtStart || YTX.panel !== panel || (YTX._transcriptGeneration || 0) !== modeGeneration) return;
         if (btn) { btn.disabled = false; btn.textContent = '使用视频模式'; }
         var body = panel.querySelector('#ytx-transcript-body');
-        if (body) body.innerHTML = '<div class="ytx-error">' + (err.message || '视频模式切换失败') + '</div>';
+        if (body) YTX.renderError(body, err.message || '视频模式切换失败');
       });
     });
 
     // 绑定「清除缓存」按钮
     panel.querySelector('#ytx-clear-cache').addEventListener('click', function () {
       if (!YTX.currentVideoId) return;
+      var videoId = YTX.currentVideoId;
+      var panelAtStart = panel;
       var btn = panel.querySelector('#ytx-clear-cache');
-      YTX.cache.remove(YTX.currentVideoId).then(function () {
-        YTX.transcriptData = null;
-        YTX.videoMode = false;
-        YTX._transcriptPromise = null;
-        YTX._transcriptVideoId = null;
+      if (btn) { btn.disabled = true; btn.textContent = '清除中...'; }
+
+      // 同时取消仍会写回该视频缓存的生成任务，并只重建这些在途模块的视图。
+      YTX.featureOrder.forEach(function (key) {
+        var feature = YTX.features[key];
+        if (!feature || !(feature.requestId || feature.isGenerating || feature.isChatting)) return;
+        if (feature.reset) feature.reset();
+        var actions = feature.actionsId && panel.querySelector('#' + feature.actionsId);
+        var content = feature.contentId && panel.querySelector('#' + feature.contentId);
+        if (actions && feature.actionsHtml) actions.innerHTML = feature.actionsHtml();
+        if (content && feature.contentHtml) content.innerHTML = feature.contentHtml();
+        if (feature.bindEvents) feature.bindEvents(panel);
+      });
+
+      // 立即失效字幕/转录与延迟缓存恢复，避免清除完成后旧结果再次写回。
+      resetTranscriptState();
+      var clearGeneration = YTX._transcriptGeneration || 0;
+      ['#ytx-generate-all', '#ytx-summarize', '#ytx-generate-html', '#ytx-generate-cards', '#ytx-generate-mindmap', '#ytx-generate-vocab'].forEach(function (id) {
+        var generationBtn = panel.querySelector(id);
+        if (generationBtn) generationBtn.disabled = false;
+      });
+      var allBtn = panel.querySelector('#ytx-generate-all');
+      if (allBtn) allBtn.innerHTML = YTX.icons.zap;
+      var banner = panel.querySelector('#ytx-video-mode-banner');
+      if (banner) banner.style.display = 'none';
+      var videoBtn = panel.querySelector('#ytx-use-video-mode');
+      if (videoBtn) { videoBtn.style.display = ''; videoBtn.disabled = false; videoBtn.textContent = '使用视频模式'; }
+      YTX.cache.remove(videoId).then(function (removed) {
+        if (YTX.currentVideoId !== videoId || YTX.panel !== panelAtStart) return;
+        var canUpdateTranscriptBody = (YTX._transcriptGeneration || 0) === clearGeneration &&
+          !YTX.transcriptData && !YTX._transcriptPromise && !YTX.isFetchingTranscript;
+        if (!removed) {
+          var errorBody = panel.querySelector('#ytx-transcript-body');
+          if (errorBody && canUpdateTranscriptBody) YTX.renderError(errorBody, '缓存清除失败，请重试');
+          if (btn) { btn.disabled = false; btn.textContent = '清除缓存'; }
+          return;
+        }
         var body = panel.querySelector('#ytx-transcript-body');
-        if (body) body.innerHTML = '<div style="padding:8px 12px;font-size:12px;color:#15803d;background:#f0fdf4;border-radius:6px">缓存已清除，下次操作将重新获取字幕</div>';
-        var banner = panel.querySelector('#ytx-video-mode-banner');
-        if (banner) banner.style.display = 'none';
-        var videoBtn = panel.querySelector('#ytx-use-video-mode');
-        if (videoBtn) { videoBtn.style.display = ''; videoBtn.disabled = false; videoBtn.textContent = '使用视频模式'; }
-        if (btn) { btn.textContent = '已清除'; setTimeout(function () { btn.textContent = '清除缓存'; }, 1500); }
+        if (body && canUpdateTranscriptBody) body.innerHTML = '<div style="padding:8px 12px;font-size:12px;color:#15803d;background:#f0fdf4;border-radius:6px">缓存已清除，下次操作将重新获取字幕</div>';
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = '已清除';
+          setTimeout(function () {
+            if (YTX.panel === panelAtStart && btn.textContent === '已清除') btn.textContent = '清除缓存';
+          }, 1500);
+        }
       });
     });
 
@@ -851,6 +921,14 @@
     if (message.type === 'TRANSCRIBE_SEGMENT') {
       if (message.videoId && message.videoId !== YTX.currentVideoId) return;
       if (message.requestId && message.requestId !== YTX._transcribeRequestId) return;
+      // SEGMENT 是转录的终态消息（text 或 error）。先清理已匹配的 ID，
+      // 即使面板 DOM 已被移除，也不会在后续 reset 时误取消已完成任务。
+      var terminalRequestId = message.requestId || YTX._transcribeRequestId;
+      if (!terminalRequestId || terminalRequestId === YTX._transcribeRequestId) {
+        YTX._transcribeRequestId = null;
+        YTX._transcribeVideoId = null;
+      }
+      YTX._transcribeReceiving = false;
       if (YTX._transcribeTimer) { clearInterval(YTX._transcribeTimer); YTX._transcribeTimer = null; }
       var body = YTX.panel.querySelector('#ytx-transcript-body');
       if (!body) return;

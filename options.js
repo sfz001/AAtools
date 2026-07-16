@@ -112,6 +112,160 @@ let sub2apiBaseUrl = '';
 let sub2api2BaseUrl = '';
 let sub2api3BaseUrl = '';
 
+const SUB2API_BASE_INPUT = {
+  sub2api: 'sub2apiBaseUrl',
+  sub2api2: 'sub2api2BaseUrl',
+  sub2api3: 'sub2api3BaseUrl',
+};
+
+function parseGatewayUrl(raw) {
+  let url;
+  try {
+    url = new URL((raw || '').trim());
+  } catch (_) {
+    throw new Error('Base URL 格式无效');
+  }
+  const isLoopback = url.hostname === 'localhost' || url.hostname === '127.0.0.1';
+  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && isLoopback)) {
+    throw new Error('网关必须使用 HTTPS（localhost 可使用 HTTP）');
+  }
+  if (url.username || url.password) throw new Error('Base URL 不能包含用户名或密码');
+  if (url.search || url.hash) throw new Error('Base URL 不能包含查询参数或锚点');
+  return url;
+}
+
+function getSavedGatewayBase(provider) {
+  if (provider === 'sub2api') return sub2apiBaseUrl;
+  if (provider === 'sub2api2') return sub2api2BaseUrl;
+  if (provider === 'sub2api3') return sub2api3BaseUrl;
+  return '';
+}
+
+function setSavedGatewayBase(provider, value) {
+  if (provider === 'sub2api') sub2apiBaseUrl = value;
+  else if (provider === 'sub2api2') sub2api2BaseUrl = value;
+  else if (provider === 'sub2api3') sub2api3BaseUrl = value;
+}
+
+function gatewayOrigin(raw) {
+  if (!raw) return '';
+  try { return parseGatewayUrl(raw).origin + '/*'; } catch (_) { return ''; }
+}
+
+function revokeGatewayOriginIfUnused(origin) {
+  if (!origin) return;
+  const requiredOrigins = new Set([
+    'https://api.anthropic.com/*',
+    'https://api.openai.com/*',
+    'https://generativelanguage.googleapis.com/*',
+    'https://api.minimax.io/*',
+    'https://www.youtube.com/*',
+  ]);
+  if (requiredOrigins.has(origin)) return;
+  const stillUsed = Object.keys(SUB2API_BASE_INPUT).some(provider => gatewayOrigin(getSavedGatewayBase(provider)) === origin);
+  if (stillUsed) return;
+  try {
+    chrome.permissions.remove({ origins: [origin] }, () => { void chrome.runtime.lastError; });
+  } catch (_) {}
+}
+
+function validateImportedSettings(data, settingKeys, localKeys) {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('设置文件格式无效');
+  if (data.provider !== undefined && !Object.prototype.hasOwnProperty.call(PROVIDERS, data.provider)) {
+    throw new Error('设置文件包含无效的 AI 服务商');
+  }
+
+  const booleanKeys = new Set([
+    'youtubePanelDefaultCollapsed', 'generateAllSummary', 'generateAllMindmap',
+    'generateAllHtml', 'generateAllCards', 'generateAllVocab', 'enableGestures',
+    'gestureKeepMenu', 'mindmapAlignTop',
+  ]);
+  const filtered = {};
+  settingKeys.forEach((key) => {
+    if (!Object.prototype.hasOwnProperty.call(data, key)) return;
+    const value = data[key];
+    if (booleanKeys.has(key)) {
+      if (typeof value !== 'boolean') throw new Error('设置项 ' + key + ' 类型无效');
+    } else {
+      if (typeof value !== 'string' || value.length > 200000) throw new Error('设置项 ' + key + ' 类型或长度无效');
+    }
+    filtered[key] = value;
+  });
+
+  Object.keys(SUB2API_BASE_INPUT).forEach((provider) => {
+    const key = SUB2API_BASE_INPUT[provider];
+    if (filtered[key]) parseGatewayUrl(filtered[key]);
+  });
+
+  const localFiltered = {};
+  localKeys.forEach((key) => {
+    if (!Object.prototype.hasOwnProperty.call(data, key)) return;
+    const models = data[key];
+    if (!Array.isArray(models) || models.length > 1000 || models.some((model) =>
+      !model || typeof model !== 'object' || typeof model.value !== 'string' ||
+      typeof model.label !== 'string' || model.value.length > 500 || model.label.length > 500
+    )) {
+      throw new Error('模型列表 ' + key + ' 格式无效');
+    }
+    localFiltered[key] = models.map((model) => ({ value: model.value, label: model.label }));
+  });
+  return { filtered, localFiltered };
+}
+
+function requestGatewayPermission(provider, callback) {
+  const inputId = SUB2API_BASE_INPUT[provider];
+  const raw = inputId && $('#' + inputId).value.trim();
+  if (!raw) {
+    showStatus('请先填写 Base URL', 'error');
+    callback(false, null);
+    return;
+  }
+
+  let url;
+  try {
+    url = parseGatewayUrl(raw);
+  } catch (err) {
+    showStatus(err.message, 'error');
+    callback(false, null);
+    return;
+  }
+
+  chrome.permissions.request({ origins: [url.origin + '/*'] }, (granted) => {
+    if (chrome.runtime.lastError) {
+      showStatus('域名授权失败：' + chrome.runtime.lastError.message, 'error');
+      callback(false, null);
+      return;
+    }
+    if (!granted) {
+      showStatus('未授权该网关域名，Sub2API 无法请求', 'error');
+      callback(false, null);
+      return;
+    }
+    callback(true, { provider: provider, baseUrl: raw, origin: url.origin });
+  });
+}
+
+function saveAuthorizedGateway(authorization) {
+  if (!authorization || !SUB2API_BASE_INPUT[authorization.provider]) return false;
+  const input = $('#' + SUB2API_BASE_INPUT[authorization.provider]);
+  const currentBaseUrl = input.value.trim();
+  let currentUrl;
+  try {
+    currentUrl = parseGatewayUrl(currentBaseUrl);
+  } catch (err) {
+    showStatus(err.message, 'error');
+    revokeGatewayOriginIfUnused(authorization.origin + '/*');
+    return false;
+  }
+  if (currentUrl.origin !== authorization.origin) {
+    showStatus('网关域名已变化，请重新点击“授权域名”', 'error');
+    revokeGatewayOriginIfUnused(authorization.origin + '/*');
+    return false;
+  }
+  saveSettings(true, authorization.provider, currentBaseUrl);
+  return true;
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   // 一次性迁移：移除旧版（已删除的 Notion / GitHub Gist 集成）残留 key
   // 这些字段现在不再被读取，但老用户的 storage.sync 里仍有，会跨设备同步占空间
@@ -157,7 +311,7 @@ document.addEventListener('DOMContentLoaded', () => {
       $('#sub2api2BaseUrl').value = sub2api2BaseUrl;
       $('#sub2api3BaseUrl').value = sub2api3BaseUrl;
 
-      currentProvider = data.provider || 'claude';
+      currentProvider = Object.prototype.hasOwnProperty.call(PROVIDERS, data.provider) ? data.provider : 'claude';
       if (!modelCache[currentProvider] && data.model) {
         modelCache[currentProvider] = data.model;
       }
@@ -246,24 +400,71 @@ document.addEventListener('DOMContentLoaded', () => {
           showStatus('无效的设置文件', 'error');
           return;
         }
-        const filtered = {};
-        SETTING_KEYS.forEach(k => { if (k in data) filtered[k] = data[k]; });
-        // 恢复已拉取的模型列表到 local
-        const localFiltered = {};
-        LOCAL_KEYS.forEach(k => { if (k in data) localFiltered[k] = data[k]; });
-        if (Object.keys(localFiltered).length > 0) chrome.storage.local.set(localFiltered);
-        chrome.storage.sync.set(filtered, () => {
-          showStatus('设置已导入，正在刷新…', 'success');
-          setTimeout(() => location.reload(), 600);
+        const imported = validateImportedSettings(data, SETTING_KEYS, LOCAL_KEYS);
+        const filtered = imported.filtered;
+        const localFiltered = imported.localFiltered;
+        const previousGatewayOrigins = Object.keys(SUB2API_BASE_INPUT)
+          .map(provider => gatewayOrigin(getSavedGatewayBase(provider)))
+          .filter(Boolean);
+        const importedGatewayBases = {};
+        Object.keys(SUB2API_BASE_INPUT).forEach((provider) => {
+          const key = SUB2API_BASE_INPUT[provider];
+          importedGatewayBases[provider] = Object.prototype.hasOwnProperty.call(filtered, key)
+            ? filtered[key]
+            : getSavedGatewayBase(provider);
         });
-      } catch {
-        showStatus('文件解析失败', 'error');
+        // 恢复已拉取的模型列表到 local（失败不阻断 sync 导入，仅提示）
+        if (Object.keys(localFiltered).length > 0) {
+          chrome.storage.local.set(localFiltered, () => {
+            if (chrome.runtime.lastError) {
+              showStatus('模型列表导入失败：' + chrome.runtime.lastError.message, 'error');
+            }
+          });
+        }
+        chrome.storage.sync.set(filtered, () => {
+          if (chrome.runtime.lastError) {
+            showStatus('设置导入失败：' + chrome.runtime.lastError.message, 'error');
+            return;
+          }
+          Object.keys(importedGatewayBases).forEach(provider => setSavedGatewayBase(provider, importedGatewayBases[provider]));
+          previousGatewayOrigins.forEach(revokeGatewayOriginIfUnused);
+          const hasGateway = Object.values(SUB2API_BASE_INPUT).some(key => filtered[key]);
+          showStatus(hasGateway ? '设置已导入；请重新授权 Sub2API 域名' : '设置已导入，正在刷新…', hasGateway ? 'error' : 'success');
+          setTimeout(() => location.reload(), hasGateway ? 1800 : 600);
+        });
+      } catch (err) {
+        showStatus(err && err.message ? err.message : '文件解析失败', 'error');
       }
     };
     reader.readAsText(file);
   });
 
-  $('#save').addEventListener('click', () => saveSettings(true));
+  $('#save').addEventListener('click', () => {
+    if (SUB2API_BASE_INPUT[currentProvider]) {
+      if ($('#' + SUB2API_BASE_INPUT[currentProvider]).value.trim()) {
+        const providerAtClick = currentProvider;
+        requestGatewayPermission(providerAtClick, (granted, authorization) => {
+          if (granted) saveAuthorizedGateway(authorization);
+        });
+      } else {
+        saveSettings(true, currentProvider);
+      }
+    } else {
+      saveSettings(true);
+    }
+  });
+
+  [
+    ['#authorizeSub2api', 'sub2api'],
+    ['#authorizeSub2api2', 'sub2api2'],
+    ['#authorizeSub2api3', 'sub2api3'],
+  ].forEach(([selector, provider]) => {
+    $(selector).addEventListener('click', () => {
+      requestGatewayPermission(provider, (granted, authorization) => {
+        if (granted) saveAuthorizedGateway(authorization);
+      });
+    });
+  });
 
   // 自动保存：监听所有表单变化，debounce 1.5 秒
   const autoSave = debounce(() => saveSettings(false), 1500);
@@ -282,6 +483,7 @@ let fetchedModelsCache = {};
 const RETIRED_CLAUDE = /^claude-(2[.-]|instant|3-)/;
 
 function switchProvider(id) {
+  if (!Object.prototype.hasOwnProperty.call(PROVIDERS, id)) id = 'claude';
   currentProvider = id;
   const cfg = PROVIDERS[id];
 
@@ -390,8 +592,19 @@ function debounce(fn, ms) {
 }
 
 // ── 保存设置（isManual=true 显示提示，false 静默）─────────────
-function saveSettings(isManual) {
+function saveSettings(isManual, gatewayProvider, gatewayBaseOverride) {
   const cfg = PROVIDERS[currentProvider];
+
+  const oldGatewayBase = gatewayProvider ? getSavedGatewayBase(gatewayProvider) : '';
+  const oldGatewayOrigin = gatewayOrigin(oldGatewayBase);
+  var attemptedGatewayOrigin = '';
+  if (gatewayProvider) {
+    var attemptedGatewayBase = gatewayBaseOverride !== undefined
+      ? gatewayBaseOverride
+      : $('#' + SUB2API_BASE_INPUT[gatewayProvider]).value.trim();
+    attemptedGatewayOrigin = gatewayOrigin(attemptedGatewayBase);
+    setSavedGatewayBase(gatewayProvider, attemptedGatewayBase);
+  }
 
   // 把当前表单值同步到缓存
   keyCache[cfg.keyField] = $('#currentKey').value.trim();
@@ -413,9 +626,9 @@ function saveSettings(isManual) {
     sub2apiModel: modelCache.sub2api,
     sub2api2Model: modelCache.sub2api2,
     sub2api3Model: modelCache.sub2api3,
-    sub2apiBaseUrl: $('#sub2apiBaseUrl').value.trim(),
-    sub2api2BaseUrl: $('#sub2api2BaseUrl').value.trim(),
-    sub2api3BaseUrl: $('#sub2api3BaseUrl').value.trim(),
+    sub2apiBaseUrl: sub2apiBaseUrl,
+    sub2api2BaseUrl: sub2api2BaseUrl,
+    sub2api3BaseUrl: sub2api3BaseUrl,
     model: $('#model').value,
     youtubePanelDefaultCollapsed: $('#youtubePanelDefaultCollapsed').checked,
     generateAllSummary: $('#generateAllSummary').checked,
@@ -428,6 +641,16 @@ function saveSettings(isManual) {
   };
 
   chrome.storage.sync.set(saveData, () => {
+    if (chrome.runtime.lastError) {
+      if (gatewayProvider) setSavedGatewayBase(gatewayProvider, oldGatewayBase);
+      if (attemptedGatewayOrigin && attemptedGatewayOrigin !== oldGatewayOrigin) revokeGatewayOriginIfUnused(attemptedGatewayOrigin);
+      if (isManual) showStatus('设置保存失败：' + chrome.runtime.lastError.message, 'error');
+      return;
+    }
+    if (gatewayProvider) {
+      const newGatewayOrigin = gatewayOrigin(getSavedGatewayBase(gatewayProvider));
+      if (oldGatewayOrigin && oldGatewayOrigin !== newGatewayOrigin) revokeGatewayOriginIfUnused(oldGatewayOrigin);
+    }
     if (isManual) showStatus('设置已保存 ✓', 'success');
   });
 }

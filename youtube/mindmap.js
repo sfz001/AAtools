@@ -170,9 +170,11 @@
     _fitted: false,
 
     reset: function () {
+      this._activityVersion = (this._activityVersion || 0) + 1;
       this.data = null;
       this.rawText = '';
       this.isGenerating = false;
+      if (this.requestId) YTX.cancelRequest(this.requestId);
       this.requestId = null;
       this.transform = { x: 0, y: 0, scale: 1 };
       this.collapsed = new Set();
@@ -197,6 +199,7 @@
     start: function () {
       var self = this;
       if (this.isGenerating) return Promise.resolve();
+      this._activityVersion = (this._activityVersion || 0) + 1;
       this.isGenerating = true;
       this.rawText = '';
       this.data = null;
@@ -214,34 +217,46 @@
       btn.disabled = true;
 
       function bailSilently() {
-        self.isGenerating = false;
-        if (self._deferred === deferred) { deferred.resolve(); self._deferred = null; }
+        if (self._deferred === deferred) {
+          self.isGenerating = false;
+          deferred.resolve();
+          self._deferred = null;
+        }
       }
 
+      var requestId = null;
       (async function () {
         try {
           btn.innerHTML = YTX.icons.spinner;
           contentEl.innerHTML = '<div class="ytx-empty"><div class="ytx-loading"><div class="ytx-spinner"></div><span>正在获取字幕...</span></div></div>';
           await YTX.ensureTranscript();
-          if (YTX.currentVideoId !== startVideoId) return bailSilently();
+          if (YTX.currentVideoId !== startVideoId || self._deferred !== deferred) return bailSilently();
 
           contentEl.innerHTML = '<div class="ytx-empty"><div class="ytx-loading"><div class="ytx-spinner"></div><span>正在生成思维导图...</span></div></div>';
 
           var settings = await YTX.getSettings();
-          if (YTX.currentVideoId !== startVideoId) return bailSilently();
+          if (YTX.currentVideoId !== startVideoId || self._deferred !== deferred) return bailSilently();
           var payload = YTX.getContentPayload();
 
-          self.requestId = YTX.makeRequestId();
-          chrome.runtime.sendMessage(Object.assign({
+          if (self.requestId) YTX.cancelRequest(self.requestId);
+          requestId = YTX.makeRequestId();
+          self.requestId = requestId;
+          await YTX.sendToBg(Object.assign({
             type: 'GENERATE_MINDMAP',
             prompt: settings.promptMindmap || YTX.prompts.MINDMAP,
             provider: settings.provider,
             model: settings.model,
-            requestId: self.requestId,
+            requestId: requestId,
           }, payload));
         } catch (err) {
+          if (self._deferred !== deferred) return;
+          if (requestId && self.requestId !== requestId) return;
+          if (requestId) {
+            YTX.cancelRequest(requestId);
+            self.requestId = null;
+          }
           if (YTX.currentVideoId !== startVideoId) return bailSilently();
-          contentEl.innerHTML = '<div class="ytx-error" style="margin:14px 16px">' + err.message + '</div>';
+          YTX.renderError(contentEl, err.message);
           btn.disabled = false;
           YTX.btnPrimary(btn);
           self.isGenerating = false;
@@ -257,6 +272,7 @@
     },
 
     onDone: function () {
+      this.requestId = null;
       try {
         this.data = YTX.extractJSON(this.rawText, 'object');
         if (!this.data) {
@@ -274,7 +290,8 @@
     },
 
     onError: function (error) {
-      YTX.panel.querySelector('#ytx-content-mindmap').innerHTML = '<div class="ytx-error" style="margin:14px 16px">' + error + '</div>';
+      this.requestId = null;
+      YTX.renderError(YTX.panel.querySelector('#ytx-content-mindmap'), error);
       YTX.panel.querySelector('#ytx-generate-mindmap').disabled = false;
       YTX.btnPrimary(YTX.panel.querySelector('#ytx-generate-mindmap'));
       this.isGenerating = false;

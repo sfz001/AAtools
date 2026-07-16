@@ -13,9 +13,11 @@ YTX.features.summary = {
   _renderTimer: null,
 
   reset: function () {
+    this._activityVersion = (this._activityVersion || 0) + 1;
     this.text = '';
     this.isGenerating = false;
     if (this._renderTimer) { clearTimeout(this._renderTimer); this._renderTimer = null; }
+    if (this.requestId) YTX.cancelRequest(this.requestId);
     this.requestId = null;
     if (this._deferred) { this._deferred.reject(new Error('视频已切换')); this._deferred = null; }
   },
@@ -38,6 +40,7 @@ YTX.features.summary = {
   start: function () {
     var self = this;
     if (this.isGenerating) return Promise.resolve();
+    this._activityVersion = (this._activityVersion || 0) + 1;
     this.isGenerating = true;
     this.text = '';
 
@@ -56,33 +59,45 @@ YTX.features.summary = {
     contentEl.innerHTML = '<div class="ytx-loading"><div class="ytx-spinner"></div><span>正在获取字幕...</span></div>';
 
     function bailSilently() {
-      self.isGenerating = false;
-      if (self._deferred === deferred) { deferred.resolve(); self._deferred = null; }
+      if (self._deferred === deferred) {
+        self.isGenerating = false;
+        deferred.resolve();
+        self._deferred = null;
+      }
     }
 
+    var requestId = null;
     (async function () {
       try {
         await YTX.ensureTranscript();
-        if (YTX.currentVideoId !== startVideoId) return bailSilently();
+        if (YTX.currentVideoId !== startVideoId || self._deferred !== deferred) return bailSilently();
 
         contentEl.innerHTML = '<div class="ytx-loading"><div class="ytx-spinner"></div><span>正在生成总结...</span></div>';
 
         var settings = await YTX.getSettings();
-        if (YTX.currentVideoId !== startVideoId) return bailSilently();
+        if (YTX.currentVideoId !== startVideoId || self._deferred !== deferred) return bailSilently();
         var payload = YTX.getContentPayload();
 
-        self.requestId = YTX.makeRequestId();
-        chrome.runtime.sendMessage(Object.assign({
+        if (self.requestId) YTX.cancelRequest(self.requestId);
+        requestId = YTX.makeRequestId();
+        self.requestId = requestId;
+        await YTX.sendToBg(Object.assign({
           type: 'SUMMARIZE',
           prompt: settings.prompt || YTX.prompts.DEFAULT,
           provider: settings.provider,
           model: settings.model,
-          requestId: self.requestId,
+          requestId: requestId,
         }, payload));
         // deferred 由 onDone/onError 触发
       } catch (err) {
+        if (self._deferred !== deferred) return;
+        if (requestId && self.requestId !== requestId) return;
+        if (requestId) {
+          YTX.cancelRequest(requestId);
+          self.requestId = null;
+        }
         if (YTX.currentVideoId !== startVideoId) return bailSilently();
-        contentEl.innerHTML = '<div class="ytx-error">' + err.message + '</div>';
+        YTX.renderError(contentEl, err.message);
         btn.disabled = false;
         YTX.btnPrimary(btn);
         self.isGenerating = false;
@@ -113,6 +128,7 @@ YTX.features.summary = {
   },
 
   onDone: function () {
+    this.requestId = null;
     // 清除节流计时器，立即渲染最终结果
     if (this._renderTimer) { clearTimeout(this._renderTimer); this._renderTimer = null; }
     this.renderFinal();
@@ -160,7 +176,8 @@ YTX.features.summary = {
   },
 
   onError: function (error) {
-    YTX.panel.querySelector('#ytx-content').innerHTML = '<div class="ytx-error">' + error + '</div>';
+    this.requestId = null;
+    YTX.renderError(YTX.panel.querySelector('#ytx-content'), error);
     YTX.panel.querySelector('#ytx-summarize').disabled = false;
     YTX.btnPrimary(YTX.panel.querySelector('#ytx-summarize'));
     this.isGenerating = false;

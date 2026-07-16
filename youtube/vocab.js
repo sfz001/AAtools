@@ -13,10 +13,13 @@ YTX.features.vocab = {
   isGenerating: false,
 
   reset: function () {
+    this._activityVersion = (this._activityVersion || 0) + 1;
     this.text = '';
     this.data = [];
     this.isGenerating = false;
+    if (this.requestId) YTX.cancelRequest(this.requestId);
     this.requestId = null;
+    this._refreshToken = null;
     if (this._deferred) { this._deferred.reject(new Error('视频已切换')); this._deferred = null; }
   },
 
@@ -36,9 +39,11 @@ YTX.features.vocab = {
   start: function () {
     var self = this;
     if (this.isGenerating) return Promise.resolve();
+    this._activityVersion = (this._activityVersion || 0) + 1;
     this.isGenerating = true;
     this.text = '';
     this.data = [];
+    this._refreshToken = null;
 
     if (this._deferred) this._deferred.reject(new Error('已被新请求覆盖'));
     this._deferred = YTX.createDeferred();
@@ -51,34 +56,46 @@ YTX.features.vocab = {
     btn.disabled = true;
 
     function bailSilently() {
-      self.isGenerating = false;
-      if (self._deferred === deferred) { deferred.resolve(); self._deferred = null; }
+      if (self._deferred === deferred) {
+        self.isGenerating = false;
+        deferred.resolve();
+        self._deferred = null;
+      }
     }
 
+    var requestId = null;
     (async function () {
       try {
         btn.innerHTML = YTX.icons.spinner;
         contentEl.innerHTML = '<div class="ytx-loading" style="padding:14px 16px"><div class="ytx-spinner"></div><span>正在获取字幕...</span></div>';
         await YTX.ensureTranscript();
-        if (YTX.currentVideoId !== startVideoId) return bailSilently();
+        if (YTX.currentVideoId !== startVideoId || self._deferred !== deferred) return bailSilently();
 
         contentEl.innerHTML = '<div class="ytx-loading" style="padding:14px 16px"><div class="ytx-spinner"></div><span>正在提取词汇短语...</span></div>';
 
         var settings = await YTX.getSettings();
-        if (YTX.currentVideoId !== startVideoId) return bailSilently();
+        if (YTX.currentVideoId !== startVideoId || self._deferred !== deferred) return bailSilently();
         var payload = YTX.getContentPayload();
 
-        self.requestId = YTX.makeRequestId();
-        chrome.runtime.sendMessage(Object.assign({
+        if (self.requestId) YTX.cancelRequest(self.requestId);
+        requestId = YTX.makeRequestId();
+        self.requestId = requestId;
+        await YTX.sendToBg(Object.assign({
           type: 'GENERATE_VOCAB',
           prompt: settings.promptVocab || YTX.prompts.VOCAB,
           provider: settings.provider,
           model: settings.model,
-          requestId: self.requestId,
+          requestId: requestId,
         }, payload));
       } catch (err) {
+        if (self._deferred !== deferred) return;
+        if (requestId && self.requestId !== requestId) return;
+        if (requestId) {
+          YTX.cancelRequest(requestId);
+          self.requestId = null;
+        }
         if (YTX.currentVideoId !== startVideoId) return bailSilently();
-        contentEl.innerHTML = '<div class="ytx-error" style="margin:14px 16px">' + err.message + '</div>';
+        YTX.renderError(contentEl, err.message);
         btn.disabled = false;
         YTX.btnPrimary(btn);
         self.isGenerating = false;
@@ -94,6 +111,8 @@ YTX.features.vocab = {
   },
 
   onDone: function () {
+    this.requestId = null;
+    this._refreshToken = null;
     try {
       this.data = YTX.extractJSON(this.text, 'array');
       if (!this.data) {
@@ -111,7 +130,9 @@ YTX.features.vocab = {
   },
 
   onError: function (error) {
-    YTX.panel.querySelector('#ytx-content-vocab').innerHTML = '<div class="ytx-error" style="margin:14px 16px">' + error + '</div>';
+    this.requestId = null;
+    this._refreshToken = null;
+    YTX.renderError(YTX.panel.querySelector('#ytx-content-vocab'), error);
     YTX.panel.querySelector('#ytx-generate-vocab').disabled = false;
     YTX.btnPrimary(YTX.panel.querySelector('#ytx-generate-vocab'));
     this.isGenerating = false;
@@ -170,6 +191,8 @@ YTX.features.vocab = {
 
   refresh: function () {
     if (this.isGenerating) return;
+    var self = this;
+    this._activityVersion = (this._activityVersion || 0) + 1;
     var excludeList = this.data.map(function (item) { return item.word; }).join(', ');
     this.isGenerating = true;
     this.text = '';
@@ -186,18 +209,35 @@ YTX.features.vocab = {
 
     var payload = YTX.getContentPayload();
 
-    YTX.getSettings().then(function (settings) {
-      if (YTX.currentVideoId !== startVideoId) { YTX.features.vocab.isGenerating = false; return; }
-      var basePrompt = settings.promptVocab || YTX.prompts.VOCAB;
-      var refreshPrompt = basePrompt + '\n\n注意：以下词汇已经提取过，请排除它们，提取其他不同的词汇：\n' + excludeList;
-      YTX.features.vocab.requestId = YTX.makeRequestId();
-      chrome.runtime.sendMessage(Object.assign({
-        type: 'GENERATE_VOCAB',
-        prompt: refreshPrompt,
-        provider: settings.provider,
-        model: settings.model,
-        requestId: YTX.features.vocab.requestId,
-      }, payload));
-    });
+    var requestId = null;
+    var refreshToken = YTX.makeRequestId();
+    this._refreshToken = refreshToken;
+    (async function () {
+      try {
+        var settings = await YTX.getSettings();
+        if (YTX.currentVideoId !== startVideoId || self._refreshToken !== refreshToken) return;
+        var basePrompt = settings.promptVocab || YTX.prompts.VOCAB;
+        var refreshPrompt = basePrompt + '\n\n注意：以下词汇已经提取过，请排除它们，提取其他不同的词汇：\n' + excludeList;
+        if (self.requestId) YTX.cancelRequest(self.requestId);
+        requestId = YTX.makeRequestId();
+        self.requestId = requestId;
+        await YTX.sendToBg(Object.assign({
+          type: 'GENERATE_VOCAB',
+          prompt: refreshPrompt,
+          provider: settings.provider,
+          model: settings.model,
+          requestId: requestId,
+        }, payload));
+      } catch (err) {
+        if (self._refreshToken !== refreshToken) return;
+        if (requestId && self.requestId !== requestId) return;
+        if (requestId) {
+          YTX.cancelRequest(requestId);
+          self.requestId = null;
+        }
+        if (YTX.currentVideoId !== startVideoId) return;
+        self.onError(err.message);
+      }
+    })();
   },
 };

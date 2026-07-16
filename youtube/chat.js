@@ -16,6 +16,7 @@ YTX.features.chat = {
     this.messages = [];
     this.replyText = '';
     this.isChatting = false;
+    if (this.requestId) YTX.cancelRequest(this.requestId);
     this.requestId = null;
   },
 
@@ -76,27 +77,32 @@ YTX.features.chat = {
     if (this.messages.length > 40) this.messages = this.messages.slice(-40);
 
     var startVideoId = YTX.currentVideoId;
+    if (this.requestId) YTX.cancelRequest(this.requestId);
+    var requestId = YTX.makeRequestId();
+    this.requestId = requestId;
 
     try {
       aiBubble.innerHTML = '<div class="ytx-loading"><div class="ytx-spinner"></div><span>获取字幕中...</span></div>';
       await YTX.ensureTranscript();
-      if (YTX.currentVideoId !== startVideoId) { this.isChatting = false; return; }
+      if (YTX.currentVideoId !== startVideoId || this.requestId !== requestId) return;
 
       var settings = await YTX.getSettings();
-      if (YTX.currentVideoId !== startVideoId) { this.isChatting = false; return; }
+      if (YTX.currentVideoId !== startVideoId || this.requestId !== requestId) return;
       var payload = YTX.getContentPayload();
 
-      this.requestId = YTX.makeRequestId();
-      chrome.runtime.sendMessage(Object.assign({
+      await YTX.sendToBg(Object.assign({
         type: 'CHAT_ASK',
         messages: this.messages,
         provider: settings.provider,
         model: settings.model,
-        requestId: this.requestId,
+        requestId: requestId,
       }, payload));
     } catch (err) {
+      if (this.requestId !== requestId) return;
+      YTX.cancelRequest(requestId);
+      this.requestId = null;
       if (YTX.currentVideoId !== startVideoId) { this.isChatting = false; return; }
-      aiBubble.innerHTML = '<span class="ytx-chat-err">' + err.message + '</span>';
+      YTX.renderError(aiBubble, err.message);
       this.isChatting = false;
       sendBtn.disabled = false;
     }
@@ -116,6 +122,7 @@ YTX.features.chat = {
   },
 
   onDone: function () {
+    this.requestId = null;
     this.messages.push({ role: 'assistant', content: this.replyText });
     this.isChatting = false;
     YTX.panel.querySelector('#ytx-chat-send').disabled = false;
@@ -123,16 +130,22 @@ YTX.features.chat = {
   },
 
   onError: function (error) {
+    this.requestId = null;
     var aiBubble = YTX.panel.querySelector('.ytx-chat-ai:last-child');
-    if (aiBubble) aiBubble.innerHTML = '<span class="ytx-chat-err">' + error + '</span>';
+    if (aiBubble) YTX.renderError(aiBubble, error);
     this.isChatting = false;
     YTX.panel.querySelector('#ytx-chat-send').disabled = false;
   },
 
   clear: function () {
+    if (this.requestId) YTX.cancelRequest(this.requestId);
+    this.requestId = null;
     this.messages = [];
     this.replyText = '';
+    this.isChatting = false;
     if (!YTX.panel) return;
+    var sendBtn = YTX.panel.querySelector('#ytx-chat-send');
+    if (sendBtn) sendBtn.disabled = false;
     var msgContainer = YTX.panel.querySelector('#ytx-chat-messages');
     msgContainer.innerHTML = '<div class="ytx-empty">基于视频内容提问，AI 助教为你解答</div>';
   },

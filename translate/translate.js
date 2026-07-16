@@ -126,15 +126,58 @@
     try { return !!chrome.runtime && !!chrome.runtime.id; } catch (_) { return false; }
   }
 
+  function restoreIdleUi() {
+    isTranslating = false;
+    removeCursor();
+    setTranslating(false);
+    if (icon) {
+      icon.textContent = '译';
+      icon.classList.remove('ytx-translate-loading');
+    }
+  }
+
+  function sendCancelRequest(requestId, reason) {
+    if (!requestId || !isContextValid()) return;
+    try {
+      chrome.runtime.sendMessage({
+        type: 'CANCEL_REQUEST',
+        requestId: requestId,
+        reason: reason || '翻译请求已取消',
+      }, function () {
+        // 取消是 best-effort；读取 lastError 避免扩展更新时产生未处理警告。
+        void chrome.runtime.lastError;
+      });
+    } catch (_) {}
+  }
+
+  function cancelCurrentRequest(reason) {
+    var requestId = currentRequestId;
+    // 先清 ID，使取消过程中到达的旧 chunk 立即失效。
+    currentRequestId = null;
+    if (requestId) sendCancelRequest(requestId, reason);
+    restoreIdleUi();
+  }
+
+  function finishCurrentRequest(requestId) {
+    if (!requestId || requestId !== currentRequestId) return false;
+    currentRequestId = null;
+    restoreIdleUi();
+    return true;
+  }
+
   // ── 读取 API 设置（仅非敏感字段；API key 由 background 自读，content script 不接触）──
   function getSettings(callback) {
     if (!isContextValid()) {
-      showError('扩展已更新，请刷新页面后重试');
-      isTranslating = false;
+      callback(null, '扩展已更新，请刷新页面后重试');
       return;
     }
     try {
       chrome.storage.sync.get(['provider', 'claudeModel', 'openaiModel', 'geminiModel', 'minimaxModel', 'sub2apiModel', 'sub2api2Model', 'sub2api3Model', 'promptTranslateDict', 'promptTranslateSentence'], function (s) {
+        if (chrome.runtime.lastError) {
+          callback(null, chrome.runtime.lastError.message || '读取翻译设置失败');
+          return;
+        }
+        s = s || {};
         var provider = s.provider || 'claude';
         var modelMap = { claude: s.claudeModel, openai: s.openaiModel, gemini: s.geminiModel, minimax: s.minimaxModel, sub2api: s.sub2apiModel, sub2api2: s.sub2api2Model, sub2api3: s.sub2api3Model };
         callback({
@@ -144,9 +187,8 @@
           promptSentence: s.promptTranslateSentence || '',
         });
       });
-    } catch (_) {
-      showError('扩展已更新，请刷新页面后重试');
-      isTranslating = false;
+    } catch (err) {
+      callback(null, err && err.message ? err.message : '扩展已更新，请刷新页面后重试');
     }
   }
 
@@ -278,25 +320,37 @@
 
   // ── 实际发送翻译请求（context 可选，用于字典模式提供上下文）──
   function doTranslate(text, context) {
-    if (isTranslating) return;
+    if (!text) return;
 
-    getSettings(function (settings) {
+    // 设置读取是异步的，两次快速触发可能在 isTranslating 置位前重叠。
+    // 新请求拥有新 ID，并主动取消被覆盖的旧请求。
+    if (currentRequestId) cancelCurrentRequest('翻译请求已被新请求替换');
+    var requestId = makeReqId();
+    currentRequestId = requestId;
+    isTranslating = true;
+    resultText = '';
+    hideIcon();
+    setTranslating(true);
+
+    var resultEl = popup && popup.querySelector('.ytx-translate-result-text');
+    if (resultEl) {
+      resultEl.textContent = '';
+      resultEl.classList.remove('ytx-translate-error');
+    }
+    addCursor();
+    setStatus('Translating...', false);
+
+    getSettings(function (settings, settingsError) {
+      // 读设置期间已关闭弹窗或已发起新请求。
+      if (requestId !== currentRequestId) return;
+      if (!settings) {
+        finishCurrentRequest(requestId);
+        showError(settingsError || '读取翻译设置失败');
+        return;
+      }
+
       // 不再前置校验 key（content script 不接触 key）；
       // 缺 key 时 background 会回 TRANSLATE_ERROR，由消息路由统一显示
-      isTranslating = true;
-      resultText = '';
-      hideIcon();
-      setTranslating(true);
-
-      var resultEl = popup && popup.querySelector('.ytx-translate-result-text');
-      if (resultEl) {
-        resultEl.textContent = '';
-        resultEl.classList.remove('ytx-translate-error');
-      }
-      addCursor();
-      setStatus('Translating...', false);
-
-      currentRequestId = makeReqId();
       var msg = {
         type: 'TRANSLATE',
         text: text,
@@ -305,17 +359,29 @@
         model: settings.model,
         promptDict: settings.promptDict,
         promptSentence: settings.promptSentence,
-        requestId: currentRequestId,
+        requestId: requestId,
       };
       // 传递上下文（textarea 全文），让字典模式结合语境解释
       if (context && context !== text) msg.context = context;
 
       try {
-        chrome.runtime.sendMessage(msg);
-      } catch (_) {
-        showError('扩展已更新，请刷新页面后重试');
-        isTranslating = false;
-        setTranslating(false);
+        chrome.runtime.sendMessage(msg, function (response) {
+          // lastError 必须在回调内读取，即使该请求已被替换。
+          var runtimeError = chrome.runtime.lastError;
+          if (requestId !== currentRequestId) return;
+          if (runtimeError || !response || response.started !== true) {
+            finishCurrentRequest(requestId);
+            showError(
+              (runtimeError && runtimeError.message) ||
+              (response && response.error) ||
+              '无法启动翻译请求'
+            );
+          }
+        });
+      } catch (err) {
+        if (requestId !== currentRequestId) return;
+        finishCurrentRequest(requestId);
+        showError(err && err.message ? err.message : '扩展已更新，请刷新页面后重试');
       }
     });
   }
@@ -614,9 +680,9 @@
   }
 
   function hideAll() {
+    cancelCurrentRequest('翻译弹窗已关闭');
     hideIcon();
     if (popup) popup.style.display = 'none';
-    isTranslating = false;
     resultText = '';
     currentText = '';
     selectionRect = null;
@@ -675,7 +741,7 @@
     // 用户关弹窗后立刻发起下一次翻译时，旧 chunk 不会污染新弹窗
     if (msg.type === 'TRANSLATE_MODEL' || msg.type === 'TRANSLATE_CHUNK' ||
         msg.type === 'TRANSLATE_DONE' || msg.type === 'TRANSLATE_ERROR') {
-      if (msg.requestId && msg.requestId !== currentRequestId) return;
+      if (!currentRequestId || msg.requestId !== currentRequestId) return;
     }
 
     if (msg.type === 'TRANSLATE_MODEL') {
@@ -696,21 +762,15 @@
     }
 
     if (msg.type === 'TRANSLATE_DONE') {
-      isTranslating = false;
       removeCursor();
       // 最终渲染
       var bodyDone = popup && popup.querySelector('.ytx-translate-result-text');
       if (bodyDone) bodyDone.innerHTML = renderMarkdown(resultText);
       setStatus('Translated', true);
-      setTranslating(false);
-      if (icon) {
-        icon.textContent = '译';
-        icon.classList.remove('ytx-translate-loading');
-      }
+      finishCurrentRequest(msg.requestId);
     }
 
     if (msg.type === 'TRANSLATE_ERROR') {
-      isTranslating = false;
       removeCursor();
       var body = popup && popup.querySelector('.ytx-translate-result-text');
       if (body) {
@@ -718,11 +778,7 @@
         body.classList.add('ytx-translate-error');
       }
       setStatus('Error', true);
-      setTranslating(false);
-      if (icon) {
-        icon.textContent = '译';
-        icon.classList.remove('ytx-translate-loading');
-      }
+      finishCurrentRequest(msg.requestId);
     }
   });
 

@@ -920,6 +920,8 @@ html[dark] #ytx-resizer.ytx-resizer-active .ytx-resizer-dot,
   padding: 10px 14px;
   border-radius: 8px;
   font-size: 13px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 /* 暗色模式 */

@@ -13,9 +13,11 @@ YTX.features.cards = {
   isGenerating: false,
 
   reset: function () {
+    this._activityVersion = (this._activityVersion || 0) + 1;
     this.data = [];
     this.rawText = '';
     this.isGenerating = false;
+    if (this.requestId) YTX.cancelRequest(this.requestId);
     this.requestId = null;
     if (this._deferred) { this._deferred.reject(new Error('视频已切换')); this._deferred = null; }
   },
@@ -36,6 +38,7 @@ YTX.features.cards = {
   start: function () {
     var self = this;
     if (this.isGenerating) return Promise.resolve();
+    this._activityVersion = (this._activityVersion || 0) + 1;
     this.isGenerating = true;
     this.rawText = '';
     this.data = [];
@@ -51,34 +54,46 @@ YTX.features.cards = {
     btn.disabled = true;
 
     function bailSilently() {
-      self.isGenerating = false;
-      if (self._deferred === deferred) { deferred.resolve(); self._deferred = null; }
+      if (self._deferred === deferred) {
+        self.isGenerating = false;
+        deferred.resolve();
+        self._deferred = null;
+      }
     }
 
+    var requestId = null;
     (async function () {
       try {
         btn.innerHTML = YTX.icons.spinner;
         contentEl.innerHTML = '<div class="ytx-loading" style="padding:14px 16px"><div class="ytx-spinner"></div><span>正在获取字幕...</span></div>';
         await YTX.ensureTranscript();
-        if (YTX.currentVideoId !== startVideoId) return bailSilently();
+        if (YTX.currentVideoId !== startVideoId || self._deferred !== deferred) return bailSilently();
 
         contentEl.innerHTML = '<div class="ytx-loading" style="padding:14px 16px"><div class="ytx-spinner"></div><span>正在生成知识卡片...</span></div>';
 
         var settings = await YTX.getSettings();
-        if (YTX.currentVideoId !== startVideoId) return bailSilently();
+        if (YTX.currentVideoId !== startVideoId || self._deferred !== deferred) return bailSilently();
         var payload = YTX.getContentPayload();
 
-        self.requestId = YTX.makeRequestId();
-        chrome.runtime.sendMessage(Object.assign({
+        if (self.requestId) YTX.cancelRequest(self.requestId);
+        requestId = YTX.makeRequestId();
+        self.requestId = requestId;
+        await YTX.sendToBg(Object.assign({
           type: 'GENERATE_CARDS',
           prompt: settings.promptCards || YTX.prompts.CARDS,
           provider: settings.provider,
           model: settings.model,
-          requestId: self.requestId,
+          requestId: requestId,
         }, payload));
       } catch (err) {
+        if (self._deferred !== deferred) return;
+        if (requestId && self.requestId !== requestId) return;
+        if (requestId) {
+          YTX.cancelRequest(requestId);
+          self.requestId = null;
+        }
         if (YTX.currentVideoId !== startVideoId) return bailSilently();
-        contentEl.innerHTML = '<div class="ytx-error" style="margin:14px 16px">' + err.message + '</div>';
+        YTX.renderError(contentEl, err.message);
         btn.disabled = false;
         YTX.btnPrimary(btn);
         self.isGenerating = false;
@@ -94,6 +109,7 @@ YTX.features.cards = {
   },
 
   onDone: function () {
+    this.requestId = null;
     try {
       this.data = YTX.extractJSON(this.rawText, 'array');
       if (!this.data) {
@@ -111,7 +127,8 @@ YTX.features.cards = {
   },
 
   onError: function (error) {
-    YTX.panel.querySelector('#ytx-content-cards').innerHTML = '<div class="ytx-error" style="margin:14px 16px">' + error + '</div>';
+    this.requestId = null;
+    YTX.renderError(YTX.panel.querySelector('#ytx-content-cards'), error);
     YTX.panel.querySelector('#ytx-generate-cards').disabled = false;
     YTX.btnPrimary(YTX.panel.querySelector('#ytx-generate-cards'));
     this.isGenerating = false;

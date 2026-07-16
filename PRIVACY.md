@@ -1,6 +1,6 @@
 # Privacy Policy - AAtools
 
-Last updated: 2026-04-26
+Last updated: 2026-07-16
 
 ## Overview
 
@@ -12,7 +12,7 @@ AAtools does **not** collect, store, or transmit any personal data to the develo
 
 ## Data Storage
 
-The following data is stored via `chrome.storage.sync` and IndexedDB. Note: `chrome.storage.sync` is **synchronized to your other Chrome profiles via your Google account** when you are signed in to Chrome — it is not strictly local. Cached results (IndexedDB) stay on the current device only.
+The following data is stored via `chrome.storage.sync` and the extension's own IndexedDB. Note: `chrome.storage.sync` is **synchronized to your other Chrome profiles via your Google account** when you are signed in to Chrome — it is not strictly local. Cached results (IndexedDB) stay on the current device only. Older releases stored YouTube results under the `youtube.com` page origin; each unchanged legacy record is removed from the old database only after that record is confirmed saved in extension storage. Records changed by an older open tab during migration are retained for a later retry.
 
 - **API Keys**: Your Claude, OpenAI, Gemini, and/or MiniMax API keys (entered by you in the extension settings)
 - **Preferences**: Selected AI provider, model, custom prompts, and feature toggles (e.g. mouse gestures)
@@ -28,6 +28,7 @@ When you use AAtools, your video subtitle content or selected text is sent direc
 - **OpenAI** (api.openai.com) — when using OpenAI
 - **Google** (generativelanguage.googleapis.com) — when using Gemini
 - **MiniMax** (api.minimax.io) — when using MiniMax
+- **A custom Sub2API gateway chosen by you** — only after you explicitly grant access to that gateway's domain
 
 These API calls are made directly from your browser using your own API keys. AAtools does not proxy, log, or intercept any of this data. Obsidian export generates a `.md` file locally and downloads it via the browser — nothing is uploaded.
 
@@ -37,7 +38,8 @@ These API calls are made directly from your browser using your own API keys. AAt
 - **storage**: Save your settings and API keys locally
 - **scripting**: Execute a script on YouTube pages to read subtitle content from the DOM
 - **sessions**: Restore the most recently closed tab via the mouse-gesture `←↑`
-- **Host permissions**: Make API calls to AI services as described above
+- **Host permissions**: Make API calls to the built-in AI services and YouTube as described above
+- **Optional host permissions**: Access only the custom Sub2API gateway domain you explicitly authorize in settings; public gateways must use HTTPS (localhost may use HTTP)
 
 ## Remote Code
 

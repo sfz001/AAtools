@@ -38,6 +38,7 @@ git clone https://github.com/sfz001/AAtools.git
 
 ### 可选配置
 
+- **自定义 Sub2API 网关** — 填写 Base URL 后点击「授权域名」；扩展只请求该域名的可选访问权限，公网网关必须使用 HTTPS（localhost 可使用 HTTP）
 - **导出 Obsidian** — 总结/笔记/导图可一键下载为带 YAML frontmatter 的 `.md`，直接拖进 Vault 即可
 - **设置导入/导出** — 支持将全部配置（含已拉取的模型列表）导出为 JSON 文件，方便迁移
 
@@ -113,23 +114,24 @@ git clone https://github.com/sfz001/AAtools.git
 
 - **可调分栏** — 拖拽视频与面板之间的分割条自由调整宽度
 - **可配置默认状态** — 可在设置页选择 YouTube 面板默认折叠或默认打开
-- **历史缓存** — 生成结果持久化到 IndexedDB，再次打开同一视频自动恢复
+- **历史缓存** — 生成结果持久化到扩展自身的 IndexedDB，再次打开同一视频自动恢复；旧版 YouTube 页面域缓存会安全迁移
 - **亮/暗色适配** — 自动跟随 YouTube 主题
 - **流式输出** — 所有 AI 生成均为流式渲染，实时显示进度
 - **自动保存** — 设置页所有修改 1.5 秒防抖自动保存
 
 ## 开发
 
-无构建、无 lint、无测试。直接改代码：
+无构建、无第三方依赖。直接改代码：
 
 1. `chrome://extensions/` → 加载已解压的扩展程序（项目根目录）
 2. 修改代码后点击扩展页刷新图标，再刷新 YouTube 页面
 3. 修改 `background.js` 后需在扩展页重新加载 Service Worker
+4. 协议、缓存与权限测试：`node --test tests/*.test.js`
 
 ### 项目结构
 
 ```
-├── background.js              # Service Worker：API 调用、字幕抓取、视频转录
+├── background.js              # Service Worker：API 调用、字幕抓取、视频转录、缓存
 ├── manifest.json              # Manifest V3 配置
 ├── options.html/js/css        # 设置页
 ├── youtube/                   # YouTube 视频助手模块

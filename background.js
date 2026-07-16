@@ -1,46 +1,517 @@
 // background.js — Service Worker: 字幕获取 + 多模型 API 流式调用
 
+// ── 长请求生命周期管理 ────────────────────────────────────
+// requestId 由 content script 生成；同一个 tab 内可据此真正取消上游 fetch，
+// 而不只是丢弃迟到的消息。pendingCancellations 覆盖“取消消息先于 storage
+// 读取完成”的极短竞态。
+const activeRequests = new Map();
+const pendingCancellations = new Map();
+const tabNavigationEpochs = new Map();
+const PENDING_CANCEL_TTL = 60000;
+const NAVIGATION_TOMBSTONE_TTL = 60000;
+const MAX_PENDING_CANCELLATIONS = 1000;
+const PROVIDER_TIMEOUTS = { firstByteMs: 90000, idleMs: 60000, totalMs: 15 * 60 * 1000 };
+const TRANSCRIBE_TIMEOUTS = { firstByteMs: 180000, idleMs: 120000, totalMs: 45 * 60 * 1000 };
+
+let keepaliveRefCount = 0;
+let keepaliveTimer = null;
+
+function retainServiceWorker() {
+  keepaliveRefCount++;
+  if (!keepaliveTimer) {
+    const ping = () => {
+      try {
+        chrome.runtime.getPlatformInfo(() => { void chrome.runtime.lastError; });
+      } catch {}
+    };
+    ping();
+    keepaliveTimer = setInterval(ping, 20000);
+  }
+
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    keepaliveRefCount = Math.max(0, keepaliveRefCount - 1);
+    if (keepaliveRefCount === 0 && keepaliveTimer) {
+      clearInterval(keepaliveTimer);
+      keepaliveTimer = null;
+    }
+  };
+}
+
+function requestRegistryKey(tabId, requestId) {
+  return `${tabId == null ? 'extension' : tabId}:${String(requestId)}`;
+}
+
+function currentNavigationEpoch(tabId) {
+  return tabNavigationEpochs.get(tabId) || 0;
+}
+
+function prunePendingCancellations() {
+  const cutoff = Date.now() - PENDING_CANCEL_TTL;
+  for (const [key, createdAt] of pendingCancellations) {
+    if (createdAt < cutoff) pendingCancellations.delete(key);
+  }
+}
+
+function rememberPendingCancellation(key) {
+  prunePendingCancellations();
+  pendingCancellations.set(key, Date.now());
+  while (pendingCancellations.size > MAX_PENDING_CANCELLATIONS) {
+    pendingCancellations.delete(pendingCancellations.keys().next().value);
+  }
+}
+
+function createActiveRequest({ tabId, requestId, kind, totalMs }) {
+  prunePendingCancellations();
+  const effectiveId = requestId || `${kind}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const key = requestRegistryKey(tabId, effectiveId);
+  const controller = new AbortController();
+  const releaseKeepalive = retainServiceWorker();
+  let firstByteTimer = null;
+  let idleTimer = null;
+  let totalTimer = null;
+  let firstByteSeen = false;
+  let cleaned = false;
+  let abortReason = null;
+
+  const clearAttemptTimers = () => {
+    if (firstByteTimer) clearTimeout(firstByteTimer);
+    if (idleTimer) clearTimeout(idleTimer);
+    firstByteTimer = null;
+    idleTimer = null;
+    firstByteSeen = false;
+  };
+
+  const context = {
+    key,
+    tabId,
+    requestId: effectiveId,
+    kind,
+    controller,
+    signal: controller.signal,
+    get abortReason() { return abortReason; },
+    abort(code, message) {
+      if (controller.signal.aborted) return;
+      abortReason = { code, message };
+      clearAttemptTimers();
+      controller.abort();
+    },
+    startAttempt({ firstByteMs, idleMs }) {
+      clearAttemptTimers();
+      if (controller.signal.aborted) return;
+      firstByteTimer = setTimeout(() => {
+        context.abort('first_byte_timeout', `请求超时：${Math.round(firstByteMs / 1000)} 秒内未收到响应内容`);
+      }, firstByteMs);
+      context._idleMs = idleMs;
+    },
+    markActivity() {
+      if (controller.signal.aborted) return;
+      if (!firstByteSeen) {
+        firstByteSeen = true;
+        if (firstByteTimer) clearTimeout(firstByteTimer);
+        firstByteTimer = null;
+      }
+      if (idleTimer) clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => {
+        context.abort('idle_timeout', `请求超时：连续 ${Math.round(context._idleMs / 1000)} 秒未收到新数据`);
+      }, context._idleMs);
+    },
+    endAttempt() {
+      clearAttemptTimers();
+    },
+    cleanup() {
+      if (cleaned) return;
+      cleaned = true;
+      clearAttemptTimers();
+      if (totalTimer) clearTimeout(totalTimer);
+      totalTimer = null;
+      if (activeRequests.get(key) === context) activeRequests.delete(key);
+      releaseKeepalive();
+    },
+  };
+
+  const previous = activeRequests.get(key);
+  if (previous) previous.abort('replaced', '请求已被新的同名请求替换');
+  activeRequests.set(key, context);
+  totalTimer = setTimeout(() => {
+    context.abort('total_timeout', `请求超时：总处理时间超过 ${Math.round(totalMs / 60000)} 分钟`);
+  }, totalMs);
+
+  if (pendingCancellations.delete(key)) {
+    context.abort('cancelled', '请求已取消');
+  }
+  return context;
+}
+
+function cancelRequestsForTab(tabId, requestId, reason = '请求已取消') {
+  let cancelled = 0;
+  if (requestId) {
+    const key = requestRegistryKey(tabId, requestId);
+    const context = activeRequests.get(key);
+    if (context) {
+      context.abort('cancelled', reason);
+      cancelled++;
+    } else {
+      // storage.sync 读取期间请求尚未登记；让随后创建的 context 立即终止。
+      rememberPendingCancellation(key);
+    }
+    return { cancelled, pending: cancelled === 0 };
+  }
+
+  for (const context of activeRequests.values()) {
+    if (context.tabId === tabId) {
+      context.abort('cancelled', reason);
+      cancelled++;
+    }
+  }
+  return { cancelled, pending: false };
+}
+
+function abortMessageFor(context) {
+  return context.abortReason?.message || '请求已取消';
+}
+
+function delayWithSignal(ms, signal) {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(new DOMException('Aborted', 'AbortError'));
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(new DOMException('Aborted', 'AbortError'));
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
+// ── 扩展域缓存（不再把日常数据写入 youtube.com origin）──────
+const CACHE_DB_NAME = 'AAtoolsCache';
+const CACHE_DB_VERSION = 1;
+const CACHE_STORE_NAME = 'results';
+const CACHE_FEATURE_KEYS = new Set(['transcript', 'summary', 'html', 'cards', 'mindmap', 'vocab']);
+const CACHE_LEGACY_FEATURES_FIELD = '__legacyFeatures';
+const CACHE_MESSAGE_TYPES = new Set(['CACHE_LOAD', 'CACHE_SAVE', 'CACHE_REMOVE', 'CACHE_CLEAR', 'CACHE_MIGRATE_RECORD']);
+const MAX_CACHE_JSON_CHARS = 5_000_000;
+let cacheDatabasePromise = null;
+
+function isValidVideoId(videoId) {
+  return typeof videoId === 'string' && /^[A-Za-z0-9_-]{11}$/.test(videoId);
+}
+
+function isTrustedCacheSender(sender) {
+  if (!sender?.tab || sender.frameId !== 0) return false;
+  try {
+    const url = new URL(sender.url || '');
+    return url.protocol === 'https:' && url.hostname === 'www.youtube.com';
+  } catch {
+    return false;
+  }
+}
+
+function assertCachePayloadSize(value) {
+  let json;
+  try {
+    json = JSON.stringify(value);
+  } catch {
+    throw new Error('缓存数据无法序列化');
+  }
+  if (json === undefined || json.length > MAX_CACHE_JSON_CHARS) {
+    throw new Error('缓存数据过大或格式无效');
+  }
+}
+
+function openCacheDatabase() {
+  if (cacheDatabasePromise) return cacheDatabasePromise;
+  cacheDatabasePromise = new Promise((resolve, reject) => {
+    const request = indexedDB.open(CACHE_DB_NAME, CACHE_DB_VERSION);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(CACHE_STORE_NAME)) {
+        db.createObjectStore(CACHE_STORE_NAME, { keyPath: 'videoId' });
+      }
+    };
+    request.onsuccess = () => {
+      const db = request.result;
+      db.onversionchange = () => {
+        db.close();
+        cacheDatabasePromise = null;
+      };
+      resolve(db);
+    };
+    request.onerror = () => {
+      cacheDatabasePromise = null;
+      reject(request.error || new Error('扩展缓存打开失败'));
+    };
+  });
+  return cacheDatabasePromise;
+}
+
+async function withCacheStore(mode, work) {
+  const db = await openCacheDatabase();
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let result;
+    const tx = db.transaction(CACHE_STORE_NAME, mode);
+    const store = tx.objectStore(CACHE_STORE_NAME);
+
+    const fail = (error) => {
+      if (settled) return;
+      settled = true;
+      try { tx.abort(); } catch {}
+      reject(error || tx.error || new Error('缓存事务失败'));
+    };
+
+    tx.oncomplete = () => {
+      if (settled) return;
+      settled = true;
+      resolve(result);
+    };
+    tx.onerror = () => fail(tx.error);
+    tx.onabort = () => fail(tx.error);
+
+    try {
+      work(store, (value) => { result = value; }, fail);
+    } catch (error) {
+      fail(error);
+    }
+  });
+}
+
+function cacheLoadRecord(videoId) {
+  return withCacheStore('readonly', (store, setResult, fail) => {
+    const request = store.get(videoId);
+    request.onsuccess = () => setResult(request.result || null);
+    request.onerror = () => fail(request.error);
+  });
+}
+
+function cacheSaveFeature(videoId, featureKey, data) {
+  assertCachePayloadSize(data);
+  return withCacheStore('readwrite', (store, _setResult, fail) => {
+    const request = store.get(videoId);
+    request.onerror = () => fail(request.error);
+    request.onsuccess = () => {
+      const record = request.result || { videoId };
+      record[featureKey] = data;
+      // 一旦用户在新版扩展中重新生成该功能，它就不再由后续旧标签迁移更新。
+      const legacyFeatures = new Set(Array.isArray(record[CACHE_LEGACY_FEATURES_FIELD])
+        ? record[CACHE_LEGACY_FEATURES_FIELD].filter(key => CACHE_FEATURE_KEYS.has(key))
+        : []);
+      legacyFeatures.delete(featureKey);
+      if (legacyFeatures.size) record[CACHE_LEGACY_FEATURES_FIELD] = Array.from(legacyFeatures);
+      else delete record[CACHE_LEGACY_FEATURES_FIELD];
+      record.updatedAt = Date.now();
+      try {
+        store.put(record);
+      } catch (error) {
+        fail(error);
+      }
+    };
+  });
+}
+
+function cacheRemoveRecord(videoId) {
+  return withCacheStore('readwrite', (store, _setResult, fail) => {
+    const request = store.delete(videoId);
+    request.onerror = () => fail(request.error);
+  });
+}
+
+function cacheClearRecords() {
+  return withCacheStore('readwrite', (store, _setResult, fail) => {
+    const request = store.clear();
+    request.onerror = () => fail(request.error);
+  });
+}
+
+function sanitizeLegacyCacheRecord(input) {
+  if (!input || typeof input !== 'object' || !isValidVideoId(input.videoId)) {
+    throw new Error('旧缓存记录格式无效');
+  }
+  const record = { videoId: input.videoId };
+  for (const key of CACHE_FEATURE_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(input, key)) record[key] = input[key];
+  }
+  record.updatedAt = Number.isFinite(input.updatedAt) && input.updatedAt > 0
+    ? input.updatedAt
+    : 0;
+  assertCachePayloadSize(record);
+  return record;
+}
+
+function cacheMergeLegacyRecord(input) {
+  const legacy = sanitizeLegacyCacheRecord(input);
+  return withCacheStore('readwrite', (store, _setResult, fail) => {
+    const request = store.get(legacy.videoId);
+    request.onerror = () => fail(request.error);
+    request.onsuccess = () => {
+      const existing = request.result;
+      const merged = { videoId: legacy.videoId };
+      const legacyManaged = new Set(existing && Array.isArray(existing[CACHE_LEGACY_FEATURES_FIELD])
+        ? existing[CACHE_LEGACY_FEATURES_FIELD].filter(key => CACHE_FEATURE_KEYS.has(key))
+        : []);
+
+      // 先保留扩展域现值；旧记录只补缺失字段，或刷新先前同样由旧库迁入的字段。
+      // 新版扩展中重新生成过的字段不会被仍打开的旧标签覆盖。
+      for (const key of CACHE_FEATURE_KEYS) {
+        if (existing && Object.prototype.hasOwnProperty.call(existing, key)) merged[key] = existing[key];
+        if (Object.prototype.hasOwnProperty.call(legacy, key) &&
+            (!existing || !Object.prototype.hasOwnProperty.call(existing, key) || legacyManaged.has(key))) {
+          merged[key] = legacy[key];
+          legacyManaged.add(key);
+        }
+      }
+      const retainedLegacyFeatures = Array.from(legacyManaged).filter(key => Object.prototype.hasOwnProperty.call(merged, key));
+      if (retainedLegacyFeatures.length) merged[CACHE_LEGACY_FEATURES_FIELD] = retainedLegacyFeatures;
+      merged.updatedAt = Math.max(legacy.updatedAt || 0, existing?.updatedAt || 0);
+      try {
+        store.put(merged);
+      } catch (error) {
+        fail(error);
+      }
+    };
+  });
+}
+
+async function handleCacheMessage(message, sender) {
+  if (!isTrustedCacheSender(sender)) return { ok: false, error: '不允许的缓存请求来源' };
+
+  if (message.type === 'CACHE_CLEAR') {
+    await cacheClearRecords();
+    return { ok: true };
+  }
+  if (message.type === 'CACHE_MIGRATE_RECORD') {
+    await cacheMergeLegacyRecord(message.record);
+    return { ok: true };
+  }
+  if (!isValidVideoId(message.videoId)) return { ok: false, error: '视频 ID 无效' };
+
+  if (message.type === 'CACHE_LOAD') {
+    return { ok: true, record: await cacheLoadRecord(message.videoId) };
+  }
+  if (message.type === 'CACHE_REMOVE') {
+    await cacheRemoveRecord(message.videoId);
+    return { ok: true };
+  }
+  if (message.type === 'CACHE_SAVE') {
+    if (!CACHE_FEATURE_KEYS.has(message.featureKey)) return { ok: false, error: '缓存类型无效' };
+    await cacheSaveFeature(message.videoId, message.featureKey, message.data);
+    return { ok: true };
+  }
+  return { ok: false, error: '未知缓存操作' };
+}
+
+// 已关闭标签页的 epoch tombstone 到期清理：tombstone 只需覆盖仍在等待
+// storage/permissions 回调的旧请求（秒级窗口），过期后删除防止 Map 随关闭的
+// 标签页无限增长。Chrome 同一会话内不复用 tabId，删除后 epoch 归零不会与
+// 新标签页冲突。机会式清理（跟随 tab 事件），不用定时器以免空转唤醒 SW。
+const closedTabTombstones = new Map();
+
+function pruneNavigationTombstones() {
+  const cutoff = Date.now() - NAVIGATION_TOMBSTONE_TTL;
+  for (const [tabId, closedAt] of closedTabTombstones) {
+    if (closedAt < cutoff) {
+      closedTabTombstones.delete(tabId);
+      tabNavigationEpochs.delete(tabId);
+    }
+  }
+}
+
+try {
+  chrome.tabs.onRemoved.addListener((tabId) => {
+    pruneNavigationTombstones();
+    // 保留关闭 tombstone：若请求还在等待 storage/permissions 回调，不能让
+    // delete 后的默认 epoch=0 与旧请求捕获的 0 再次相等。
+    tabNavigationEpochs.set(tabId, currentNavigationEpoch(tabId) + 1);
+    closedTabTombstones.set(tabId, Date.now());
+    cancelRequestsForTab(tabId, null, '页面已关闭，请求已取消');
+  });
+} catch {}
+
+try {
+  chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+    // 整页刷新和跨站跳转会销毁旧文档；旧 content script 无法再主动取消，
+    // 因此在 tab 生命周期层兜底中断。History/hash 变化不在这里误杀翻译请求。
+    if (changeInfo.status === 'loading') {
+      pruneNavigationTombstones();
+      tabNavigationEpochs.set(tabId, currentNavigationEpoch(tabId) + 1);
+      cancelRequestsForTab(tabId, null, '页面已导航，请求已取消');
+    }
+  });
+} catch {}
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  const senderTabId = sender.tab?.id;
+  const navigationEpoch = senderTabId == null ? 0 : currentNavigationEpoch(senderTabId);
+  if (CACHE_MESSAGE_TYPES.has(message.type)) {
+    handleCacheMessage(message, sender)
+      .then(sendResponse)
+      .catch((error) => {
+        console.warn('[AAtools] 缓存操作失败:', error);
+        sendResponse({ ok: false, error: error?.message || '缓存操作失败' });
+      });
+    return true;
+  }
+  if (message.type === 'CANCEL_REQUEST') {
+    const tabId = sender.tab?.id;
+    if (tabId == null) {
+      sendResponse({ cancelled: false, error: '无法确定请求所属页面' });
+      return false;
+    }
+    const reason = typeof message.reason === 'string' && message.reason.trim()
+      ? message.reason.trim().slice(0, 200)
+      : '请求已取消';
+    const result = cancelRequestsForTab(tabId, message.requestId, reason);
+    sendResponse({ cancelled: result.cancelled > 0 || result.pending, count: result.cancelled });
+    return false;
+  }
   if (message.type === 'FETCH_TRANSCRIPT') {
-    handleFetchTranscript(message.videoId, sender.tab.id).then(sendResponse);
+    handleFetchTranscript(message.videoId, senderTabId, navigationEpoch).then(sendResponse);
     return true;
   }
   if (message.type === 'SUMMARIZE') {
-    handleSummarize(message, sender.tab.id, 'SUMMARY');
+    handleSummarize(message, senderTabId, 'SUMMARY', navigationEpoch);
     sendResponse({ started: true });
     return true;
   }
   if (message.type === 'GENERATE_HTML') {
-    handleSummarize(message, sender.tab.id, 'HTML');
+    handleSummarize(message, senderTabId, 'HTML', navigationEpoch);
     sendResponse({ started: true });
     return true;
   }
   if (message.type === 'GENERATE_CARDS') {
-    handleSummarize(message, sender.tab.id, 'CARDS');
+    handleSummarize(message, senderTabId, 'CARDS', navigationEpoch);
     sendResponse({ started: true });
     return true;
   }
   if (message.type === 'GENERATE_MINDMAP') {
-    handleSummarize(message, sender.tab.id, 'MINDMAP');
+    handleSummarize(message, senderTabId, 'MINDMAP', navigationEpoch);
     sendResponse({ started: true });
     return true;
   }
   if (message.type === 'GENERATE_VOCAB') {
-    handleSummarize(message, sender.tab.id, 'VOCAB');
+    handleSummarize(message, senderTabId, 'VOCAB', navigationEpoch);
     sendResponse({ started: true });
     return true;
   }
   if (message.type === 'CHAT_ASK') {
-    handleChat(message, sender.tab.id);
+    handleChat(message, senderTabId, navigationEpoch);
     sendResponse({ started: true });
     return true;
   }
   if (message.type === 'TRANSCRIBE_VIDEO') {
-    handleTranscribeVideo(message, sender.tab.id).then(sendResponse);
+    handleTranscribeVideo(message, senderTabId, navigationEpoch).then(sendResponse);
     return true;
   }
   if (message.type === 'TRANSLATE') {
-    handleTranslate(message, sender.tab.id);
+    handleTranslate(message, senderTabId, navigationEpoch);
     sendResponse({ started: true });
     return true;
   }
@@ -65,7 +536,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 // ── 字幕获取 ────────────────────────────────────────────
 // 优先尝试快速路径（player API + timedtext fetch，~300ms）
 // 失败回退到 DOM 抓取（点 transcript 按钮，6-30s）
-async function handleFetchTranscript(videoId, tabId) {
+async function handleFetchTranscript(videoId, tabId, navigationEpoch = currentNavigationEpoch(tabId)) {
+  const cancelled = () => navigationEpoch !== currentNavigationEpoch(tabId);
+  const cancelledResult = () => ({ error: '页面已导航，请求已取消', cancelled: true });
+  if (tabId == null) return { error: '无法确定字幕请求所属页面' };
+  if (cancelled()) return cancelledResult();
   try {
     const fastResults = await chrome.scripting.executeScript({
       target: { tabId },
@@ -73,18 +548,22 @@ async function handleFetchTranscript(videoId, tabId) {
       func: fastScrapeTranscriptViaPlayerAPI,
       args: [videoId],
     });
+    if (cancelled()) return cancelledResult();
     const fast = fastResults?.[0]?.result;
     if (fast && fast.segments?.length > 0) {
       console.log('[AAtools] 快速字幕获取成功，段数:', fast.segments.length);
       return { segments: fast.segments };
     }
+    if (fast?.cancelled) return fast;
     if (fast && fast.error) {
       console.log('[AAtools] 快速路径失败，回退 DOM 抓取:', fast.error);
     }
   } catch (err) {
+    if (cancelled()) return cancelledResult();
     console.log('[AAtools] 快速路径异常，回退 DOM 抓取:', err.message);
   }
 
+  if (cancelled()) return cancelledResult();
   try {
     const results = await chrome.scripting.executeScript({
       target: { tabId },
@@ -92,13 +571,16 @@ async function handleFetchTranscript(videoId, tabId) {
       func: scrapeTranscriptFromDOM,
       args: [videoId],
     });
+    if (cancelled()) return cancelledResult();
 
     const result = results?.[0]?.result;
     if (!result) return { error: '无法执行页面脚本' };
+    if (result.cancelled) return result;
     if (result.error) return { error: result.error };
     if (result.segments?.length > 0) return { segments: result.segments };
     return { error: '字幕内容为空' };
   } catch (err) {
+    if (cancelled()) return cancelledResult();
     return { error: `获取字幕失败: ${err.message}` };
   }
 }
@@ -108,18 +590,40 @@ async function handleFetchTranscript(videoId, tabId) {
 async function fastScrapeTranscriptViaPlayerAPI(videoId) {
   const _t0 = performance.now();
   console.log('[AAtools] 快速路径开始 videoId=' + videoId);
+  const spaCancelled = () => ({ error: 'YouTube 已切换视频，字幕请求已取消', cancelled: true });
+
+  function videoState(player) {
+    try {
+      const urlVideoId = new URL(location.href).searchParams.get('v');
+      if (urlVideoId !== videoId) return 'stale';
+      const response = player && typeof player.getPlayerResponse === 'function' ? player.getPlayerResponse() : null;
+      const playerVideoId = response?.videoDetails?.videoId;
+      return playerVideoId === videoId ? 'ready' : 'pending';
+    } catch {
+      return 'pending';
+    }
+  }
+
+  async function waitForTargetPlayer(timeoutMs) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const player = document.querySelector('#movie_player');
+      const state = videoState(player);
+      if (state === 'stale') return { stale: true };
+      if (state === 'ready') return { player };
+      await new Promise(resolve => setTimeout(resolve, 80));
+    }
+    return { error: 'player 尚未切换到当前视频' };
+  }
+
   try {
-    const player = document.querySelector('#movie_player');
-    if (!player || typeof player.getPlayerResponse !== 'function') {
-      console.log('[AAtools] 快速路径失败: player 未就绪');
-      return { error: 'player 未就绪' };
-    }
-    // 校验 player 当前视频与请求的 videoId 一致（避免 SPA 切视频后拿到旧视频字幕）
+    // 新视频 URL 可能已经变化，但 YouTube 尚未复用完 player。先等待目标视频，
+    // 不能把这种正常过渡误判为旧请求取消，也不能读取仍属于旧视频的字幕。
+    const ready = await waitForTargetPlayer(5000);
+    if (ready.stale) return spaCancelled();
+    if (!ready.player) return { error: ready.error || 'player 未就绪' };
+    const player = ready.player;
     const pr = player.getPlayerResponse();
-    const playerVid = pr && pr.videoDetails && pr.videoDetails.videoId;
-    if (playerVid && videoId && playerVid !== videoId) {
-      return { error: 'player videoId 不匹配（可能视频未切换完成）' };
-    }
     const tracks = pr && pr.captions && pr.captions.playerCaptionsTracklistRenderer && pr.captions.playerCaptionsTracklistRenderer.captionTracks;
     if (!tracks || !tracks.length) {
       return { error: '该视频没有字幕轨道' };
@@ -155,17 +659,28 @@ async function fastScrapeTranscriptViaPlayerAPI(videoId) {
       const deadline = Date.now() + 5000;
       while (Date.now() < deadline) {
         await new Promise(r => setTimeout(r, 80));
+        const currentPlayer = document.querySelector('#movie_player');
+        const state = videoState(currentPlayer);
+        // stale 后不再操作捕获的 player；YouTube 可能已经把它复用于新视频。
+        if (state === 'stale') return spaCancelled();
+        if (state !== 'ready' || currentPlayer !== player) {
+          return { error: 'player 状态已变化，将改用字幕面板重试' };
+        }
         potUrl = findPotUrl();
         if (potUrl) break;
       }
 
       // 恢复原始字幕状态：用户原本没开就关掉，避免污染观看体验
-      if (modifiedCaptions && wasCaptionsOff) {
+      if (modifiedCaptions && wasCaptionsOff &&
+          document.querySelector('#movie_player') === player && videoState(player) === 'ready') {
         try { player.setOption('captions', 'track', {}); } catch (e) {}
         try { player.unloadModule('captions'); } catch (e) {}
       }
     }
 
+    const beforeFetchState = videoState(document.querySelector('#movie_player'));
+    if (beforeFetchState === 'stale') return spaCancelled();
+    if (beforeFetchState !== 'ready') return { error: 'player 尚未稳定，将改用字幕面板重试' };
     if (!potUrl) {
       return { error: '触发后仍未捕获到 pot 字幕请求' };
     }
@@ -173,8 +688,14 @@ async function fastScrapeTranscriptViaPlayerAPI(videoId) {
     // 3. fetch URL（确保 fmt=json3 拿 JSON 格式）
     const url = potUrl.includes('fmt=json3') ? potUrl : potUrl + '&fmt=json3';
     const res = await fetch(url);
+    const afterFetchState = videoState(document.querySelector('#movie_player'));
+    if (afterFetchState === 'stale') return spaCancelled();
+    if (afterFetchState !== 'ready') return { error: 'player 状态已变化，将改用字幕面板重试' };
     if (!res.ok) return { error: 'timedtext HTTP ' + res.status };
     const data = await res.json();
+    const afterJsonState = videoState(document.querySelector('#movie_player'));
+    if (afterJsonState === 'stale') return spaCancelled();
+    if (afterJsonState !== 'ready') return { error: 'player 状态已变化，将改用字幕面板重试' };
 
     // 4. 解析 events → segments
     const segments = (data.events || [])
@@ -192,6 +713,7 @@ async function fastScrapeTranscriptViaPlayerAPI(videoId) {
     console.log('[AAtools] 快速路径成功 段数=' + segments.length + ' 耗时=' + Math.round(performance.now() - _t0) + 'ms');
     return { segments };
   } catch (err) {
+    if (videoState(document.querySelector('#movie_player')) === 'stale') return spaCancelled();
     console.log('[AAtools] 快速路径异常:', err && err.message);
     return { error: '快速路径异常: ' + (err && err.message ? err.message : String(err)) };
   }
@@ -202,6 +724,36 @@ async function scrapeTranscriptFromDOM(videoId) {
   const log = [];
   function addLog(msg) { log.push(msg); console.log('[AAtools]', msg); }
   function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+  function videoState() {
+    try {
+      const urlVideoId = new URL(location.href).searchParams.get('v');
+      if (urlVideoId !== videoId) return 'stale';
+      const knownVideoIds = [];
+      const player = document.querySelector('#movie_player');
+      const response = player && typeof player.getPlayerResponse === 'function' ? player.getPlayerResponse() : null;
+      const playerVideoId = response?.videoDetails?.videoId;
+      if (playerVideoId) knownVideoIds.push(playerVideoId);
+      const watchFlexy = document.querySelector('ytd-watch-flexy');
+      const flexyVideoId = watchFlexy?.getAttribute?.('video-id');
+      if (flexyVideoId) knownVideoIds.push(flexyVideoId);
+      if (!knownVideoIds.length) return 'pending';
+      return knownVideoIds.every(id => id === videoId) ? 'ready' : 'pending';
+    } catch {
+      return 'pending';
+    }
+  }
+  const spaCancelled = () => ({ error: 'YouTube 已切换视频，字幕请求已取消', cancelled: true });
+
+  async function waitForTargetPage(timeoutMs) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const state = videoState();
+      if (state === 'stale') return 'stale';
+      if (state === 'ready') return 'ready';
+      await sleep(100);
+    }
+    return videoState();
+  }
 
   function parseTime(str) {
     const m = (str || '').match(/(\d{1,2}):(\d{2})(?::(\d{2}))?/);
@@ -242,6 +794,16 @@ async function scrapeTranscriptFromDOM(videoId) {
   }
 
   try {
+    const initialState = await waitForTargetPage(8000);
+    if (initialState === 'stale') return spaCancelled();
+    if (initialState !== 'ready') return { error: '当前视频页面尚未加载完成，请稍后重试' };
+    // player/watch 容器刚切换完成时，旧 transcript panel 可能仍在换内容；
+    // 留一个短暂稳定窗口后再读取，避免把旧面板字幕当成新视频字幕。
+    await sleep(300);
+    const settledState = videoState();
+    if (settledState === 'stale') return spaCancelled();
+    if (settledState !== 'ready') return { error: '当前视频页面仍在切换，请稍后重试' };
+
     // === 1. 检查已打开的面板 ===
     const existing = parseModernPanel() || parseOldPanel();
     if (existing) {
@@ -254,9 +816,18 @@ async function scrapeTranscriptFromDOM(videoId) {
 
     // 展开描述区
     const expand = document.querySelector('tp-yt-paper-button#expand') || document.querySelector('#expand');
-    if (expand) { expand.click(); await sleep(600); }
+    if (expand) {
+      expand.click();
+      await sleep(600);
+      const state = videoState();
+      if (state === 'stale') return spaCancelled();
+      if (state !== 'ready') return { error: '当前视频页面仍在切换，请稍后重试' };
+    }
 
     // 点击"内容转文字"按钮
+    const beforeOpenState = videoState();
+    if (beforeOpenState === 'stale') return spaCancelled();
+    if (beforeOpenState !== 'ready') return { error: '当前视频页面仍在切换，请稍后重试' };
     const section = document.querySelector('ytd-video-description-transcript-section-renderer');
     if (section) {
       const btn = section.querySelector('button') || section.querySelector('[role="button"]');
@@ -270,6 +841,9 @@ async function scrapeTranscriptFromDOM(videoId) {
     let stableRounds = 0;
     for (let i = 0; i < maxWait; i++) {
       await sleep(300);
+      const state = videoState();
+      if (state === 'stale') return spaCancelled();
+      if (state !== 'ready') continue;
       const segs = parseModernPanel() || parseOldPanel();
       if (segs) {
         if (segs.length === lastCount) {
@@ -297,13 +871,19 @@ async function scrapeTranscriptFromDOM(videoId) {
         let fStable = 0;
         for (let i = 0; i < 200; i++) {
           await sleep(300);
+          const state = videoState();
+          // 页面一旦属于别的视频，不再触碰捕获的 panel；该节点可能已被复用。
+          if (state === 'stale') return spaCancelled();
+          if (state !== 'ready') continue;
           const segs = parseOldPanel();
           if (segs) {
             if (segs.length === fLastCount) {
               fStable++;
               if (fStable >= 3) {
                 addLog('强制展开成功，段数: ' + segs.length + ' (' + ((i + 1) * 300) + 'ms)');
-                p.setAttribute('visibility', 'ENGAGEMENT_PANEL_VISIBILITY_HIDDEN');
+                if (videoState() === 'ready' && p.isConnected !== false) {
+                  p.setAttribute('visibility', 'ENGAGEMENT_PANEL_VISIBILITY_HIDDEN');
+                }
                 return { segments: segs };
               }
             } else {
@@ -312,7 +892,9 @@ async function scrapeTranscriptFromDOM(videoId) {
             }
           }
         }
-        p.setAttribute('visibility', 'ENGAGEMENT_PANEL_VISIBILITY_HIDDEN');
+        if (videoState() === 'ready' && p.isConnected !== false) {
+          p.setAttribute('visibility', 'ENGAGEMENT_PANEL_VISIBILITY_HIDDEN');
+        }
         break;
       }
     }
@@ -341,19 +923,28 @@ function loadProviderConfig(provider) {
     if (KEY_FIELD[provider]) fields.push(KEY_FIELD[provider]);
     if (MODEL_FIELD[provider]) fields.push(MODEL_FIELD[provider]);
     if (SUB2API_BASE_FIELD[provider]) fields.push(SUB2API_BASE_FIELD[provider]);
-    chrome.storage.sync.get(fields, (data) => {
-      resolve({
-        provider: provider,
-        key: data[KEY_FIELD[provider]] || '',
-        model: data[MODEL_FIELD[provider]] || '',
-        baseUrl: SUB2API_BASE_FIELD[provider] ? (data[SUB2API_BASE_FIELD[provider]] || '') : '',
+    try {
+      chrome.storage.sync.get(fields, (data) => {
+        if (chrome.runtime.lastError) {
+          resolve({ provider, error: chrome.runtime.lastError.message || '读取扩展设置失败' });
+          return;
+        }
+        data = data || {};
+        resolve({
+          provider: provider,
+          key: data[KEY_FIELD[provider]] || '',
+          model: data[MODEL_FIELD[provider]] || '',
+          baseUrl: SUB2API_BASE_FIELD[provider] ? (data[SUB2API_BASE_FIELD[provider]] || '') : '',
+        });
       });
-    });
+    } catch (error) {
+      resolve({ provider, error: error?.message || '读取扩展设置失败' });
+    }
   });
 }
 
 // ── 总结/生成路由 ────────────────────────────────────────
-async function handleSummarize(message, tabId, mode = 'SUMMARY') {
+async function handleSummarize(message, tabId, mode = 'SUMMARY', navigationEpoch = currentNavigationEpoch(tabId)) {
   const { transcript, prompt, requestId } = message;
   const provider = message.provider || 'claude';
   const cfg = await loadProviderConfig(provider);
@@ -361,6 +952,10 @@ async function handleSummarize(message, tabId, mode = 'SUMMARY') {
   const model = message.model || cfg.model;
   const PREFIX = mode;
 
+  if (cfg.error) {
+    safeSend(tabId, { type: `${PREFIX}_ERROR`, error: '读取扩展设置失败：' + cfg.error, requestId });
+    return;
+  }
   if (!key) {
     safeSend(tabId, { type: `${PREFIX}_ERROR`, error: '请先在扩展设置中填入 API Key', requestId });
     return;
@@ -370,11 +965,11 @@ async function handleSummarize(message, tabId, mode = 'SUMMARY') {
   const systemPrompt = '你是一个专业的视频内容分析助手。你必须始终使用简体中文回答，无论输入的字幕是什么语言。严禁使用繁体中文、阿拉伯语、日语、韩语或任何其他非简体中文语言。';
   const messages = [{ role: 'user', content: fullPrompt }];
 
-  await callProvider(provider, { key, model, systemPrompt, messages, maxTokens: 8096, tabId, PREFIX, requestId, baseUrl: cfg.baseUrl });
+  await callProvider(provider, { key, model, systemPrompt, messages, maxTokens: 8096, tabId, PREFIX, requestId, baseUrl: cfg.baseUrl, navigationEpoch });
 }
 
 // ── 多轮对话路由 ─────────────────────────────────────────
-async function handleChat(message, tabId) {
+async function handleChat(message, tabId, navigationEpoch = currentNavigationEpoch(tabId)) {
   const { transcript, messages, requestId } = message;
   const provider = message.provider || 'claude';
   const cfg = await loadProviderConfig(provider);
@@ -382,6 +977,10 @@ async function handleChat(message, tabId) {
   const model = message.model || cfg.model;
   const PREFIX = 'CHAT';
 
+  if (cfg.error) {
+    safeSend(tabId, { type: 'CHAT_ERROR', error: '读取扩展设置失败：' + cfg.error, requestId });
+    return;
+  }
   if (!key) {
     safeSend(tabId, { type: 'CHAT_ERROR', error: '请先在扩展设置中填入 API Key', requestId });
     return;
@@ -396,11 +995,11 @@ async function handleChat(message, tabId) {
 字幕内容：
 ${transcript}`;
 
-  await callProvider(provider, { key, model, systemPrompt, messages, maxTokens: 4096, tabId, PREFIX, requestId, baseUrl: cfg.baseUrl });
+  await callProvider(provider, { key, model, systemPrompt, messages, maxTokens: 4096, tabId, PREFIX, requestId, baseUrl: cfg.baseUrl, navigationEpoch });
 }
 
 // ── 划词翻译路由 ──────────────────────────────────────────
-async function handleTranslate(message, tabId) {
+async function handleTranslate(message, tabId, navigationEpoch = currentNavigationEpoch(tabId)) {
   const { text, targetLang, context, promptDict, promptSentence, requestId } = message;
   const provider = message.provider || 'claude';
   const cfg = await loadProviderConfig(provider);
@@ -408,6 +1007,10 @@ async function handleTranslate(message, tabId) {
   const model = message.model || cfg.model;
   const PREFIX = 'TRANSLATE';
 
+  if (cfg.error) {
+    safeSend(tabId, { type: `${PREFIX}_ERROR`, error: '读取扩展设置失败：' + cfg.error, requestId });
+    return;
+  }
   if (!key) {
     safeSend(tabId, { type: `${PREFIX}_ERROR`, error: '请先在扩展设置中填入 API Key', requestId });
     return;
@@ -474,7 +1077,7 @@ ${context ? '📌 该词在语境中的含义：一句话解释' : '搭配: 词�
     messages = [{ role: 'user', content: text }];
   }
 
-  await callProvider(provider, { key, model, systemPrompt, messages, maxTokens: 2048, tabId, PREFIX, requestId, baseUrl: cfg.baseUrl });
+  await callProvider(provider, { key, model, systemPrompt, messages, maxTokens: 2048, tabId, PREFIX, requestId, baseUrl: cfg.baseUrl, navigationEpoch });
 }
 
 // ── 校验 model 是否属于当前 provider，不匹配则清空让默认值生效 ──
@@ -525,40 +1128,81 @@ function normalizeSub2ApiBase(baseUrl) {
     .replace(/\/v1\/responses$/i, '');         // OpenAI Responses SDK 自加
 }
 
-// ── Service Worker 保活（防止视频处理期间被终止）──────────
-function startKeepalive() {
-  const id = setInterval(() => chrome.runtime.getPlatformInfo(() => {}), 20000);
-  return () => clearInterval(id);
+function validateSub2ApiBase(baseUrl) {
+  const raw = typeof baseUrl === 'string' ? baseUrl.trim() : '';
+  if (!raw) return { error: '请先在扩展设置中填入 Sub2API Base URL' };
+
+  let url;
+  try {
+    url = new URL(raw);
+  } catch {
+    return { error: 'Sub2API Base URL 格式无效' };
+  }
+
+  const isLoopback = url.hostname === 'localhost' || url.hostname === '127.0.0.1';
+  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && isLoopback)) {
+    return { error: 'Sub2API 网关必须使用 HTTPS（localhost 可使用 HTTP）' };
+  }
+  if (url.username || url.password) return { error: 'Sub2API Base URL 不能包含用户名或密码' };
+  if (url.search || url.hash) return { error: 'Sub2API Base URL 不能包含查询参数或锚点' };
+
+  return {
+    baseUrl: normalizeSub2ApiBase(url.href),
+    permissionOrigin: `${url.origin}/*`,
+  };
+}
+
+function hasGatewayPermission(origin) {
+  return new Promise((resolve) => {
+    try {
+      chrome.permissions.contains({ origins: [origin] }, (allowed) => {
+        if (chrome.runtime.lastError) resolve(false);
+        else resolve(Boolean(allowed));
+      });
+    } catch {
+      resolve(false);
+    }
+  });
 }
 
 // ── 视频转录主流程 ─────────────────────────────────────────
 // 直连原生 Gemini API 走视频转字幕。sub2api 网关大多绑的是 OAuth/codeassist 账号
 // 不支持 file_data.file_uri 的 YouTube URL 视频处理，所以这里固定走原生通道
-async function handleTranscribeVideo(message, tabId) {
+async function handleTranscribeVideo(message, tabId, navigationEpoch = currentNavigationEpoch(tabId)) {
   const { videoUrl, videoDuration, videoId, requestId } = message;
   const cfg = await loadProviderConfig('gemini');
   const key = cfg.key;
 
+  if (cfg.error) return { error: '读取扩展设置失败：' + cfg.error };
   if (!key) return { error: '请先在扩展设置中填入 Gemini API Key' };
+  if (navigationEpoch !== currentNavigationEpoch(tabId)) return { error: '页面已导航，请求已取消', cancelled: true };
 
   // 视频转录强制使用 flash-lite-latest
   const model = 'gemini-flash-lite-latest';
-
-  const stopKeepalive = startKeepalive();
+  const requestContext = createActiveRequest({
+    tabId,
+    requestId,
+    kind: 'transcribe',
+    totalMs: TRANSCRIBE_TIMEOUTS.totalMs,
+  });
 
   try {
     console.log('[AAtools] 视频转录开始:', videoUrl, '时长(秒):', videoDuration || '未知', '模型:', model);
-    return await _fallbackVideoTranscribe(key, model, videoUrl, videoDuration, tabId, videoId, requestId);
+    return await _fallbackVideoTranscribe(key, model, videoUrl, videoDuration, tabId, videoId, requestId, requestContext);
   } catch (err) {
+    if (requestContext.signal.aborted) {
+      const code = requestContext.abortReason?.code;
+      return { error: abortMessageFor(requestContext), cancelled: code === 'cancelled' || code === 'replaced' };
+    }
     console.error('[AAtools] 视频转录异常:', err);
     return { error: '视频分析失败: ' + (err.message || '') };
   } finally {
-    stopKeepalive();
+    requestContext.cleanup();
   }
 }
 
 // ── 视频转录：单次请求 + 流式输出 ──────────────────────────
-async function _fallbackVideoTranscribe(key, model, videoUrl, videoDuration, tabId, videoId, requestId) {
+async function _fallbackVideoTranscribe(key, model, videoUrl, videoDuration, tabId, videoId, requestId, requestContext) {
   const durationSec = videoDuration || 0;
   console.log('[AAtools] 视频转录开始, 时长:', durationSec ? Math.ceil(durationSec / 60) + '分钟' : '未知');
 
@@ -589,7 +1233,7 @@ TIMESTAMP FORMAT:
 IMPORTANT: Transcribe the COMPLETE audio from start to finish. Do NOT stop early. Maximize output length.
 OUTPUT: Plain text only, no Markdown.`;
 
-  const res = await _callGeminiTranscribe(key, model, videoUrl, prompt, tabId, videoId, requestId);
+  const res = await _callGeminiTranscribe(key, model, videoUrl, prompt, tabId, videoId, requestId, requestContext);
   if (res.error) return res;
 
   if (tabId) {
@@ -606,7 +1250,7 @@ OUTPUT: Plain text only, no Markdown.`;
 }
 
 // 调用 Gemini streamGenerateContent 流式转录，带重试
-async function _callGeminiTranscribe(key, model, videoUrl, prompt, tabId, videoId, requestId) {
+async function _callGeminiTranscribe(key, model, videoUrl, prompt, tabId, videoId, requestId, requestContext) {
   const body = {
     contents: [{
       parts: [
@@ -623,20 +1267,23 @@ async function _callGeminiTranscribe(key, model, videoUrl, prompt, tabId, videoI
     if (attempt > 0) {
       const waitSec = attempt * 10;
       console.log(`[AAtools] 第 ${attempt} 次重试，等待 ${waitSec} 秒...`);
-      await new Promise(r => setTimeout(r, waitSec * 1000));
+      await delayWithSignal(waitSec * 1000, requestContext.signal);
     }
 
+    requestContext.startAttempt(TRANSCRIBE_TIMEOUTS);
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${key}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
+        signal: requestContext.signal,
       }
     );
 
     if (!response.ok) {
       const errText = await response.text();
+      requestContext.endAttempt();
       lastError = classifyApiError(response.status, errText, 'gemini');
       if ((response.status === 503 || response.status === 429) && attempt < MAX_RETRIES) {
         console.warn(`[AAtools] 请求返回 ${response.status}，将重试`);
@@ -645,102 +1292,19 @@ async function _callGeminiTranscribe(key, model, videoUrl, prompt, tabId, videoI
       return { error: lastError };
     }
 
-    // 流式读取
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
     let fullText = '';
-    let upstreamError = null;     // SSE 流里的错误事件
-    let blockReason = null;       // promptFeedback 拒绝原因
-    let abnormalFinish = null;    // SAFETY/RECITATION/OTHER 等异常 finishReason
-
-    // 首块响应超时：sub2api 中转网关可能收了请求但永不回内容（视频模态不支持 / 上游卡死）
-    // 180 秒还没拿到任何文本就主动取消，让上层 fallback 到下一通道
-    let firstChunkReceived = false;
-    let stallAborted = false;
-    const FIRST_CHUNK_TIMEOUT = 180000;
-    const stallTimer = setTimeout(() => {
-      if (!firstChunkReceived) {
-        stallAborted = true;
-        try { reader.cancel(); } catch (e) {}
+    const streamResult = await consumeSSEStream(response, 'gemini', requestContext, (chunk) => {
+      fullText += chunk;
+      if (tabId) {
+        chrome.tabs.sendMessage(tabId, {
+          type: 'TRANSCRIBE_CHUNK', text: chunk,
+          videoId, requestId,
+        }).catch(() => {});
       }
-    }, FIRST_CHUNK_TIMEOUT);
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue;
-        const data = line.slice(6).trim();
-        if (!data || data === '[DONE]') continue;
-        try {
-          const parsed = JSON.parse(data);
-
-          // 检测上游错误事件（200 + SSE error，常见于 YouTube URL 不被账号支持等情况）
-          if (parsed.error) {
-            upstreamError = parsed.error.message || parsed.error.code || JSON.stringify(parsed.error);
-            console.warn('[AAtools] Gemini SSE 错误事件:', upstreamError);
-            continue;
-          }
-
-          // 请求被拒绝（安全策略 / 视频不可访问 / 配额等）
-          const bf = parsed.promptFeedback?.blockReason;
-          if (bf) {
-            blockReason = bf + (parsed.promptFeedback?.blockReasonMessage ? ' - ' + parsed.promptFeedback.blockReasonMessage : '');
-            console.warn('[AAtools] Gemini 拒绝处理:', blockReason);
-            continue;
-          }
-
-          // candidates 异常完成原因
-          const fr = parsed.candidates?.[0]?.finishReason;
-          if (fr && fr !== 'STOP' && fr !== 'MAX_TOKENS' && !abnormalFinish) {
-            abnormalFinish = fr;
-            console.warn('[AAtools] Gemini finishReason 异常:', fr);
-          }
-
-          const chunk = parsed.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (chunk) {
-            if (!firstChunkReceived) {
-              firstChunkReceived = true;
-              clearTimeout(stallTimer);  // 收到首块后取消超时，后续不再卡时间
-            }
-            fullText += chunk;
-            if (tabId) {
-              chrome.tabs.sendMessage(tabId, {
-                type: 'TRANSCRIBE_CHUNK', text: chunk,
-                videoId, requestId,
-              }).catch(() => {});
-            }
-          }
-        } catch (e) { /* ignore parse errors */ }
-      }
-    }
-    clearTimeout(stallTimer);
-
-    // 首块超时主动取消时，明确报错让上层 fallback
-    if (stallAborted) {
-      return { error: '通道无响应（180 秒未收到任何内容），可能不支持视频模态或被代理超时' };
-    }
-
-    // 流结束后没产出文本时，把已捕获的上游错误信息冒泡上来
-    if (!fullText && upstreamError) {
-      return { error: 'Gemini 上游错误：' + upstreamError + '（如使用 sub2api 中转，请检查网关账号是否支持 YouTube URL 视频处理）' };
-    }
-    if (!fullText && blockReason) {
-      return { error: 'Gemini 拒绝处理：' + blockReason };
-    }
-    if (!fullText && abnormalFinish) {
-      return { error: 'Gemini 异常结束（finishReason=' + abnormalFinish + '），可能视频太长或内容受限' };
-    }
-
-    if (!fullText) {
-      return { error: '转录无结果' };
-    }
+    });
+    requestContext.endAttempt();
+    if (streamResult.error) return { error: streamResult.error };
+    if (streamResult.warning) console.warn('[AAtools] 视频转录不完整:', streamResult.warning);
     return { text: fullText };
   }
   return { error: lastError || '转录失败，请稍后重试' };
@@ -797,7 +1361,7 @@ function classifyApiError(status, body, provider) {
 
 // ── 统一调用入口 ─────────────────────────────────────────
 async function callProvider(provider, opts) {
-  const { key, systemPrompt, messages, maxTokens, tabId, PREFIX, requestId, baseUrl } = opts;
+  const { key, systemPrompt, messages, maxTokens, tabId, PREFIX, requestId, baseUrl, navigationEpoch } = opts;
   const model = sanitizeModel(provider, opts.model);
 
   // 计算实际使用的模型 ID
@@ -810,21 +1374,43 @@ async function callProvider(provider, opts) {
   // sub2api / sub2api2 按模型前缀决定走 Anthropic / Gemini / OpenAI 格式；后续 SSE 解析也按此区分
   const sub2apiFmt = isSub2(provider) ? sub2apiFormatOf(actualModel) : null;
 
-  // sub2api / sub2api2 必须配置 base URL
+  // 自定义网关必须通过 URL 安全校验，并持有用户对该精确 origin 的可选权限。
+  let sub2Gateway = null;
   if (isSub2(provider)) {
-    const trimmedBase = normalizeSub2ApiBase(baseUrl);
-    if (!trimmedBase) {
-      const which = provider === 'sub2api3' ? '#3' : (provider === 'sub2api2' ? '#2' : '#1');
-      send({ type: `${PREFIX}_ERROR`, error: `请先在扩展设置中填入 Sub2API ${which} Base URL` });
+    const which = provider === 'sub2api3' ? '#3' : (provider === 'sub2api2' ? '#2' : '#1');
+    sub2Gateway = validateSub2ApiBase(baseUrl);
+    if (sub2Gateway.error) {
+      send({ type: `${PREFIX}_ERROR`, error: sub2Gateway.error.replace('Sub2API', `Sub2API ${which}`) });
+      return;
+    }
+    if (!(await hasGatewayPermission(sub2Gateway.permissionOrigin))) {
+      send({
+        type: `${PREFIX}_ERROR`,
+        error: `尚未授权 Sub2API ${which} 网关域名，请在扩展设置中点击“授权域名”`,
+      });
       return;
     }
   }
+
+  if (navigationEpoch !== undefined && navigationEpoch !== currentNavigationEpoch(tabId)) {
+    send({ type: `${PREFIX}_ERROR`, error: '页面已导航，请求已取消', cancelled: true, reason: 'navigation' });
+    return;
+  }
+
+  const requestContext = createActiveRequest({
+    tabId,
+    requestId,
+    kind: PREFIX.toLowerCase(),
+    totalMs: PROVIDER_TIMEOUTS.totalMs,
+  });
+  const streamEmitter = createStreamEmitter(send, PREFIX);
 
   // 通知 content.js 当前使用的模型
   send({ type: `${PREFIX}_MODEL`, provider, model: actualModel });
 
   try {
     let response;
+    requestContext.startAttempt(PROVIDER_TIMEOUTS);
 
     if (provider === 'openai' || provider === 'minimax') {
       const apiMessages = systemPrompt
@@ -845,6 +1431,7 @@ async function callProvider(provider, opts) {
           max_completion_tokens: maxTokens,
           stream: true,
         }),
+        signal: requestContext.signal,
       });
     } else if (provider === 'gemini') {
       const modelId = actualModel;
@@ -860,11 +1447,12 @@ async function callProvider(provider, opts) {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
+          signal: requestContext.signal,
         }
       );
     } else if (isSub2(provider)) {
       // sub2api / sub2api2 中转：按模型前缀分别走 Anthropic / Gemini / OpenAI 格式
-      const trimmedBase = normalizeSub2ApiBase(baseUrl);
+      const trimmedBase = sub2Gateway.baseUrl;
       if (sub2apiFmt === 'gemini') {
         const contents = messages.map(m => ({
           role: m.role === 'assistant' ? 'model' : 'user',
@@ -883,6 +1471,7 @@ async function callProvider(provider, opts) {
               'x-goog-api-key': key,
             },
             body: JSON.stringify(body),
+            signal: requestContext.signal,
           }
         );
       } else if (sub2apiFmt === 'openai') {
@@ -924,6 +1513,7 @@ async function callProvider(provider, opts) {
             'OpenAI-Beta': 'responses=experimental',
           },
           body: JSON.stringify(body),
+          signal: requestContext.signal,
         });
       } else {
         // Anthropic /v1/messages 格式
@@ -939,6 +1529,7 @@ async function callProvider(provider, opts) {
             'anthropic-dangerous-direct-browser-access': 'true',
           },
           body: JSON.stringify(body),
+          signal: requestContext.signal,
         });
       }
     } else {
@@ -953,13 +1544,15 @@ async function callProvider(provider, opts) {
           'anthropic-dangerous-direct-browser-access': 'true',
         },
         body: JSON.stringify(body),
+        signal: requestContext.signal,
       });
     }
 
     if (!response.ok) {
       const errText = await response.text();
+      requestContext.endAttempt();
       const friendlyError = classifyApiError(response.status, errText, provider);
-      send({ type: `${PREFIX}_ERROR`, error: friendlyError });
+      streamEmitter.error(friendlyError);
       return;
     }
 
@@ -968,80 +1561,311 @@ async function callProvider(provider, opts) {
     const parseAs = isSub2(provider)
       ? (sub2apiFmt === 'openai' ? 'openai-responses' : sub2apiFmt)
       : provider;
-    await readSSEStream(response, tabId, PREFIX, parseAs, requestId);
+    await readSSEStream(response, parseAs, requestContext, streamEmitter);
   } catch (err) {
+    if (requestContext.signal.aborted) {
+      const code = requestContext.abortReason?.code;
+      streamEmitter.error(abortMessageFor(requestContext), {
+        cancelled: code === 'cancelled' || code === 'replaced',
+        reason: code,
+      });
+      return;
+    }
     const msg = err.message || '';
     if (msg.includes('Failed to fetch') || msg.includes('NetworkError') || msg.includes('net::')) {
-      send({ type: `${PREFIX}_ERROR`, error: '网络连接失败，请检查网络后重试' });
+      streamEmitter.error('网络连接失败，请检查网络后重试');
     } else {
-      send({ type: `${PREFIX}_ERROR`, error: `请求失败: ${msg}` });
+      streamEmitter.error(`请求失败: ${msg}`);
     }
+  } finally {
+    requestContext.cleanup();
   }
 }
 
 // ── 统一 SSE 流式读取 ───────────────────────────────────
-async function readSSEStream(response, tabId, PREFIX, provider, requestId) {
+function createStreamEmitter(send, PREFIX) {
+  let terminalSent = false;
+  return {
+    get terminalSent() { return terminalSent; },
+    chunk(text) {
+      if (!terminalSent && text) send({ type: `${PREFIX}_CHUNK`, text });
+    },
+    done() {
+      if (terminalSent) return;
+      terminalSent = true;
+      send({ type: `${PREFIX}_DONE` });
+    },
+    error(error, extra = {}) {
+      if (terminalSent) return;
+      terminalSent = true;
+      send(Object.assign({ type: `${PREFIX}_ERROR`, error: error || '请求失败' }, extra));
+    },
+  };
+}
+
+// 符合 EventSource 规范的增量解析器：兼容 data:foo / data: foo、CRLF、
+// 多行 data 字段、注释/心跳，以及末尾没有空行的 EOF 事件。
+function createSSEParser(onEvent) {
+  let buffer = '';
+  let eventName = '';
+  let dataLines = [];
+  let firstLine = true;
+
+  const dispatch = () => {
+    if (dataLines.length) {
+      onEvent({ event: eventName || 'message', data: dataLines.join('\n') });
+    }
+    eventName = '';
+    dataLines = [];
+  };
+
+  const processLine = (rawLine) => {
+    let line = rawLine;
+    if (firstLine) {
+      firstLine = false;
+      if (line.charCodeAt(0) === 0xFEFF) line = line.slice(1);
+    }
+    if (line === '') {
+      dispatch();
+      return;
+    }
+    if (line.startsWith(':')) return;
+
+    const colon = line.indexOf(':');
+    const field = colon < 0 ? line : line.slice(0, colon);
+    let value = colon < 0 ? '' : line.slice(colon + 1);
+    if (value.startsWith(' ')) value = value.slice(1);
+    if (field === 'data') dataLines.push(value);
+    else if (field === 'event') eventName = value;
+    // id / retry 等字段当前无需使用。
+  };
+
+  const drain = (eof) => {
+    let consumed = 0;
+    while (consumed < buffer.length) {
+      let newlineAt = -1;
+      let newlineLength = 1;
+      for (let i = consumed; i < buffer.length; i++) {
+        const ch = buffer[i];
+        if (ch === '\n') {
+          newlineAt = i;
+          break;
+        }
+        if (ch === '\r') {
+          // 分块正好落在 CR|LF 之间时，等下一块再决定换行长度。
+          if (i === buffer.length - 1 && !eof) break;
+          newlineAt = i;
+          newlineLength = buffer[i + 1] === '\n' ? 2 : 1;
+          break;
+        }
+      }
+      if (newlineAt < 0) break;
+      processLine(buffer.slice(consumed, newlineAt));
+      consumed = newlineAt + newlineLength;
+    }
+    buffer = buffer.slice(consumed);
+
+    if (eof) {
+      if (buffer.length) processLine(buffer);
+      buffer = '';
+      dispatch();
+    }
+  };
+
+  return {
+    push(chunk) {
+      if (!chunk) return;
+      buffer += chunk;
+      drain(false);
+    },
+    finish(chunk = '') {
+      if (chunk) buffer += chunk;
+      drain(true);
+    },
+  };
+}
+
+function streamErrorDetail(value) {
+  if (value == null) return '';
+  if (typeof value === 'string') return value.slice(0, 500);
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  const direct = value.message || value.detail || value.code || value.type;
+  if (direct) return String(direct).slice(0, 500);
+  try { return JSON.stringify(value).slice(0, 500); } catch { return '未知上游错误'; }
+}
+
+function streamContentText(content) {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    return content.map((item) => {
+      if (typeof item === 'string') return item;
+      if (typeof item?.text === 'string') return item.text;
+      if (typeof item?.text?.value === 'string') return item.text.value;
+      return '';
+    }).join('');
+  }
+  if (typeof content?.text === 'string') return content.text;
+  return '';
+}
+
+function analyzeStreamPayload(provider, parsed, eventName) {
+  const result = { text: '', terminal: false, error: '', abnormal: '' };
+  const type = parsed?.type || eventName;
+
+  // 各家都会出现 HTTP 200 但 SSE 内含 error 的情况。
+  if (parsed?.error || type === 'error' || eventName === 'error') {
+    result.error = '上游流式错误：' + streamErrorDetail(parsed?.error || parsed);
+    return result;
+  }
+  if (parsed?.base_resp && Number(parsed.base_resp.status_code || 0) !== 0) {
+    result.error = 'MiniMax 上游错误：' + streamErrorDetail(parsed.base_resp.status_msg || parsed.base_resp);
+    return result;
+  }
+
+  if (provider === 'openai' || provider === 'minimax') {
+    const choice = parsed?.choices?.[0];
+    result.text = streamContentText(choice?.delta?.content);
+    const finish = choice?.finish_reason;
+    if (finish) {
+      if (finish === 'stop') result.terminal = true;
+      else result.abnormal = `模型异常结束（finish_reason=${finish}），输出可能不完整`;
+    }
+    return result;
+  }
+
+  if (provider === 'openai-responses') {
+    // 某些兼容网关虽使用 /responses 路径，返回的仍是 Chat Completions chunk。
+    if (parsed?.choices) return analyzeStreamPayload('openai', parsed, eventName);
+    if (type === 'response.output_text.delta') {
+      result.text = streamContentText(parsed.delta);
+    } else if (type === 'response.failed') {
+      result.error = 'OpenAI Responses 请求失败：' + streamErrorDetail(parsed.response?.error || parsed.error || parsed.response || parsed);
+    } else if (type === 'response.incomplete') {
+      result.abnormal = 'OpenAI Responses 异常结束：' + streamErrorDetail(parsed.response?.incomplete_details || parsed.response || parsed);
+    } else if (type === 'response.completed' || type === 'response.done') {
+      const status = parsed.response?.status;
+      if (status && status !== 'completed') {
+        result.abnormal = `OpenAI Responses 异常结束（status=${status}）：` + streamErrorDetail(parsed.response?.error || parsed.response?.incomplete_details);
+      } else {
+        result.terminal = true;
+      }
+    }
+    return result;
+  }
+
+  if (provider === 'gemini') {
+    const feedback = parsed?.promptFeedback;
+    if (feedback?.blockReason) {
+      result.error = 'Gemini 拒绝处理：' + feedback.blockReason +
+        (feedback.blockReasonMessage ? ` - ${feedback.blockReasonMessage}` : '');
+      return result;
+    }
+    const candidate = parsed?.candidates?.[0];
+    result.text = (candidate?.content?.parts || [])
+      .map(part => typeof part?.text === 'string' ? part.text : '')
+      .join('');
+    const finish = candidate?.finishReason;
+    if (finish) {
+      if (finish === 'STOP') result.terminal = true;
+      else result.abnormal = `Gemini 异常结束（finishReason=${finish}）` +
+        (candidate.finishMessage ? `：${candidate.finishMessage}` : '，输出可能不完整');
+    }
+    return result;
+  }
+
+  // Claude / Anthropic Messages API
+  if (type === 'content_block_delta' && (!parsed.delta?.type || parsed.delta.type === 'text_delta')) {
+    result.text = typeof parsed.delta?.text === 'string' ? parsed.delta.text : '';
+  } else if (type === 'message_delta') {
+    const stopReason = parsed.delta?.stop_reason;
+    if (stopReason && stopReason !== 'end_turn' && stopReason !== 'stop_sequence') {
+      result.abnormal = `Claude 异常结束（stop_reason=${stopReason}），输出可能不完整`;
+    }
+  } else if (type === 'message_stop') {
+    result.terminal = true;
+  }
+  return result;
+}
+
+async function consumeSSEStream(response, provider, requestContext, onText) {
+  if (!response.body) return { error: '服务器未返回可读取的流式响应' };
+
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
-  let buffer = '';
-  let doneSent = false;
-  const send = (msg) => safeSend(tabId, Object.assign({ requestId }, msg));
+  let normalTerminal = false;
+  let streamError = '';
+  let abnormalFinish = '';
+  let meaningfulText = false;
+
+  const parser = createSSEParser(({ event, data }) => {
+    // 第一个终态获胜；同一网络 chunk 中终态之后的事件也必须忽略，
+    // 否则结果会错误地依赖 TCP/ReadableStream 的分块边界。
+    if (normalTerminal || streamError || abnormalFinish) return;
+    const trimmed = data.trim();
+    if (!trimmed) return;
+    if (trimmed === '[DONE]') {
+      normalTerminal = true;
+      return;
+    }
+    if (event === 'ping' || event === 'keepalive' || trimmed === 'ping' || trimmed === '[KEEPALIVE]') return;
+
+    let parsed;
+    try {
+      parsed = JSON.parse(data);
+    } catch {
+      streamError = `流式响应格式异常，无法解析 SSE 数据：${trimmed.slice(0, 120)}`;
+      return;
+    }
+
+    const analyzed = analyzeStreamPayload(provider, parsed, event);
+    if (analyzed.text) {
+      if (/\S/.test(analyzed.text)) meaningfulText = true;
+      onText(analyzed.text);
+    }
+    if (analyzed.error) streamError = analyzed.error;
+    if (analyzed.abnormal) abnormalFinish = analyzed.abnormal;
+    if (analyzed.terminal) normalTerminal = true;
+  });
 
   while (true) {
     const { done, value } = await reader.read();
-    if (done) break;
-
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop() || '';
-
-    for (const line of lines) {
-      if (!line.startsWith('data: ')) continue;
-      const data = line.slice(6).trim();
-      if (data === '[DONE]') {
-        if (!doneSent) {
-          send({ type: `${PREFIX}_DONE` });
-          doneSent = true;
-        }
-        continue;
-      }
-      if (!data) continue;
-
-      try {
-        const parsed = JSON.parse(data);
-        let text;
-
-        let shouldDone = false;
-
-        if (provider === 'openai' || provider === 'minimax') {
-          text = parsed.choices?.[0]?.delta?.content;
-          if (parsed.choices?.[0]?.finish_reason === 'stop') shouldDone = true;
-        } else if (provider === 'openai-responses') {
-          // OpenAI Responses API：文本增量在 type='response.output_text.delta' 的 delta 字段
-          if (parsed.type === 'response.output_text.delta') text = parsed.delta;
-          if (parsed.type === 'response.completed' || parsed.type === 'response.done') shouldDone = true;
-          // 部分网关把错误也包成 response.failed
-          if (parsed.type === 'response.failed' || parsed.type === 'error') shouldDone = true;
-        } else if (provider === 'gemini') {
-          text = parsed.candidates?.[0]?.content?.parts?.[0]?.text;
-        } else {
-          // Claude
-          if (parsed.type === 'content_block_delta') text = parsed.delta?.text;
-          if (parsed.type === 'message_stop') shouldDone = true;
-        }
-
-        if (text) {
-          send({ type: `${PREFIX}_CHUNK`, text });
-        }
-        if (shouldDone && !doneSent) {
-          send({ type: `${PREFIX}_DONE` });
-          doneSent = true;
-        }
-      } catch {}
+    if (requestContext.signal.aborted) throw new DOMException('Aborted', 'AbortError');
+    if (done) {
+      parser.finish(decoder.decode());
+      break;
+    }
+    if (value?.byteLength) requestContext.markActivity();
+    parser.push(decoder.decode(value, { stream: true }));
+    if (normalTerminal || streamError || abnormalFinish) {
+      try { await reader.cancel(); } catch {}
+      break;
     }
   }
 
-  if (!doneSent) {
-    send({ type: `${PREFIX}_DONE` });
+  if (requestContext.signal.aborted) throw new DOMException('Aborted', 'AbortError');
+  if (streamError) return { error: streamError };
+  if (abnormalFinish) {
+    // 截断类异常结束（max_tokens/MAX_TOKENS/length 等）：已产出内容时保留部分结果，
+    // 只在完全没有文本时才作为错误上抛。长视频转录撞输出上限是常态。
+    if (meaningfulText) return { error: '', warning: abnormalFinish };
+    return { error: abnormalFinish };
   }
+  if (!meaningfulText) return { error: '模型未返回任何文本，请重试或更换模型' };
+  if (!normalTerminal) return { error: '流式响应意外中断（未收到正常结束标记），请重试' };
+  return { error: '' };
+}
+
+async function readSSEStream(response, provider, requestContext, streamEmitter) {
+  let result;
+  try {
+    result = await consumeSSEStream(response, provider, requestContext, (text) => streamEmitter.chunk(text));
+  } finally {
+    requestContext.endAttempt();
+  }
+  if (result.error) {
+    streamEmitter.error(result.error);
+    return;
+  }
+  if (result.warning) console.warn('[AAtools] 流式输出不完整:', result.warning);
+  streamEmitter.done();
 }
