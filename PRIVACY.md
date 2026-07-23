@@ -16,7 +16,7 @@ The following data is stored via `chrome.storage.sync` and the extension's own I
 
 - **API Keys**: Your Claude, OpenAI, Gemini, and/or MiniMax API keys (entered by you in the extension settings)
 - **Preferences**: Selected AI provider, model, custom prompts, and feature toggles (e.g. mouse gestures)
-- **Cached Results**: Previously generated summaries, notes, flashcards, mind maps, and vocabulary for each video
+- **Cached Results**: Previously generated summaries, notes, and mind maps for each video
 
 This data never leaves your browser except when sent directly to the AI service you selected.
 

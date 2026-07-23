@@ -1,5 +1,5 @@
 // 自定义 Prompt 在 storage 中的 key 名（设置页 UI 已移除，保留这些 key 仅用于导入/导出兼容老配置）
-const ALL_PROMPT_KEYS = ['prompt', 'promptHtml', 'promptCards', 'promptMindmap', 'promptVocab', 'promptTranslateDict', 'promptTranslateSentence'];
+const ALL_PROMPT_KEYS = ['prompt', 'promptHtml', 'promptMindmap', 'promptTranslateDict', 'promptTranslateSentence'];
 
 // ── Provider 配置 ────────────────────────────────────────────
 const PROVIDERS = {
@@ -177,7 +177,7 @@ function validateImportedSettings(data, settingKeys, localKeys) {
 
   const booleanKeys = new Set([
     'youtubePanelDefaultCollapsed', 'generateAllSummary', 'generateAllMindmap',
-    'generateAllHtml', 'generateAllCards', 'generateAllVocab', 'enableGestures',
+    'generateAllHtml', 'enableGestures',
     'gestureKeepMenu', 'mindmapAlignTop',
   ]);
   const filtered = {};
@@ -276,7 +276,7 @@ document.addEventListener('DOMContentLoaded', () => {
     'claudeModel', 'openaiModel', 'geminiModel', 'minimaxModel', 'sub2apiModel', 'sub2api2Model', 'sub2api3Model',
     'sub2apiBaseUrl', 'sub2api2BaseUrl', 'sub2api3BaseUrl', 'model',
     'youtubePanelDefaultCollapsed',
-    'generateAllSummary', 'generateAllMindmap', 'generateAllHtml', 'generateAllCards', 'generateAllVocab',
+    'generateAllSummary', 'generateAllMindmap', 'generateAllHtml',
     'enableGestures', 'gestureKeepMenu',
     ...ALL_PROMPT_KEYS,
   ];
@@ -324,8 +324,6 @@ document.addEventListener('DOMContentLoaded', () => {
       $('#generateAllSummary').checked = data.generateAllSummary !== false;
       $('#generateAllMindmap').checked = data.generateAllMindmap !== false;
       $('#generateAllHtml').checked = data.generateAllHtml !== false;
-      $('#generateAllCards').checked = !!data.generateAllCards;
-      $('#generateAllVocab').checked = !!data.generateAllVocab;
 
       $('#enableGestures').checked = data.enableGestures !== false;
       $('#gestureKeepMenu').checked = !!data.gestureKeepMenu;
@@ -358,7 +356,7 @@ document.addEventListener('DOMContentLoaded', () => {
     'claudeModel', 'openaiModel', 'geminiModel', 'minimaxModel', 'sub2apiModel', 'sub2api2Model', 'sub2api3Model',
     'sub2apiBaseUrl', 'sub2api2BaseUrl', 'sub2api3BaseUrl', 'model',
     'youtubePanelDefaultCollapsed',
-    'generateAllSummary', 'generateAllMindmap', 'generateAllHtml', 'generateAllCards', 'generateAllVocab',
+    'generateAllSummary', 'generateAllMindmap', 'generateAllHtml',
     'enableGestures', 'gestureKeepMenu',
     'mindmapAlignTop',
     ...ALL_PROMPT_KEYS,
@@ -634,8 +632,6 @@ function saveSettings(isManual, gatewayProvider, gatewayBaseOverride) {
     generateAllSummary: $('#generateAllSummary').checked,
     generateAllMindmap: $('#generateAllMindmap').checked,
     generateAllHtml: $('#generateAllHtml').checked,
-    generateAllCards: $('#generateAllCards').checked,
-    generateAllVocab: $('#generateAllVocab').checked,
     enableGestures: $('#enableGestures').checked,
     gestureKeepMenu: $('#gestureKeepMenu').checked,
   };

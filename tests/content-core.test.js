@@ -244,8 +244,6 @@ test('generate-all invalidation prevents an old same-video run from starting fea
         generateAllSummary: true,
         generateAllMindmap: false,
         generateAllHtml: false,
-        generateAllCards: false,
-        generateAllVocab: false,
       }));
     },
   });

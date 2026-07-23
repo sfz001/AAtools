@@ -656,14 +656,14 @@ test('extension cache merges legacy data without overwriting newer extension val
   await context.cacheMergeLegacyRecord({
     videoId,
     summary: { text: 'old summary' },
-    cards: { data: [{ front: 'Q', back: 'A' }] },
+    mindmap: { data: { label: 'old Q' } },
     updatedAt: Date.now() + 1000,
     ignored: '<script>not migrated</script>',
   });
 
   const merged = plain(await context.cacheLoadRecord(videoId));
   assert.equal(merged.summary.text, 'new summary');
-  assert.equal(merged.cards.data[0].front, 'Q');
+  assert.equal(merged.mindmap.data.label, 'old Q');
   assert.equal('ignored' in merged, false);
 
   // 旧标签在首次迁移后又更新了一个 legacy-owned 字段：允许刷新该字段，
@@ -671,26 +671,26 @@ test('extension cache merges legacy data without overwriting newer extension val
   await context.cacheMergeLegacyRecord({
     videoId,
     summary: { text: 'still old' },
-    cards: { data: [{ front: 'Q2', back: 'A2' }] },
+    mindmap: { data: { label: 'Q2' } },
     updatedAt: Date.now() + 2000,
   });
   const refreshedLegacy = plain(await context.cacheLoadRecord(videoId));
   assert.equal(refreshedLegacy.summary.text, 'new summary');
-  assert.equal(refreshedLegacy.cards.data[0].front, 'Q2');
+  assert.equal(refreshedLegacy.mindmap.data.label, 'Q2');
 
-  // 新版中重新生成 cards 后，该字段也不再接受旧标签覆盖。
-  await context.cacheSaveFeature(videoId, 'cards', { data: [{ front: 'new Q', back: 'new A' }] });
+  // 新版中重新生成 mindmap 后，该字段也不再接受旧标签覆盖。
+  await context.cacheSaveFeature(videoId, 'mindmap', { data: { label: 'new Q' } });
   await context.cacheMergeLegacyRecord({
     videoId,
-    cards: { data: [{ front: 'legacy Q3', back: 'legacy A3' }] },
+    mindmap: { data: { label: 'legacy Q3' } },
     updatedAt: Date.now() + 3000,
   });
-  assert.equal((await context.cacheLoadRecord(videoId)).cards.data[0].front, 'new Q');
+  assert.equal((await context.cacheLoadRecord(videoId)).mindmap.data.label, 'new Q');
 
   await context.cacheRemoveRecord(videoId);
   assert.equal(await context.cacheLoadRecord(videoId), null);
 
-  await context.cacheSaveFeature(videoId, 'vocab', { data: [] });
+  await context.cacheSaveFeature(videoId, 'html', { text: '' });
   await context.cacheClearRecords();
   assert.equal(await context.cacheLoadRecord(videoId), null);
 });

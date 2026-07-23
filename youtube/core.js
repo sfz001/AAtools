@@ -17,7 +17,7 @@ var YTX = {
   features: {},
 
   // 功能模块加载顺序（panel.js 中用于遍历）
-  featureOrder: ['summary', 'mindmap', 'html', 'cards', 'vocab', 'chat'],
+  featureOrder: ['summary', 'mindmap', 'html', 'chat'],
 };
 
 // ── 按钮图标 ─────────────────────────────────────────
@@ -71,7 +71,7 @@ YTX.timeToSeconds = function (str) {
 };
 
 // AI 返回的 time 字段：仅允许 H:MM:SS / MM:SS / M:SS 格式，否则返回 null
-// 用途：cards/vocab/mindmap 渲染时拼到 innerHTML，必须先校验防 DOM 注入
+// 用途：mindmap 渲染时拼到 innerHTML，必须先校验防 DOM 注入
 YTX.safeTime = function (str) {
   if (typeof str !== 'string') return null;
   var t = str.trim();
@@ -98,7 +98,7 @@ YTX.getSettings = function () {
     try {
       chrome.storage.sync.get(
         ['provider', 'claudeModel', 'openaiModel', 'geminiModel', 'minimaxModel', 'sub2apiModel', 'sub2api2Model', 'sub2api3Model', 'model',
-         'prompt', 'promptHtml', 'promptCards', 'promptMindmap', 'promptVocab'],
+         'prompt', 'promptHtml', 'promptMindmap'],
         function (data) {
           if (chrome.runtime.lastError) {
             reject(new Error(chrome.runtime.lastError.message || '读取扩展设置失败'));
@@ -113,9 +113,7 @@ YTX.getSettings = function () {
               model: data[MODEL_MAP[provider]] || '',
               prompt: data.prompt,
               promptHtml: data.promptHtml,
-              promptCards: data.promptCards,
               promptMindmap: data.promptMindmap,
-              promptVocab: data.promptVocab,
             });
           } catch (err) {
             reject(err);
@@ -399,7 +397,7 @@ YTX.switchToVideoMode = function () {
   YTX.isFetchingTranscript = true;
 
   // 禁用所有生成按钮
-  var BTN_IDS = ['#ytx-generate-all', '#ytx-summarize', '#ytx-generate-html', '#ytx-generate-cards', '#ytx-generate-mindmap', '#ytx-generate-vocab'];
+  var BTN_IDS = ['#ytx-generate-all', '#ytx-summarize', '#ytx-generate-html', '#ytx-generate-mindmap'];
   BTN_IDS.forEach(function (id) {
     var b = panelAtStart && panelAtStart.querySelector(id);
     if (b) b.disabled = true;
@@ -764,7 +762,7 @@ YTX.generateAll = async function () {
   try {
     settings = await new Promise(function (resolve, reject) {
       try {
-        chrome.storage.sync.get(['generateAllSummary', 'generateAllMindmap', 'generateAllHtml', 'generateAllCards', 'generateAllVocab'], function (data) {
+        chrome.storage.sync.get(['generateAllSummary', 'generateAllMindmap', 'generateAllHtml'], function (data) {
           if (chrome.runtime.lastError) {
             reject(new Error(chrome.runtime.lastError.message || '读取扩展设置失败'));
             return;
@@ -788,8 +786,6 @@ YTX.generateAll = async function () {
   if (settings.generateAllSummary !== false) keys.push('summary');
   if (settings.generateAllMindmap !== false) keys.push('mindmap');
   if (settings.generateAllHtml !== false) keys.push('html');
-  if (settings.generateAllCards) keys.push('cards');
-  if (settings.generateAllVocab) keys.push('vocab');
   var allBtn = panelAtStart && panelAtStart.querySelector('#ytx-generate-all');
   if (allBtn) { allBtn.blur(); allBtn.disabled = true; allBtn.innerHTML = YTX.icons.spinner; }
 

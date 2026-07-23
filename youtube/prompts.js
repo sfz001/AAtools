@@ -2,35 +2,31 @@
 
 YTX.prompts = {};
 
-YTX.prompts.DEFAULT = `【重要】无论字幕是什么语言，你必须全程使用简体中文回答，禁止使用其他任何语言。
+YTX.prompts.DEFAULT = `请对以下 YouTube 视频字幕进行总结。
 
-请对以下 YouTube 视频字幕内容进行总结。
+字幕说明：每行格式为 [M:SS] 文本，行首方括号是该句在视频中的时间点。字幕来自语音识别，可能有错字或缺标点，请按上下文理解；字幕可能被截断，基于已有内容总结即可。
 
-## 输出格式：
+## 输出结构（Markdown）
 
 ### 摘要
-3-5句话概述视频主要内容
-
----
+先用一句话概括整个视频，再用 3-5 句话补充核心内容与主要结论。
 
 ### 关键要点
-提取 3-5 个最重要的收获，每个一句话
-
----
+提取 3-5 个最重要的收获，每条一句话，与摘要互补、有信息增量，不要复述摘要内容。
 
 ### 详细内容
-按内容分段，标注时间戳 [MM:SS]：
-[00:00] 段落标题 - 要点描述
-[02:30] 段落标题 - 要点描述
+按视频的自然章节划分 5-10 段，覆盖视频全程，每段一行，格式：
+[M:SS] 小节标题 - 1-2 句要点
 
-## 要求：
-- 必须使用简体中文回答，不要使用繁体中文
+## 硬性要求
+- 无论字幕是什么语言，全程使用简体中文输出；专业术语、人名、品牌名可保留英文原文
+- 只总结字幕中实际出现的内容，禁止引入字幕之外的信息、数据或评价
+- 详细内容的时间戳必须照抄字幕行首的时间点，选在内容变化处；禁止编造或推算字幕中不存在的时刻
+- 时间戳只用单个起始时间点（如 [0:42]），不要用时间范围
 - 语言简洁，避免废话
-- 关键要点不要跟摘要重复，要有信息增量
-- 时间戳准确对应内容变化点
-- 时间戳只用单个起始时间点格式 [0:00]，不要用时间范围 [0:00-0:32]
+- 如果字幕没有实质语音内容（纯音乐、无人说话或内容过短），直接说明"该视频缺少可总结的语音内容"，不要编造总结
+- 直接输出总结正文，不要寒暄、解释，不要用代码块包裹
 
----
 字幕内容：
 {transcript}`;
 
@@ -50,21 +46,6 @@ YTX.prompts.HTML = `【重要】无论字幕是什么语言，你必须全程使
 字幕内容：
 {transcript}`;
 
-YTX.prompts.CARDS = `【重要】无论字幕是什么语言，你必须全程使用简体中文，禁止使用其他任何语言。
-
-请根据以下 YouTube 视频字幕内容，生成知识卡片（Flashcards）用于学习复习。
-
-要求：
-1. 必须使用简体中文，不要使用繁体中文
-2. 提取 10-20 个关键知识点
-3. 每张卡片包含正面（问题/术语）和背面（解释/答案）
-4. 如果有对应时间戳请标注 [MM:SS]
-5. 严格按以下 JSON 格式输出，不要包含代码块标记：
-[{"front":"问题或术语","back":"解释或答案","time":"MM:SS"},...]
-
-字幕内容：
-{transcript}`;
-
 YTX.prompts.MINDMAP = `【重要】无论字幕是什么语言，所有内容必须使用简体中文，禁止使用其他任何语言。
 
 请根据以下 YouTube 视频字幕内容，生成一个结构化的思维导图 JSON 数据。
@@ -77,32 +58,6 @@ YTX.prompts.MINDMAP = `【重要】无论字幕是什么语言，所有内容必
 5. 第一层为主题分类（3-7个），第二层为具体要点，第三四层为细节
 6. 严格输出 JSON，不要包含代码块标记或其他文字
 7. 所有节点标签必须使用简体中文，不要使用繁体中文，即使原始字幕是英文也要翻译为简体中文
-
-字幕内容：
-{transcript}`;
-
-YTX.prompts.VOCAB = `请从以下 YouTube 视频英文字幕中提取约 50 个值得学习的词汇和短语。
-
-字幕格式说明：每行格式为 [MM:SS] 文本内容，方括号内是该句在视频中的时间戳。
-
-要求：
-1. 优先选择：高级词汇、常用短语/搭配、学术词汇、地道表达、习语俚语
-2. 严格跳过以下简单词汇，不要收录：
-   - 基础动词：be, is, am, are, was, were, have, has, had, do, does, did, go, get, make, take, come, give, say, tell, know, think, see, look, want, need, use, find, put, try, let, keep, start, begin, help, show, hear, play, run, move, live, feel, work, call, set, turn, hold, bring, happen, seem, leave, mean, end, might, must, shall, could, would, should
-   - 基础名词：thing, people, time, day, way, year, man, woman, child, world, life, hand, part, place, case, week, company, system, program, question, home, point, number, story, fact, month, lot, right, study, book, eye, job, word, side, kind, head, house, area, money, room, mother, father
-   - 基础形容词/副词：good, bad, big, small, new, old, great, little, long, high, right, left, first, last, next, own, other, much, many, very, really, just, also, too, well, still, already, only, even, never, always, often, here, there, now, then, again, back, away
-   - 基础代词/连词/介词：I, you, he, she, it, we, they, this, that, what, which, who, how, where, when, why, and, but, or, if, so, because, about, after, before, between, into, through, during, without, against
-   - 其他常见简单词：like, just, really, actually, okay, yeah, gonna, wanna, pretty, stuff, something, anything, everything, everyone, someone, another, different, important, actually, basically, probably, definitely, absolutely, completely
-3. 目标难度：大学英语六级及以上水平，适合中高级英语学习者
-3. 每个词条包含：
-   - word: 词汇或短语
-   - phonetic: 音标
-   - pos: 词性缩写（n./v./adj./phr. 等）
-   - meaning: 简体中文释义
-   - example: 该词所在的字幕原句（英文原文，不要翻译）
-   - time: 必须是该词实际出现的那一行字幕前面的时间戳，直接从字幕中复制，不要编造
-4. 严格按以下 JSON 格式输出，不要包含代码块标记或其他文字：
-[{"word":"elaborate","phonetic":"/ɪˈlæb.ə.reɪt/","pos":"v.","meaning":"详细说明，阐述","example":"Can you elaborate on that point?","time":"2:30"}]
 
 字幕内容：
 {transcript}`;

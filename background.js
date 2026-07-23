@@ -195,7 +195,7 @@ function delayWithSignal(ms, signal) {
 const CACHE_DB_NAME = 'AAtoolsCache';
 const CACHE_DB_VERSION = 1;
 const CACHE_STORE_NAME = 'results';
-const CACHE_FEATURE_KEYS = new Set(['transcript', 'summary', 'html', 'cards', 'mindmap', 'vocab']);
+const CACHE_FEATURE_KEYS = new Set(['transcript', 'summary', 'html', 'mindmap']);
 const CACHE_LEGACY_FEATURES_FIELD = '__legacyFeatures';
 const CACHE_MESSAGE_TYPES = new Set(['CACHE_LOAD', 'CACHE_SAVE', 'CACHE_REMOVE', 'CACHE_CLEAR', 'CACHE_MIGRATE_RECORD']);
 const MAX_CACHE_JSON_CHARS = 5_000_000;
@@ -486,18 +486,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     sendResponse({ started: true });
     return true;
   }
-  if (message.type === 'GENERATE_CARDS') {
-    handleSummarize(message, senderTabId, 'CARDS', navigationEpoch);
-    sendResponse({ started: true });
-    return true;
-  }
   if (message.type === 'GENERATE_MINDMAP') {
     handleSummarize(message, senderTabId, 'MINDMAP', navigationEpoch);
-    sendResponse({ started: true });
-    return true;
-  }
-  if (message.type === 'GENERATE_VOCAB') {
-    handleSummarize(message, senderTabId, 'VOCAB', navigationEpoch);
     sendResponse({ started: true });
     return true;
   }

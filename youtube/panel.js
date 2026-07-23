@@ -128,16 +128,6 @@
         }
       }
 
-      // 卡片
-      if (record.cards && record.cards.data && record.cards.data.length > 0) {
-        var c = YTX.features.cards;
-        if ((c._activityVersion || 0) === activityVersions.cards && !c.isGenerating && !c.requestId && (!c.data || c.data.length === 0)) {
-          c.data = record.cards.data;
-          c.render();
-          YTX.btnRefresh(YTX.panel.querySelector('#ytx-generate-cards'));
-        }
-      }
-
       // 导图
       if (record.mindmap && record.mindmap.data) {
         var m = YTX.features.mindmap;
@@ -145,16 +135,6 @@
           m.data = record.mindmap.data;
           m.render();
           YTX.btnRefresh(YTX.panel.querySelector('#ytx-generate-mindmap'));
-        }
-      }
-
-      // 词汇
-      if (record.vocab && record.vocab.data && record.vocab.data.length > 0) {
-        var v = YTX.features.vocab;
-        if ((v._activityVersion || 0) === activityVersions.vocab && !v.isGenerating && !v.requestId && (!v.data || v.data.length === 0)) {
-          v.data = record.vocab.data;
-          v.render();
-          YTX.btnRefresh(YTX.panel.querySelector('#ytx-generate-vocab'));
         }
       }
     });
@@ -302,7 +282,7 @@
       // 立即失效字幕/转录与延迟缓存恢复，避免清除完成后旧结果再次写回。
       resetTranscriptState();
       var clearGeneration = YTX._transcriptGeneration || 0;
-      ['#ytx-generate-all', '#ytx-summarize', '#ytx-generate-html', '#ytx-generate-cards', '#ytx-generate-mindmap', '#ytx-generate-vocab'].forEach(function (id) {
+      ['#ytx-generate-all', '#ytx-summarize', '#ytx-generate-html', '#ytx-generate-mindmap'].forEach(function (id) {
         var generationBtn = panel.querySelector(id);
         if (generationBtn) generationBtn.disabled = false;
       });

@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "AAtools - YouTube 助手 & 划词翻译 & 小红书增强",
   "version": "1.3.0",
-  "description": "AI 驱动的 YouTube 视频总结/笔记/思维导图/词汇提取 + 全网划词翻译 + 小红书体验增强",
+  "description": "AI 驱动的 YouTube 视频总结/笔记/思维导图 + 全网划词翻译 + 小红书体验增强",
   "permissions": ["storage", "activeTab", "scripting", "sessions"],
   "host_permissions": [
     "https://api.anthropic.com/*",
@@ -30,9 +30,7 @@
         "youtube/summary.js",
         "youtube/html-notes.js",
         "youtube/chat.js",
-        "youtube/cards.js",
         "youtube/mindmap.js",
-        "youtube/vocab.js",
         "youtube/panel.js"
       ],
       "css": ["youtube/content.css"],

@@ -207,14 +207,10 @@ html[dark] #ytx-resizer.ytx-resizer-active .ytx-resizer-dot,
 }
 #ytx-content::-webkit-scrollbar,
 #ytx-content-html::-webkit-scrollbar,
-.ytx-chat-messages::-webkit-scrollbar,
-.ytx-cards-list::-webkit-scrollbar,
-.ytx-vocab-list::-webkit-scrollbar { width: 6px; }
+.ytx-chat-messages::-webkit-scrollbar { width: 6px; }
 #ytx-content::-webkit-scrollbar-thumb,
 #ytx-content-html::-webkit-scrollbar-thumb,
-.ytx-chat-messages::-webkit-scrollbar-thumb,
-.ytx-cards-list::-webkit-scrollbar-thumb,
-.ytx-vocab-list::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 3px; }
+.ytx-chat-messages::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 3px; }
 
 #ytx-actions {
   display: flex;
@@ -546,103 +542,6 @@ html[dark] #ytx-resizer.ytx-resizer-active .ytx-resizer-dot,
 .ytx-chat-input-wrap .ytx-btn {
   border-radius: 20px;
   padding: 8px 16px;
-}
-
-/* 知识卡片 */
-#ytx-content-cards {
-  display: none;
-  flex-direction: column;
-  flex: 1;
-  min-height: 0;
-}
-#ytx-content-cards .ytx-empty {
-  text-align: center;
-  padding: 24px;
-  color: #9ca3af;
-  font-size: 13px;
-  margin: auto;
-}
-.ytx-cards-counter {
-  padding: 8px 16px;
-  font-size: 12px;
-  color: #9ca3af;
-  font-weight: 500;
-  border-bottom: 1px solid #f0f0f0;
-  flex-shrink: 0;
-}
-.ytx-cards-list {
-  flex: 1;
-  overflow-y: auto;
-  padding: 12px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-}
-.ytx-card {
-  perspective: 800px;
-  cursor: pointer;
-  flex-shrink: 0;
-  max-width: 560px;
-  margin: 0 auto;
-  width: 100%;
-}
-.ytx-card-inner {
-  position: relative;
-  transition: transform 0.5s;
-  transform-style: preserve-3d;
-}
-.ytx-card.flipped .ytx-card-inner {
-  transform: rotateY(180deg);
-}
-.ytx-card-front,
-.ytx-card-back {
-  backface-visibility: hidden;
-  border-radius: 12px;
-  padding: 10px 16px 14px;
-  min-height: 160px;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  padding-top: 20px;
-  padding-bottom: 30px;
-  text-align: left;
-}
-.ytx-card-front {
-  background: linear-gradient(135deg, #ede9fe 0%, #f5f3ff 100%);
-  border: 1px solid #ddd6fe;
-}
-.ytx-card-back {
-  position: absolute;
-  top: 0; left: 0; right: 0; bottom: 0;
-  background: linear-gradient(135deg, #f0fdf4 0%, #f5f3ff 100%);
-  border: 1px solid #bbf7d0;
-  transform: rotateY(180deg);
-  overflow-y: auto;
-}
-.ytx-card-label {
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  color: #7c3aed;
-  margin-bottom: 6px;
-}
-.ytx-card-back .ytx-card-label {
-  color: #16a34a;
-}
-.ytx-card-text {
-  font-size: 13px;
-  line-height: 1.6;
-  color: #1a1a1a;
-  font-weight: 500;
-}
-.ytx-card-time {
-  margin-top: 8px;
-}
-.ytx-card-hint {
-  margin-top: 8px;
-  font-size: 10px;
-  color: #b0b0b0;
 }
 
 /* 思维导图 */
@@ -1060,36 +959,7 @@ html[dark] #ytx-resizer.ytx-resizer-active .ytx-resizer-dot,
 [dark] #ytx-chat-input:focus {
   border-color: #a78bfa;
 }
-[dark] .ytx-chat-messages .ytx-empty,
-[dark] #ytx-content-cards .ytx-empty {
-  color: #6b7280;
-}
-
-/* 暗色 - 知识卡片 */
-[dark] .ytx-cards-counter {
-  border-bottom-color: #333;
-}
-[dark] .ytx-cards-list::-webkit-scrollbar-thumb {
-  background: #555;
-}
-[dark] .ytx-card-front {
-  background: linear-gradient(135deg, #1e1346 0%, #1a1a2e 100%);
-  border-color: #3b2d6e;
-}
-[dark] .ytx-card-back {
-  background: linear-gradient(135deg, #0f2918 0%, #1a1a2e 100%);
-  border-color: #1e5631;
-}
-[dark] .ytx-card-text {
-  color: #e5e5e5;
-}
-[dark] .ytx-card-label {
-  color: #a78bfa;
-}
-[dark] .ytx-card-back .ytx-card-label {
-  color: #4ade80;
-}
-[dark] .ytx-card-hint {
+[dark] .ytx-chat-messages .ytx-empty {
   color: #6b7280;
 }
 
@@ -1123,119 +993,4 @@ html[dark] #ytx-resizer.ytx-resizer-active .ytx-resizer-dot,
 }
 [dark] .ytx-mindmap-viewport {
   background: #1a1a1a;
-}
-
-/* 单词/词汇列表 */
-#ytx-content-vocab {
-  display: none;
-  flex-direction: column;
-  flex: 1;
-  min-height: 0;
-}
-#ytx-content-vocab .ytx-empty {
-  text-align: center;
-  padding: 24px;
-  color: #9ca3af;
-  font-size: 13px;
-}
-.ytx-vocab-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 6px 12px;
-  border-bottom: 1px solid #f0f0f0;
-  flex-shrink: 0;
-  background: #fafafa;
-}
-.ytx-vocab-counter {
-  font-size: 12px;
-  color: #9ca3af;
-  font-weight: 500;
-}
-.ytx-vocab-list {
-  flex: 1;
-  overflow-y: auto;
-  padding: 4px 16px 12px;
-}
-.ytx-vocab-item {
-  padding: 10px 0;
-  border-bottom: 1px solid #f0f0f0;
-}
-.ytx-vocab-item:last-child {
-  border-bottom: none;
-}
-.ytx-vocab-header {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.ytx-vocab-word {
-  font-size: 15px;
-  font-weight: 600;
-  color: #1a1a1a;
-}
-.ytx-vocab-phonetic {
-  font-size: 12px;
-  color: #9ca3af;
-  font-family: 'Consolas', 'Monaco', monospace;
-}
-.ytx-vocab-time {
-  margin-left: auto;
-}
-.ytx-vocab-meaning {
-  margin-top: 4px;
-  font-size: 13px;
-  color: #374151;
-  line-height: 1.5;
-}
-.ytx-vocab-pos {
-  font-weight: 600;
-  color: #7c3aed;
-  margin-right: 4px;
-}
-.ytx-vocab-example {
-  margin-top: 4px;
-  font-size: 12px;
-  color: #6b7280;
-  font-style: italic;
-  line-height: 1.5;
-  padding-left: 8px;
-  border-left: 2px solid #e5e7eb;
-}
-
-/* 暗色 - 单词 */
-html[dark] #ytx-content-vocab .ytx-empty,
-[dark] #ytx-content-vocab .ytx-empty {
-  color: #6b7280;
-}
-html[dark] .ytx-vocab-toolbar,
-[dark] .ytx-vocab-toolbar {
-  background: #222;
-  border-bottom-color: #333;
-}
-html[dark] .ytx-vocab-item,
-[dark] .ytx-vocab-item {
-  border-bottom-color: #333;
-}
-html[dark] .ytx-vocab-word,
-[dark] .ytx-vocab-word {
-  color: #e5e5e5;
-}
-html[dark] .ytx-vocab-phonetic,
-[dark] .ytx-vocab-phonetic {
-  color: #6b7280;
-}
-html[dark] .ytx-vocab-meaning,
-[dark] .ytx-vocab-meaning {
-  color: #d4d4d4;
-}
-html[dark] .ytx-vocab-pos,
-[dark] .ytx-vocab-pos {
-  color: #a78bfa;
-}
-html[dark] .ytx-vocab-example,
-[dark] .ytx-vocab-example {
-  color: #9ca3af;
-  border-left-color: #444;
 }
