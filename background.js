@@ -1077,9 +1077,19 @@ const RETIRED_CLAUDE = /^claude-(2[.-]|instant|3-)/;
 function sanitizeModel(provider, model) {
   if (!model) return '';
   if (provider === 'claude' && RETIRED_CLAUDE.test(model)) return '';
-  if (!(provider in MODEL_PREFIX)) return model; // 无前缀校验的 provider（如 minimax / sub2api）
+  if (!(provider in MODEL_PREFIX)) {
+    // 无前缀校验的 provider（如 minimax / sub2api）；sub2api 额外做模型名归一化
+    return isSub2(provider) ? normalizeSub2ApiModel(model) : model;
+  }
   const prefix = MODEL_PREFIX[provider];
   return model.startsWith(prefix) ? model : '';
+}
+
+// 手填 sub2api 模型名常见漏写前缀连字符（gpt5.6 / GPT_5.6 → gpt-5.6）。
+// 不补的话 sub2apiFormatOf 匹配不到 gpt- 前缀会误走 /v1/messages，网关也按名字找不到模型。
+// 与 normalizeSub2ApiBase 剥离 URL 后缀同一思路：容错用户从别处复制/手敲的配置。
+function normalizeSub2ApiModel(model) {
+  return model.trim().replace(/^(gpt|claude|gemini)[\s_-]*(?=\d)/i, (m, p) => p.toLowerCase() + '-');
 }
 
 // ── Claude /v1/messages 请求体组装（direct + sub2api 共用）──
@@ -1329,9 +1339,10 @@ function classifyApiError(status, body, provider) {
     return `请求参数错误 (${status}): ${body.substring(0, 200)}`;
   }
 
-  // 404 — 模型不存在
+  // 404 — 模型不存在或网关缺该端点（附原始返回帮助区分这两种情况）
   if (status === 404) {
-    return `所选模型不存在或未开通权限，请在扩展设置中更换 ${providerName} 模型`;
+    const detail = body ? `\n服务端返回：${body.substring(0, 200)}` : '';
+    return `所选模型不存在或未开通权限，请在扩展设置中更换 ${providerName} 模型${detail}`;
   }
 
   // 500+ — 服务端错误
@@ -1355,7 +1366,7 @@ async function callProvider(provider, opts) {
   const model = sanitizeModel(provider, opts.model);
 
   // 计算实际使用的模型 ID
-  const DEFAULT_MODEL = { claude: 'claude-sonnet-5', openai: 'gpt-5.4-mini', gemini: 'gemini-3-flash-preview', minimax: 'MiniMax-M2.5', sub2api: 'claude-sonnet-5', sub2api2: 'claude-sonnet-5', sub2api3: 'claude-sonnet-5' };
+  const DEFAULT_MODEL = { claude: 'claude-fable-5', openai: 'gpt-5.6', gemini: 'gemini-3.6-flash', minimax: 'MiniMax-M2.5', sub2api: 'claude-fable-5', sub2api2: 'claude-fable-5', sub2api3: 'claude-fable-5' };
   const actualModel = model || DEFAULT_MODEL[provider] || DEFAULT_MODEL.claude;
 
   // 局部 send：自动给所有发往 content script 的消息附 requestId

@@ -9,10 +9,8 @@ const PROVIDERS = {
     placeholder: 'sk-ant-api03-...',
     helpUrl: 'https://console.anthropic.com/settings/keys',
     models: [
-      { value: 'claude-sonnet-5', label: 'Sonnet 5 — 推荐' },
-      { value: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5 — 更快' },
+      { value: 'claude-fable-5', label: 'Fable 5 — 推荐' },
       { value: 'claude-opus-4-8', label: 'Opus 4.8 — 最强' },
-      { value: 'claude-sonnet-4-6', label: 'Sonnet 4.6 — 上一代' },
     ]
   },
   openai: {
@@ -21,9 +19,7 @@ const PROVIDERS = {
     placeholder: 'sk-...',
     helpUrl: 'https://platform.openai.com/api-keys',
     models: [
-      { value: 'gpt-5.4-mini', label: 'GPT-5.4 mini — 推荐' },
-      { value: 'gpt-5.4-nano', label: 'GPT-5.4 nano — 更快' },
-      { value: 'gpt-5.5', label: 'GPT-5.5 — 最强' },
+      { value: 'gpt-5.6', label: 'GPT-5.6 — 推荐' },
     ]
   },
   gemini: {
@@ -32,10 +28,7 @@ const PROVIDERS = {
     placeholder: 'AIza...',
     helpUrl: 'https://aistudio.google.com/apikey',
     models: [
-      { value: 'gemini-3.1-flash-lite-preview', label: 'Gemini 3.1 Flash-Lite — 最快' },
-      { value: 'gemini-3-flash-preview', label: 'Gemini 3 Flash — 推荐' },
-      { value: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro — 最强' },
-      { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash — 稳定' },
+      { value: 'gemini-3.6-flash', label: 'Gemini 3.6 Flash — 推荐' },
     ]
   },
   minimax: {
@@ -56,14 +49,9 @@ const PROVIDERS = {
     placeholder: 'sk-...',
     helpUrl: 'https://github.com/Wei-Shaw/sub2api',
     models: [
-      { value: 'claude-sonnet-5', label: 'Claude Sonnet 5（走 /v1/messages）' },
-      { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5（走 /v1/messages）' },
+      { value: 'claude-fable-5', label: 'Claude Fable 5（走 /v1/messages）' },
       { value: 'claude-opus-4-8', label: 'Claude Opus 4.8（走 /v1/messages）' },
-      { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6（走 /v1/messages）' },
-      { value: 'gpt-5.4-mini', label: 'GPT-5.4 mini（走 /v1/responses）' },
-      { value: 'gpt-5.4', label: 'GPT-5.4（走 /v1/responses）' },
-      { value: 'gpt-5.5', label: 'GPT-5.5（走 /v1/responses）' },
-      { value: 'gemini-3-flash-preview', label: 'Gemini 3 Flash（走 /v1beta/...）' },
+      { value: 'gpt-5.6', label: 'GPT-5.6（走 /v1/responses）' },
       { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash（走 /v1beta/...）' },
     ]
   },
@@ -73,14 +61,9 @@ const PROVIDERS = {
     placeholder: 'sk-...',
     helpUrl: 'https://github.com/Wei-Shaw/sub2api',
     models: [
-      { value: 'claude-sonnet-5', label: 'Claude Sonnet 5（走 /v1/messages）' },
-      { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5（走 /v1/messages）' },
+      { value: 'claude-fable-5', label: 'Claude Fable 5（走 /v1/messages）' },
       { value: 'claude-opus-4-8', label: 'Claude Opus 4.8（走 /v1/messages）' },
-      { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6（走 /v1/messages）' },
-      { value: 'gpt-5.4-mini', label: 'GPT-5.4 mini（走 /v1/responses）' },
-      { value: 'gpt-5.4', label: 'GPT-5.4（走 /v1/responses）' },
-      { value: 'gpt-5.5', label: 'GPT-5.5（走 /v1/responses）' },
-      { value: 'gemini-3-flash-preview', label: 'Gemini 3 Flash（走 /v1beta/...）' },
+      { value: 'gpt-5.6', label: 'GPT-5.6（走 /v1/responses）' },
       { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash（走 /v1beta/...）' },
     ]
   },
@@ -90,14 +73,9 @@ const PROVIDERS = {
     placeholder: 'sk-...',
     helpUrl: 'https://github.com/Wei-Shaw/sub2api',
     models: [
-      { value: 'claude-sonnet-5', label: 'Claude Sonnet 5（走 /v1/messages）' },
-      { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5（走 /v1/messages）' },
+      { value: 'claude-fable-5', label: 'Claude Fable 5（走 /v1/messages）' },
       { value: 'claude-opus-4-8', label: 'Claude Opus 4.8（走 /v1/messages）' },
-      { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6（走 /v1/messages）' },
-      { value: 'gpt-5.4-mini', label: 'GPT-5.4 mini（走 /v1/responses）' },
-      { value: 'gpt-5.4', label: 'GPT-5.4（走 /v1/responses）' },
-      { value: 'gpt-5.5', label: 'GPT-5.5（走 /v1/responses）' },
-      { value: 'gemini-3-flash-preview', label: 'Gemini 3 Flash（走 /v1beta/...）' },
+      { value: 'gpt-5.6', label: 'GPT-5.6（走 /v1/responses）' },
       { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash（走 /v1beta/...）' },
     ]
   }
