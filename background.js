@@ -903,8 +903,8 @@ function safeSend(tabId, msg) {
 }
 
 // ── 从 storage 按 provider 读取对应 API key（不信任 content script 传入的 activeKey）──
-const KEY_FIELD = { claude: 'claudeKey', openai: 'openaiKey', gemini: 'geminiKey', minimax: 'minimaxKey', deepseek: 'deepseekKey', sub2api: 'sub2apiKey' };
-const MODEL_FIELD = { claude: 'claudeModel', openai: 'openaiModel', gemini: 'geminiModel', minimax: 'minimaxModel', deepseek: 'deepseekModel', sub2api: 'sub2apiModel' };
+const KEY_FIELD = { claude: 'claudeKey', openai: 'openaiKey', gemini: 'geminiKey', minimax: 'minimaxKey', deepseek: 'deepseekKey', kimi: 'kimiKey', sub2api: 'sub2apiKey' };
+const MODEL_FIELD = { claude: 'claudeModel', openai: 'openaiModel', gemini: 'geminiModel', minimax: 'minimaxModel', deepseek: 'deepseekModel', kimi: 'kimiModel', sub2api: 'sub2apiModel' };
 const SUB2API_BASE_FIELD = { sub2api: 'sub2apiBaseUrl' };
 function isSub2(provider) { return provider === 'sub2api'; }
 function loadProviderConfig(provider) {
@@ -1071,7 +1071,8 @@ ${context ? '📌 该词在语境中的含义：一句话解释' : '搭配: 词�
 }
 
 // ── 校验 model 是否属于当前 provider，不匹配则清空让默认值生效 ──
-const MODEL_PREFIX = { claude: 'claude-', openai: 'gpt-', gemini: 'gemini-', deepseek: 'deepseek-' };
+// 值为前缀字符串，或前缀数组（kimi 同时有 kimi-* 与旧的 moonshot-v1-* 两条模型线）
+const MODEL_PREFIX = { claude: 'claude-', openai: 'gpt-', gemini: 'gemini-', deepseek: 'deepseek-', kimi: ['kimi-', 'moonshot-'] };
 // Claude 2.x / 3.x 全系列已退役（2026-04 起 API 返回 404），存量配置命中时清空回退默认模型
 const RETIRED_CLAUDE = /^claude-(2[.-]|instant|3-)/;
 // deepseek-chat / deepseek-reasoner 旧模型名已于 2026-07-24 退役，命中时清空回退默认模型
@@ -1084,8 +1085,8 @@ function sanitizeModel(provider, model) {
     // 无前缀校验的 provider（如 minimax / sub2api）；sub2api 额外做模型名归一化
     return isSub2(provider) ? normalizeSub2ApiModel(model) : model;
   }
-  const prefix = MODEL_PREFIX[provider];
-  return model.startsWith(prefix) ? model : '';
+  const prefixes = [].concat(MODEL_PREFIX[provider]);
+  return prefixes.some(p => model.startsWith(p)) ? model : '';
 }
 
 // 手填 sub2api 模型名常见漏写前缀连字符（gpt5.6 / GPT_5.6 → gpt-5.6）。
@@ -1316,7 +1317,7 @@ async function _callGeminiTranscribe(key, model, videoUrl, prompt, tabId, videoI
 // ── API 错误分类提示 ─────────────────────────────────────
 function classifyApiError(status, body, provider) {
   const lower = body.toLowerCase();
-  const providerName = { claude: 'Claude', openai: 'OpenAI', gemini: 'Gemini', minimax: 'MiniMax', deepseek: 'DeepSeek', sub2api: 'Sub2API' }[provider] || provider;
+  const providerName = { claude: 'Claude', openai: 'OpenAI', gemini: 'Gemini', minimax: 'MiniMax', deepseek: 'DeepSeek', kimi: 'Kimi', sub2api: 'Sub2API' }[provider] || provider;
 
   // 401 / 403 — 认证失败
   if (status === 401 || status === 403 || lower.includes('invalid_api_key') || lower.includes('invalid api key') || lower.includes('unauthorized') || lower.includes('api_key_invalid')) {
@@ -1369,7 +1370,7 @@ async function callProvider(provider, opts) {
   const model = sanitizeModel(provider, opts.model);
 
   // 计算实际使用的模型 ID
-  const DEFAULT_MODEL = { claude: 'claude-fable-5', openai: 'gpt-5.6-sol', gemini: 'gemini-3.6-flash', minimax: 'MiniMax-M2.5', deepseek: 'deepseek-v4-flash', sub2api: 'claude-fable-5' };
+  const DEFAULT_MODEL = { claude: 'claude-fable-5', openai: 'gpt-5.6-sol', gemini: 'gemini-3.6-flash', minimax: 'MiniMax-M2.5', deepseek: 'deepseek-v4-flash', kimi: 'kimi-k2.6', sub2api: 'claude-fable-5' };
   const actualModel = model || DEFAULT_MODEL[provider] || DEFAULT_MODEL.claude;
 
   // 局部 send：自动给所有发往 content script 的消息附 requestId
@@ -1415,13 +1416,14 @@ async function callProvider(provider, opts) {
     let response;
     requestContext.startAttempt(PROVIDER_TIMEOUTS);
 
-    if (provider === 'openai' || provider === 'minimax' || provider === 'deepseek') {
+    if (provider === 'openai' || provider === 'minimax' || provider === 'deepseek' || provider === 'kimi') {
       const apiMessages = systemPrompt
         ? [{ role: 'system', content: systemPrompt }, ...messages]
         : messages;
       const endpoint = {
         minimax: 'https://api.minimax.io/v1/text/chatcompletion_v2',
         deepseek: 'https://api.deepseek.com/chat/completions',
+        kimi: 'https://api.moonshot.cn/v1/chat/completions',
         openai: 'https://api.openai.com/v1/chat/completions',
       }[provider];
       const body = {
@@ -1429,7 +1431,7 @@ async function callProvider(provider, opts) {
         messages: apiMessages,
         stream: true,
       };
-      // DeepSeek 只认 max_tokens；OpenAI 新模型已废弃 max_tokens 改用 max_completion_tokens
+      // DeepSeek 只认 max_tokens；OpenAI / Kimi 已废弃 max_tokens 改用 max_completion_tokens
       if (provider === 'deepseek') {
         body.max_tokens = maxTokens;
         // V4 模型（v4-flash/v4-pro）默认开启 thinking（effort=high），思考 token 计费且计入
@@ -1438,6 +1440,21 @@ async function callProvider(provider, opts) {
         body.thinking = { type: 'disabled' };
       } else {
         body.max_completion_tokens = maxTokens;
+        // Kimi 的思考按模型分档，同样只保留正文：
+        // - k3 恒开不可关，但 reasoning_effort 默认 'max' → 压到 'low'
+        // - k2.5 / k2.6 支持显式关闭
+        // - k2.7-code 恒开且无 effort 档位，不传任何思考参数
+        if (provider === 'kimi') {
+          if (/^kimi-k3/.test(actualModel)) body.reasoning_effort = 'low';
+          else if (/^kimi-k2\.[56]/.test(actualModel)) body.thinking = { type: 'disabled' };
+          // 思考关不掉的两条线：reasoning_content 与正文共用同一份 max_completion_tokens 预算
+          // （官方明确 max_tokens/max_completion_tokens 含义相同，建议 >= 16000）。
+          // 沿用调用方的 2048/4096/8096 会让思考吃光额度、正文被截断甚至为空 —— 与
+          // buildClaudeBody 对 claude-fable/mythos 放大预算是同一个问题、同一种解法。
+          if (/^kimi-(k3|k2\.7-code)/.test(actualModel)) {
+            body.max_completion_tokens = Math.max(maxTokens, 16000);
+          }
+        }
       }
       response = await fetch(endpoint, {
         method: 'POST',
@@ -1737,8 +1754,8 @@ function analyzeStreamPayload(provider, parsed, eventName) {
     return result;
   }
 
-  if (provider === 'openai' || provider === 'minimax' || provider === 'deepseek') {
-    // deepseek thinking 模式的 delta.reasoning_content（思考过程）不取，只取正文 content
+  if (provider === 'openai' || provider === 'minimax' || provider === 'deepseek' || provider === 'kimi') {
+    // deepseek / kimi thinking 模式的 delta.reasoning_content（思考过程）不取，只取正文 content
     const choice = parsed?.choices?.[0];
     result.text = streamContentText(choice?.delta?.content);
     const finish = choice?.finish_reason;

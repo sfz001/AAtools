@@ -1,6 +1,6 @@
 # Privacy Policy - AAtools
 
-Last updated: 2026-07-16
+Last updated: 2026-08-08
 
 ## Overview
 
@@ -14,7 +14,7 @@ AAtools does **not** collect, store, or transmit any personal data to the develo
 
 The following data is stored via `chrome.storage.sync` and the extension's own IndexedDB. Note: `chrome.storage.sync` is **synchronized to your other Chrome profiles via your Google account** when you are signed in to Chrome — it is not strictly local. Cached results (IndexedDB) stay on the current device only. Older releases stored YouTube results under the `youtube.com` page origin; each unchanged legacy record is removed from the old database only after that record is confirmed saved in extension storage. Records changed by an older open tab during migration are retained for a later retry.
 
-- **API Keys**: Your Claude, OpenAI, Gemini, MiniMax, and/or DeepSeek API keys (entered by you in the extension settings)
+- **API Keys**: Your Claude, OpenAI, Gemini, MiniMax, DeepSeek, and/or Kimi API keys (entered by you in the extension settings)
 - **Preferences**: Selected AI provider, model, custom prompts, and feature toggles (e.g. mouse gestures)
 - **Cached Results**: Previously generated summaries, notes, and mind maps for each video
 
@@ -29,6 +29,7 @@ When you use AAtools, your video subtitle content or selected text is sent direc
 - **Google** (generativelanguage.googleapis.com) — when using Gemini
 - **MiniMax** (api.minimax.io) — when using MiniMax
 - **DeepSeek** (api.deepseek.com) — when using DeepSeek
+- **Moonshot AI** (api.moonshot.cn) — when using Kimi
 - **A custom Sub2API gateway chosen by you** — only after you explicitly grant access to that gateway's domain
 
 These API calls are made directly from your browser using your own API keys. AAtools does not proxy, log, or intercept any of this data. Obsidian export generates a `.md` file locally and downloads it via the browser — nothing is uploaded.

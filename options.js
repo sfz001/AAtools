@@ -56,6 +56,17 @@ const PROVIDERS = {
       { value: 'deepseek-v4-pro', label: 'DeepSeek V4 Pro — 更强' },
     ]
   },
+  kimi: {
+    label: 'Kimi API Key',
+    keyField: 'kimiKey',
+    placeholder: 'sk-...',
+    helpUrl: 'https://platform.kimi.com/console/api-keys',
+    models: [
+      // kimi-k2.5 与 moonshot-v1 系列已停止向新注册用户开放，2026-08-31 全平台下线，故不预置
+      { value: 'kimi-k2.6', label: 'Kimi K2.6 — 推荐（思考可关，最省）' },
+      { value: 'kimi-k3', label: 'Kimi K3 — 最强（1M 上下文，思考恒开）' },
+    ]
+  },
   sub2api: {
     label: 'Sub2API API Key',
     keyField: 'sub2apiKey',
@@ -73,8 +84,8 @@ const PROVIDERS = {
 const $ = (sel) => document.querySelector(sel);
 
 let currentProvider = 'claude';
-let keyCache = { claudeKey: '', openaiKey: '', geminiKey: '', minimaxKey: '', deepseekKey: '', sub2apiKey: '' };
-let modelCache = { claude: '', openai: '', gemini: '', minimax: '', deepseek: '', sub2api: '' };
+let keyCache = { claudeKey: '', openaiKey: '', geminiKey: '', minimaxKey: '', deepseekKey: '', kimiKey: '', sub2apiKey: '' };
+let modelCache = { claude: '', openai: '', gemini: '', minimax: '', deepseek: '', kimi: '', sub2api: '' };
 let sub2apiBaseUrl = '';
 
 const SUB2API_BASE_INPUT = {
@@ -119,6 +130,7 @@ function revokeGatewayOriginIfUnused(origin) {
     'https://generativelanguage.googleapis.com/*',
     'https://api.minimax.io/*',
     'https://api.deepseek.com/*',
+    'https://api.moonshot.cn/*',
     'https://www.youtube.com/*',
   ]);
   if (requiredOrigins.has(origin)) return;
@@ -232,8 +244,8 @@ document.addEventListener('DOMContentLoaded', () => {
   chrome.storage.sync.remove(['notionKey', 'notionPage', 'githubKey']);
 
   const STORAGE_KEYS = [
-    'provider', 'claudeKey', 'openaiKey', 'geminiKey', 'minimaxKey', 'deepseekKey', 'sub2apiKey',
-    'claudeModel', 'openaiModel', 'geminiModel', 'minimaxModel', 'deepseekModel', 'sub2apiModel',
+    'provider', 'claudeKey', 'openaiKey', 'geminiKey', 'minimaxKey', 'deepseekKey', 'kimiKey', 'sub2apiKey',
+    'claudeModel', 'openaiModel', 'geminiModel', 'minimaxModel', 'deepseekModel', 'kimiModel', 'sub2apiModel',
     'sub2apiBaseUrl', 'model',
     'youtubePanelDefaultCollapsed',
     'generateAllSummary', 'generateAllMindmap', 'generateAllHtml',
@@ -242,12 +254,13 @@ document.addEventListener('DOMContentLoaded', () => {
   ];
 
   // 先加载已拉取的模型列表，再加载设置
-  chrome.storage.local.get(['fetchedModels_claude', 'fetchedModels_openai', 'fetchedModels_gemini', 'fetchedModels_minimax', 'fetchedModels_deepseek'], (local) => {
+  chrome.storage.local.get(['fetchedModels_claude', 'fetchedModels_openai', 'fetchedModels_gemini', 'fetchedModels_minimax', 'fetchedModels_deepseek', 'fetchedModels_kimi'], (local) => {
     if (local.fetchedModels_claude) fetchedModelsCache.claude = local.fetchedModels_claude;
     if (local.fetchedModels_openai) fetchedModelsCache.openai = local.fetchedModels_openai;
     if (local.fetchedModels_gemini) fetchedModelsCache.gemini = local.fetchedModels_gemini;
     if (local.fetchedModels_minimax) fetchedModelsCache.minimax = local.fetchedModels_minimax;
     if (local.fetchedModels_deepseek) fetchedModelsCache.deepseek = local.fetchedModels_deepseek;
+    if (local.fetchedModels_kimi) fetchedModelsCache.kimi = local.fetchedModels_kimi;
 
     chrome.storage.sync.get(STORAGE_KEYS, (data) => {
       keyCache.claudeKey = data.claudeKey || '';
@@ -255,6 +268,7 @@ document.addEventListener('DOMContentLoaded', () => {
       keyCache.geminiKey = data.geminiKey || '';
       keyCache.minimaxKey = data.minimaxKey || '';
       keyCache.deepseekKey = data.deepseekKey || '';
+      keyCache.kimiKey = data.kimiKey || '';
       keyCache.sub2apiKey = data.sub2apiKey || '';
 
       modelCache.claude = data.claudeModel || '';
@@ -262,6 +276,7 @@ document.addEventListener('DOMContentLoaded', () => {
       modelCache.gemini = data.geminiModel || '';
       modelCache.minimax = data.minimaxModel || '';
       modelCache.deepseek = data.deepseekModel || '';
+      modelCache.kimi = data.kimiModel || '';
       modelCache.sub2api = data.sub2apiModel || '';
       sub2apiBaseUrl = data.sub2apiBaseUrl || '';
       $('#sub2apiBaseUrl').value = sub2apiBaseUrl;
@@ -320,8 +335,8 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#fetchModelsBtn').addEventListener('click', handleFetchModels);
 
   const SETTING_KEYS = [
-    'provider', 'claudeKey', 'openaiKey', 'geminiKey', 'minimaxKey', 'deepseekKey', 'sub2apiKey',
-    'claudeModel', 'openaiModel', 'geminiModel', 'minimaxModel', 'deepseekModel', 'sub2apiModel',
+    'provider', 'claudeKey', 'openaiKey', 'geminiKey', 'minimaxKey', 'deepseekKey', 'kimiKey', 'sub2apiKey',
+    'claudeModel', 'openaiModel', 'geminiModel', 'minimaxModel', 'deepseekModel', 'kimiModel', 'sub2apiModel',
     'sub2apiBaseUrl', 'model',
     'youtubePanelDefaultCollapsed',
     'generateAllSummary', 'generateAllMindmap', 'generateAllHtml',
@@ -330,7 +345,7 @@ document.addEventListener('DOMContentLoaded', () => {
     ...ALL_PROMPT_KEYS,
   ];
 
-  const LOCAL_KEYS = ['fetchedModels_claude', 'fetchedModels_openai', 'fetchedModels_gemini', 'fetchedModels_minimax', 'fetchedModels_deepseek'];
+  const LOCAL_KEYS = ['fetchedModels_claude', 'fetchedModels_openai', 'fetchedModels_gemini', 'fetchedModels_minimax', 'fetchedModels_deepseek', 'fetchedModels_kimi'];
 
   $('#exportSettings').addEventListener('click', () => {
     chrome.storage.sync.get(SETTING_KEYS, (syncData) => {
@@ -591,12 +606,14 @@ function saveSettings(isManual, gatewayProvider, gatewayBaseOverride) {
     geminiKey: keyCache.geminiKey,
     minimaxKey: keyCache.minimaxKey,
     deepseekKey: keyCache.deepseekKey,
+    kimiKey: keyCache.kimiKey,
     sub2apiKey: keyCache.sub2apiKey,
     claudeModel: modelCache.claude,
     openaiModel: modelCache.openai,
     geminiModel: modelCache.gemini,
     minimaxModel: modelCache.minimax,
     deepseekModel: modelCache.deepseek,
+    kimiModel: modelCache.kimi,
     sub2apiModel: modelCache.sub2api,
     sub2apiBaseUrl: sub2apiBaseUrl,
     model: $('#model').value,
@@ -677,6 +694,24 @@ const MODEL_FETCHERS = {
       .filter(m => m.id)
       .map(m => ({ value: m.id, label: m.id }))
       .sort((a, b) => a.value.localeCompare(b.value));
+    return models;
+  },
+
+  async kimi(key) {
+    const resp = await fetch('https://api.moonshot.cn/v1/models', {
+      headers: { 'Authorization': 'Bearer ' + key },
+    });
+    if (!resp.ok) throw new Error('API 返回 ' + resp.status);
+    const data = await resp.json();
+    const models = (data.data || [])
+      .filter(m => m.id)
+      .map(m => ({ value: m.id, label: m.id }))
+      // kimi-* 新模型线整体排在 legacy moonshot-*（2026-08-31 下线）之前，组内再按名称降序。
+      // 单纯全局降序会因 'm' > 'k' 把 moonshot-* 顶到最前，与意图正好相反。
+      .sort((a, b) => {
+        const rank = m => (m.startsWith('kimi-') ? 0 : 1);
+        return rank(a.value) - rank(b.value) || b.value.localeCompare(a.value);
+      });
     return models;
   },
 

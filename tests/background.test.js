@@ -226,6 +226,12 @@ test('provider payload analysis distinguishes text, errors, and abnormal finishe
   assert.equal(context.analyzeStreamPayload('deepseek', {
     choices: [{ delta: {}, finish_reason: 'stop' }],
   }, 'message').terminal, true);
+  assert.equal(context.analyzeStreamPayload('kimi', {
+    choices: [{ delta: { reasoning_content: '思考中', content: null }, finish_reason: null }],
+  }, 'message').text, '');
+  assert.equal(context.analyzeStreamPayload('kimi', {
+    choices: [{ delta: { content: '正文' }, finish_reason: null }],
+  }, 'message').text, '正文');
 });
 
 test('sanitizeModel rejects retired model names and wrong-provider prefixes', () => {
@@ -237,6 +243,67 @@ test('sanitizeModel rejects retired model names and wrong-provider prefixes', ()
   assert.equal(context.sanitizeModel('deepseek', 'deepseek-v4-flash'), 'deepseek-v4-flash');
   assert.equal(context.sanitizeModel('deepseek', 'gpt-5.6'), '');
   assert.equal(context.sanitizeModel('claude', 'claude-3-5-sonnet-20241022'), '');
+
+  // kimi 有 kimi-* 与旧的 moonshot-v1-* 两条模型线，前缀校验须同时放行
+  assert.equal(context.sanitizeModel('kimi', 'kimi-k2.6'), 'kimi-k2.6');
+  assert.equal(context.sanitizeModel('kimi', 'moonshot-v1-8k'), 'moonshot-v1-8k');
+  assert.equal(context.sanitizeModel('kimi', 'deepseek-v4-flash'), '');
+});
+
+test('kimi request body follows each model tier thinking contract', async () => {
+  const encoder = new TextEncoder();
+
+  async function bodyFor(model) {
+    const loaded = loadBackground({
+      fetch: async () => ({
+        ok: true,
+        body: {
+          getReader() {
+            let read = false;
+            return {
+              async read() {
+                if (read) return { done: true, value: undefined };
+                read = true;
+                return {
+                  done: false,
+                  value: encoder.encode(
+                    'data: {"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}\n\n' +
+                    'data: [DONE]\n\n'
+                  ),
+                };
+              },
+              async cancel() {},
+            };
+          },
+        },
+      }),
+    });
+    // 2048 = 划词翻译档，思考模型下最容易被吃光的那一档
+    await loaded.context.callProvider('kimi', {
+      key: 'k', systemPrompt: '', messages: [{ role: 'user', content: 'hi' }],
+      maxTokens: 2048, tabId: 1, PREFIX: 'TRANSLATE', requestId: 'r1', model,
+    });
+    return { url: loaded.fetchCalls[0][0], body: JSON.parse(loaded.fetchCalls[0][1].body) };
+  }
+
+  // 思考可关：关掉即可，预算无需放大
+  const k26 = await bodyFor('kimi-k2.6');
+  assert.equal(k26.url, 'https://api.moonshot.cn/v1/chat/completions');
+  assert.deepEqual(k26.body.thinking, { type: 'disabled' });
+  assert.equal(k26.body.max_completion_tokens, 2048);
+  assert.equal(k26.body.max_tokens, undefined);
+
+  // 思考关不掉：压 effort 之外还必须放大预算，否则 reasoning 吃光额度、正文为空
+  const k3 = await bodyFor('kimi-k3');
+  assert.equal(k3.body.reasoning_effort, 'low');
+  assert.equal(k3.body.max_completion_tokens, 16000);
+  assert.equal(k3.body.thinking, undefined);
+
+  // k2.7-code 恒开且无 effort 档位，只能靠放大预算兜住
+  const code = await bodyFor('kimi-k2.7-code');
+  assert.equal(code.body.thinking, undefined);
+  assert.equal(code.body.reasoning_effort, undefined);
+  assert.equal(code.body.max_completion_tokens, 16000);
 });
 
 test('stream consumer requires meaningful text and a normal terminal event', async () => {

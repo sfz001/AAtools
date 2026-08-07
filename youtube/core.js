@@ -97,7 +97,7 @@ YTX.getSettings = function () {
   return new Promise(function (resolve, reject) {
     try {
       chrome.storage.sync.get(
-        ['provider', 'claudeModel', 'openaiModel', 'geminiModel', 'minimaxModel', 'deepseekModel', 'sub2apiModel', 'model',
+        ['provider', 'claudeModel', 'openaiModel', 'geminiModel', 'minimaxModel', 'deepseekModel', 'kimiModel', 'sub2apiModel', 'model',
          'prompt', 'promptHtml', 'promptMindmap'],
         function (data) {
           if (chrome.runtime.lastError) {
@@ -106,7 +106,7 @@ YTX.getSettings = function () {
           }
           try {
             data = data || {};
-            var MODEL_MAP = { claude: 'claudeModel', openai: 'openaiModel', gemini: 'geminiModel', minimax: 'minimaxModel', deepseek: 'deepseekModel', sub2api: 'sub2apiModel' };
+            var MODEL_MAP = { claude: 'claudeModel', openai: 'openaiModel', gemini: 'geminiModel', minimax: 'minimaxModel', deepseek: 'deepseekModel', kimi: 'kimiModel', sub2api: 'sub2apiModel' };
             var provider = Object.prototype.hasOwnProperty.call(MODEL_MAP, data.provider) ? data.provider : 'claude';
             resolve({
               provider: provider,
