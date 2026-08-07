@@ -19,7 +19,10 @@ const PROVIDERS = {
     placeholder: 'sk-...',
     helpUrl: 'https://platform.openai.com/api-keys',
     models: [
-      { value: 'gpt-5.6', label: 'GPT-5.6 — 推荐' },
+      // gpt-5.6 本身只是 gpt-5.6-sol 的别名，/v1/models 列表里只有带后缀的真名
+      { value: 'gpt-5.6-sol', label: 'GPT-5.6 Sol — 推荐（最强）' },
+      { value: 'gpt-5.6-terra', label: 'GPT-5.6 Terra — 均衡' },
+      { value: 'gpt-5.6-luna', label: 'GPT-5.6 Luna — 快速低价' },
     ]
   },
   gemini: {
@@ -43,33 +46,19 @@ const PROVIDERS = {
       { value: 'MiniMax-M2', label: 'MiniMax-M2' },
     ]
   },
+  deepseek: {
+    label: 'DeepSeek API Key',
+    keyField: 'deepseekKey',
+    placeholder: 'sk-...',
+    helpUrl: 'https://platform.deepseek.com/api_keys',
+    models: [
+      { value: 'deepseek-v4-flash', label: 'DeepSeek V4 Flash — 推荐' },
+      { value: 'deepseek-v4-pro', label: 'DeepSeek V4 Pro — 更强' },
+    ]
+  },
   sub2api: {
-    label: 'Sub2API #1 API Key',
+    label: 'Sub2API API Key',
     keyField: 'sub2apiKey',
-    placeholder: 'sk-...',
-    helpUrl: 'https://github.com/Wei-Shaw/sub2api',
-    models: [
-      { value: 'claude-fable-5', label: 'Claude Fable 5（走 /v1/messages）' },
-      { value: 'claude-opus-4-8', label: 'Claude Opus 4.8（走 /v1/messages）' },
-      { value: 'gpt-5.6', label: 'GPT-5.6（走 /v1/responses）' },
-      { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash（走 /v1beta/...）' },
-    ]
-  },
-  sub2api2: {
-    label: 'Sub2API #2 API Key',
-    keyField: 'sub2api2Key',
-    placeholder: 'sk-...',
-    helpUrl: 'https://github.com/Wei-Shaw/sub2api',
-    models: [
-      { value: 'claude-fable-5', label: 'Claude Fable 5（走 /v1/messages）' },
-      { value: 'claude-opus-4-8', label: 'Claude Opus 4.8（走 /v1/messages）' },
-      { value: 'gpt-5.6', label: 'GPT-5.6（走 /v1/responses）' },
-      { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash（走 /v1beta/...）' },
-    ]
-  },
-  sub2api3: {
-    label: 'Sub2API #3 API Key',
-    keyField: 'sub2api3Key',
     placeholder: 'sk-...',
     helpUrl: 'https://github.com/Wei-Shaw/sub2api',
     models: [
@@ -84,16 +73,12 @@ const PROVIDERS = {
 const $ = (sel) => document.querySelector(sel);
 
 let currentProvider = 'claude';
-let keyCache = { claudeKey: '', openaiKey: '', geminiKey: '', minimaxKey: '', sub2apiKey: '', sub2api2Key: '', sub2api3Key: '' };
-let modelCache = { claude: '', openai: '', gemini: '', minimax: '', sub2api: '', sub2api2: '', sub2api3: '' };
+let keyCache = { claudeKey: '', openaiKey: '', geminiKey: '', minimaxKey: '', deepseekKey: '', sub2apiKey: '' };
+let modelCache = { claude: '', openai: '', gemini: '', minimax: '', deepseek: '', sub2api: '' };
 let sub2apiBaseUrl = '';
-let sub2api2BaseUrl = '';
-let sub2api3BaseUrl = '';
 
 const SUB2API_BASE_INPUT = {
   sub2api: 'sub2apiBaseUrl',
-  sub2api2: 'sub2api2BaseUrl',
-  sub2api3: 'sub2api3BaseUrl',
 };
 
 function parseGatewayUrl(raw) {
@@ -114,15 +99,11 @@ function parseGatewayUrl(raw) {
 
 function getSavedGatewayBase(provider) {
   if (provider === 'sub2api') return sub2apiBaseUrl;
-  if (provider === 'sub2api2') return sub2api2BaseUrl;
-  if (provider === 'sub2api3') return sub2api3BaseUrl;
   return '';
 }
 
 function setSavedGatewayBase(provider, value) {
   if (provider === 'sub2api') sub2apiBaseUrl = value;
-  else if (provider === 'sub2api2') sub2api2BaseUrl = value;
-  else if (provider === 'sub2api3') sub2api3BaseUrl = value;
 }
 
 function gatewayOrigin(raw) {
@@ -137,6 +118,7 @@ function revokeGatewayOriginIfUnused(origin) {
     'https://api.openai.com/*',
     'https://generativelanguage.googleapis.com/*',
     'https://api.minimax.io/*',
+    'https://api.deepseek.com/*',
     'https://www.youtube.com/*',
   ]);
   if (requiredOrigins.has(origin)) return;
@@ -250,9 +232,9 @@ document.addEventListener('DOMContentLoaded', () => {
   chrome.storage.sync.remove(['notionKey', 'notionPage', 'githubKey']);
 
   const STORAGE_KEYS = [
-    'provider', 'claudeKey', 'openaiKey', 'geminiKey', 'minimaxKey', 'sub2apiKey', 'sub2api2Key', 'sub2api3Key',
-    'claudeModel', 'openaiModel', 'geminiModel', 'minimaxModel', 'sub2apiModel', 'sub2api2Model', 'sub2api3Model',
-    'sub2apiBaseUrl', 'sub2api2BaseUrl', 'sub2api3BaseUrl', 'model',
+    'provider', 'claudeKey', 'openaiKey', 'geminiKey', 'minimaxKey', 'deepseekKey', 'sub2apiKey',
+    'claudeModel', 'openaiModel', 'geminiModel', 'minimaxModel', 'deepseekModel', 'sub2apiModel',
+    'sub2apiBaseUrl', 'model',
     'youtubePanelDefaultCollapsed',
     'generateAllSummary', 'generateAllMindmap', 'generateAllHtml',
     'enableGestures', 'gestureKeepMenu',
@@ -260,34 +242,42 @@ document.addEventListener('DOMContentLoaded', () => {
   ];
 
   // 先加载已拉取的模型列表，再加载设置
-  chrome.storage.local.get(['fetchedModels_claude', 'fetchedModels_openai', 'fetchedModels_gemini', 'fetchedModels_minimax'], (local) => {
+  chrome.storage.local.get(['fetchedModels_claude', 'fetchedModels_openai', 'fetchedModels_gemini', 'fetchedModels_minimax', 'fetchedModels_deepseek'], (local) => {
     if (local.fetchedModels_claude) fetchedModelsCache.claude = local.fetchedModels_claude;
     if (local.fetchedModels_openai) fetchedModelsCache.openai = local.fetchedModels_openai;
     if (local.fetchedModels_gemini) fetchedModelsCache.gemini = local.fetchedModels_gemini;
     if (local.fetchedModels_minimax) fetchedModelsCache.minimax = local.fetchedModels_minimax;
+    if (local.fetchedModels_deepseek) fetchedModelsCache.deepseek = local.fetchedModels_deepseek;
 
     chrome.storage.sync.get(STORAGE_KEYS, (data) => {
       keyCache.claudeKey = data.claudeKey || '';
       keyCache.openaiKey = data.openaiKey || '';
       keyCache.geminiKey = data.geminiKey || '';
       keyCache.minimaxKey = data.minimaxKey || '';
+      keyCache.deepseekKey = data.deepseekKey || '';
       keyCache.sub2apiKey = data.sub2apiKey || '';
-      keyCache.sub2api2Key = data.sub2api2Key || '';
-      keyCache.sub2api3Key = data.sub2api3Key || '';
 
       modelCache.claude = data.claudeModel || '';
       modelCache.openai = data.openaiModel || '';
       modelCache.gemini = data.geminiModel || '';
       modelCache.minimax = data.minimaxModel || '';
+      modelCache.deepseek = data.deepseekModel || '';
       modelCache.sub2api = data.sub2apiModel || '';
-      modelCache.sub2api2 = data.sub2api2Model || '';
-      modelCache.sub2api3 = data.sub2api3Model || '';
       sub2apiBaseUrl = data.sub2apiBaseUrl || '';
-      sub2api2BaseUrl = data.sub2api2BaseUrl || '';
-      sub2api3BaseUrl = data.sub2api3BaseUrl || '';
       $('#sub2apiBaseUrl').value = sub2apiBaseUrl;
-      $('#sub2api2BaseUrl').value = sub2api2BaseUrl;
-      $('#sub2api3BaseUrl').value = sub2api3BaseUrl;
+
+      // 一次性迁移：Sub2API #2/#3 槽位已移除。撤销其曾授权的网关域名权限
+      // （若与 #1 相同则 revokeGatewayOriginIfUnused 会保留），再清掉残留 storage 键。
+      // 必须放在 sub2apiBaseUrl 赋值之后，stillUsed 检查才准确。
+      chrome.storage.sync.get(['sub2api2BaseUrl', 'sub2api3BaseUrl'], (legacy) => {
+        [legacy.sub2api2BaseUrl, legacy.sub2api3BaseUrl].forEach((base) => {
+          if (base) revokeGatewayOriginIfUnused(gatewayOrigin(base));
+        });
+        chrome.storage.sync.remove([
+          'sub2api2Key', 'sub2api2Model', 'sub2api2BaseUrl',
+          'sub2api3Key', 'sub2api3Model', 'sub2api3BaseUrl',
+        ]);
+      });
 
       currentProvider = Object.prototype.hasOwnProperty.call(PROVIDERS, data.provider) ? data.provider : 'claude';
       if (!modelCache[currentProvider] && data.model) {
@@ -330,9 +320,9 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#fetchModelsBtn').addEventListener('click', handleFetchModels);
 
   const SETTING_KEYS = [
-    'provider', 'claudeKey', 'openaiKey', 'geminiKey', 'minimaxKey', 'sub2apiKey', 'sub2api2Key', 'sub2api3Key',
-    'claudeModel', 'openaiModel', 'geminiModel', 'minimaxModel', 'sub2apiModel', 'sub2api2Model', 'sub2api3Model',
-    'sub2apiBaseUrl', 'sub2api2BaseUrl', 'sub2api3BaseUrl', 'model',
+    'provider', 'claudeKey', 'openaiKey', 'geminiKey', 'minimaxKey', 'deepseekKey', 'sub2apiKey',
+    'claudeModel', 'openaiModel', 'geminiModel', 'minimaxModel', 'deepseekModel', 'sub2apiModel',
+    'sub2apiBaseUrl', 'model',
     'youtubePanelDefaultCollapsed',
     'generateAllSummary', 'generateAllMindmap', 'generateAllHtml',
     'enableGestures', 'gestureKeepMenu',
@@ -340,7 +330,7 @@ document.addEventListener('DOMContentLoaded', () => {
     ...ALL_PROMPT_KEYS,
   ];
 
-  const LOCAL_KEYS = ['fetchedModels_claude', 'fetchedModels_openai', 'fetchedModels_gemini', 'fetchedModels_minimax'];
+  const LOCAL_KEYS = ['fetchedModels_claude', 'fetchedModels_openai', 'fetchedModels_gemini', 'fetchedModels_minimax', 'fetchedModels_deepseek'];
 
   $('#exportSettings').addEventListener('click', () => {
     chrome.storage.sync.get(SETTING_KEYS, (syncData) => {
@@ -430,15 +420,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  [
-    ['#authorizeSub2api', 'sub2api'],
-    ['#authorizeSub2api2', 'sub2api2'],
-    ['#authorizeSub2api3', 'sub2api3'],
-  ].forEach(([selector, provider]) => {
-    $(selector).addEventListener('click', () => {
-      requestGatewayPermission(provider, (granted, authorization) => {
-        if (granted) saveAuthorizedGateway(authorization);
-      });
+  $('#authorizeSub2api').addEventListener('click', () => {
+    requestGatewayPermission('sub2api', (granted, authorization) => {
+      if (granted) saveAuthorizedGateway(authorization);
     });
   });
 
@@ -457,6 +441,8 @@ let fetchedModelsCache = {};
 // 旧缓存的拉取列表里可能还留着，渲染前过滤；存量选中值命中时视为未选择，
 // 让 UI 落到推荐默认值（与 background.js sanitizeModel 的回退行为一致）
 const RETIRED_CLAUDE = /^claude-(2[.-]|instant|3-)/;
+// deepseek-chat / deepseek-reasoner 旧模型名已于 2026-07-24 退役（与 background.js 同款过滤）
+const RETIRED_DEEPSEEK = /^deepseek-(chat|reasoner)$/;
 
 function switchProvider(id) {
   if (!Object.prototype.hasOwnProperty.call(PROVIDERS, id)) id = 'claude';
@@ -471,19 +457,31 @@ function switchProvider(id) {
   $('#currentKey').type = 'password';
   $('#helpLink').href = cfg.helpUrl;
 
-  // sub2api 专属 base URL 字段，每个 sub2api 实例独立显示
+  // sub2api 专属 base URL 字段
   $('#sub2apiBaseUrlField').style.display = (id === 'sub2api') ? '' : 'none';
-  $('#sub2api2BaseUrlField').style.display = (id === 'sub2api2') ? '' : 'none';
-  $('#sub2api3BaseUrlField').style.display = (id === 'sub2api3') ? '' : 'none';
 
-  // 优先用拉取过的模型列表，否则用预设；claude 旧缓存里可能有已退役模型，过滤掉
-  let models = fetchedModelsCache[id] || cfg.models;
+  // 预置与拉取列表合并；claude / deepseek 旧缓存里可能有已退役模型，过滤掉
+  let models = mergeModels(cfg.models, fetchedModelsCache[id]);
   let selected = modelCache[id];
   if (id === 'claude') {
     models = models.filter(m => !RETIRED_CLAUDE.test(m.value));
     if (RETIRED_CLAUDE.test(selected)) selected = '';
   }
+  if (id === 'deepseek') {
+    models = models.filter(m => !RETIRED_DEEPSEEK.test(m.value));
+    if (RETIRED_DEEPSEEK.test(selected)) selected = '';
+  }
   populateModelSelect(models, selected);
+}
+
+// 预置模型与「从官网获取」的列表合并，预置在前、按 value 去重。
+// 拉取列表不能直接替换预置：/v1/models 只返回该 key 有权访问的模型真名，既不含别名
+// （gpt-5.6 → gpt-5.6-sol），组织未获得新模型权限时整代新模型也会整批缺席。直接替换会让
+// 推荐模型从下拉里彻底消失，而且拉取结果持久缓存在 storage.local，换 key 后不重新拉取就一直被遮蔽。
+function mergeModels(preset, fetched) {
+  if (!fetched || !fetched.length) return preset;
+  const seen = new Set(preset.map(m => m.value));
+  return preset.concat(fetched.filter(m => !seen.has(m.value)));
 }
 
 function populateModelSelect(models, selected) {
@@ -545,9 +543,9 @@ async function fetchLatestModels() {
     const storageKey = 'fetchedModels_' + currentProvider;
     chrome.storage.local.set({ [storageKey]: models });
 
-    // 更新下拉框
+    // 更新下拉框（同样与预置合并，拉不到的推荐模型不会因此消失）
     const prev = $('#model').value;
-    populateModelSelect(models, prev);
+    populateModelSelect(mergeModels(PROVIDERS[currentProvider].models, models), prev);
 
     showStatus('已获取 ' + models.length + ' 个模型', 'success');
   } catch (err) {
@@ -592,19 +590,15 @@ function saveSettings(isManual, gatewayProvider, gatewayBaseOverride) {
     openaiKey: keyCache.openaiKey,
     geminiKey: keyCache.geminiKey,
     minimaxKey: keyCache.minimaxKey,
+    deepseekKey: keyCache.deepseekKey,
     sub2apiKey: keyCache.sub2apiKey,
-    sub2api2Key: keyCache.sub2api2Key,
-    sub2api3Key: keyCache.sub2api3Key,
     claudeModel: modelCache.claude,
     openaiModel: modelCache.openai,
     geminiModel: modelCache.gemini,
     minimaxModel: modelCache.minimax,
+    deepseekModel: modelCache.deepseek,
     sub2apiModel: modelCache.sub2api,
-    sub2api2Model: modelCache.sub2api2,
-    sub2api3Model: modelCache.sub2api3,
     sub2apiBaseUrl: sub2apiBaseUrl,
-    sub2api2BaseUrl: sub2api2BaseUrl,
-    sub2api3BaseUrl: sub2api3BaseUrl,
     model: $('#model').value,
     youtubePanelDefaultCollapsed: $('#youtubePanelDefaultCollapsed').checked,
     generateAllSummary: $('#generateAllSummary').checked,
@@ -670,6 +664,19 @@ const MODEL_FETCHERS = {
         return { value: id, label: m.displayName || id };
       })
       .sort((a, b) => a.label.localeCompare(b.label));
+    return models;
+  },
+
+  async deepseek(key) {
+    const resp = await fetch('https://api.deepseek.com/models', {
+      headers: { 'Authorization': 'Bearer ' + key },
+    });
+    if (!resp.ok) throw new Error('API 返回 ' + resp.status);
+    const data = await resp.json();
+    const models = (data.data || [])
+      .filter(m => m.id)
+      .map(m => ({ value: m.id, label: m.id }))
+      .sort((a, b) => a.value.localeCompare(b.value));
     return models;
   },
 

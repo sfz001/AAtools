@@ -2,7 +2,7 @@
 
 自用 Chrome 扩展（Manifest V3）— AI 驱动的 **YouTube 视频助手** & **全网划词翻译** & **小红书体验增强** & **鼠标手势**。
 
-原生 HTML/CSS/JS，零依赖，无构建步骤。支持 Claude / OpenAI / Gemini / MiniMax 四家 API。
+原生 HTML/CSS/JS，零依赖，无构建步骤。支持 Claude / OpenAI / Gemini / MiniMax / DeepSeek 五家 API。
 
 ## 安装
 
@@ -30,9 +30,11 @@ git clone https://github.com/sfz001/AAtools.git
 
 | 提供商 | 推荐模型 | 获取 Key |
 |--------|----------|----------|
-| Claude | Sonnet 4.6 | [Anthropic Console](https://console.anthropic.com/settings/keys) |
-| OpenAI | GPT-5 mini | [OpenAI Platform](https://platform.openai.com/api-keys) |
-| Gemini | Gemini 3 Flash | [AI Studio](https://aistudio.google.com/apikey) |
+| Claude | Fable 5 | [Anthropic Console](https://console.anthropic.com/settings/keys) |
+| OpenAI | GPT-5.6 | [OpenAI Platform](https://platform.openai.com/api-keys) |
+| Gemini | Gemini 3.6 Flash | [AI Studio](https://aistudio.google.com/apikey) |
+| MiniMax | MiniMax-M2.5 | [MiniMax Platform](https://platform.minimax.io/user-center/basic-information/interface-key) |
+| DeepSeek | DeepSeek V4 Flash | [DeepSeek Platform](https://platform.deepseek.com/api_keys) |
 
 > 建议同时配置 Gemini Key：当视频无字幕时，扩展会自动调用 Gemini 视频模式转录内容。
 

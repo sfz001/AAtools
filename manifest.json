@@ -9,6 +9,7 @@
     "https://api.openai.com/*",
     "https://generativelanguage.googleapis.com/*",
     "https://api.minimax.io/*",
+    "https://api.deepseek.com/*",
     "https://www.youtube.com/*"
   ],
   "optional_host_permissions": [

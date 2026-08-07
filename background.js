@@ -903,10 +903,10 @@ function safeSend(tabId, msg) {
 }
 
 // ── 从 storage 按 provider 读取对应 API key（不信任 content script 传入的 activeKey）──
-const KEY_FIELD = { claude: 'claudeKey', openai: 'openaiKey', gemini: 'geminiKey', minimax: 'minimaxKey', sub2api: 'sub2apiKey', sub2api2: 'sub2api2Key', sub2api3: 'sub2api3Key' };
-const MODEL_FIELD = { claude: 'claudeModel', openai: 'openaiModel', gemini: 'geminiModel', minimax: 'minimaxModel', sub2api: 'sub2apiModel', sub2api2: 'sub2api2Model', sub2api3: 'sub2api3Model' };
-const SUB2API_BASE_FIELD = { sub2api: 'sub2apiBaseUrl', sub2api2: 'sub2api2BaseUrl', sub2api3: 'sub2api3BaseUrl' };
-function isSub2(provider) { return provider === 'sub2api' || provider === 'sub2api2' || provider === 'sub2api3'; }
+const KEY_FIELD = { claude: 'claudeKey', openai: 'openaiKey', gemini: 'geminiKey', minimax: 'minimaxKey', deepseek: 'deepseekKey', sub2api: 'sub2apiKey' };
+const MODEL_FIELD = { claude: 'claudeModel', openai: 'openaiModel', gemini: 'geminiModel', minimax: 'minimaxModel', deepseek: 'deepseekModel', sub2api: 'sub2apiModel' };
+const SUB2API_BASE_FIELD = { sub2api: 'sub2apiBaseUrl' };
+function isSub2(provider) { return provider === 'sub2api'; }
 function loadProviderConfig(provider) {
   return new Promise((resolve) => {
     const fields = ['provider'];
@@ -1071,12 +1071,15 @@ ${context ? '📌 该词在语境中的含义：一句话解释' : '搭配: 词�
 }
 
 // ── 校验 model 是否属于当前 provider，不匹配则清空让默认值生效 ──
-const MODEL_PREFIX = { claude: 'claude-', openai: 'gpt-', gemini: 'gemini-' };
+const MODEL_PREFIX = { claude: 'claude-', openai: 'gpt-', gemini: 'gemini-', deepseek: 'deepseek-' };
 // Claude 2.x / 3.x 全系列已退役（2026-04 起 API 返回 404），存量配置命中时清空回退默认模型
 const RETIRED_CLAUDE = /^claude-(2[.-]|instant|3-)/;
+// deepseek-chat / deepseek-reasoner 旧模型名已于 2026-07-24 退役，命中时清空回退默认模型
+const RETIRED_DEEPSEEK = /^deepseek-(chat|reasoner)$/;
 function sanitizeModel(provider, model) {
   if (!model) return '';
   if (provider === 'claude' && RETIRED_CLAUDE.test(model)) return '';
+  if (provider === 'deepseek' && RETIRED_DEEPSEEK.test(model)) return '';
   if (!(provider in MODEL_PREFIX)) {
     // 无前缀校验的 provider（如 minimax / sub2api）；sub2api 额外做模型名归一化
     return isSub2(provider) ? normalizeSub2ApiModel(model) : model;
@@ -1313,7 +1316,7 @@ async function _callGeminiTranscribe(key, model, videoUrl, prompt, tabId, videoI
 // ── API 错误分类提示 ─────────────────────────────────────
 function classifyApiError(status, body, provider) {
   const lower = body.toLowerCase();
-  const providerName = { claude: 'Claude', openai: 'OpenAI', gemini: 'Gemini', minimax: 'MiniMax', sub2api: 'Sub2API #1', sub2api2: 'Sub2API #2', sub2api3: 'Sub2API #3' }[provider] || provider;
+  const providerName = { claude: 'Claude', openai: 'OpenAI', gemini: 'Gemini', minimax: 'MiniMax', deepseek: 'DeepSeek', sub2api: 'Sub2API' }[provider] || provider;
 
   // 401 / 403 — 认证失败
   if (status === 401 || status === 403 || lower.includes('invalid_api_key') || lower.includes('invalid api key') || lower.includes('unauthorized') || lower.includes('api_key_invalid')) {
@@ -1366,28 +1369,27 @@ async function callProvider(provider, opts) {
   const model = sanitizeModel(provider, opts.model);
 
   // 计算实际使用的模型 ID
-  const DEFAULT_MODEL = { claude: 'claude-fable-5', openai: 'gpt-5.6', gemini: 'gemini-3.6-flash', minimax: 'MiniMax-M2.5', sub2api: 'claude-fable-5', sub2api2: 'claude-fable-5', sub2api3: 'claude-fable-5' };
+  const DEFAULT_MODEL = { claude: 'claude-fable-5', openai: 'gpt-5.6-sol', gemini: 'gemini-3.6-flash', minimax: 'MiniMax-M2.5', deepseek: 'deepseek-v4-flash', sub2api: 'claude-fable-5' };
   const actualModel = model || DEFAULT_MODEL[provider] || DEFAULT_MODEL.claude;
 
   // 局部 send：自动给所有发往 content script 的消息附 requestId
   const send = (msg) => safeSend(tabId, Object.assign({ requestId }, msg));
 
-  // sub2api / sub2api2 按模型前缀决定走 Anthropic / Gemini / OpenAI 格式；后续 SSE 解析也按此区分
+  // sub2api 按模型前缀决定走 Anthropic / Gemini / OpenAI 格式；后续 SSE 解析也按此区分
   const sub2apiFmt = isSub2(provider) ? sub2apiFormatOf(actualModel) : null;
 
   // 自定义网关必须通过 URL 安全校验，并持有用户对该精确 origin 的可选权限。
   let sub2Gateway = null;
   if (isSub2(provider)) {
-    const which = provider === 'sub2api3' ? '#3' : (provider === 'sub2api2' ? '#2' : '#1');
     sub2Gateway = validateSub2ApiBase(baseUrl);
     if (sub2Gateway.error) {
-      send({ type: `${PREFIX}_ERROR`, error: sub2Gateway.error.replace('Sub2API', `Sub2API ${which}`) });
+      send({ type: `${PREFIX}_ERROR`, error: sub2Gateway.error });
       return;
     }
     if (!(await hasGatewayPermission(sub2Gateway.permissionOrigin))) {
       send({
         type: `${PREFIX}_ERROR`,
-        error: `尚未授权 Sub2API ${which} 网关域名，请在扩展设置中点击“授权域名”`,
+        error: '尚未授权 Sub2API 网关域名，请在扩展设置中点击“授权域名”',
       });
       return;
     }
@@ -1413,25 +1415,37 @@ async function callProvider(provider, opts) {
     let response;
     requestContext.startAttempt(PROVIDER_TIMEOUTS);
 
-    if (provider === 'openai' || provider === 'minimax') {
+    if (provider === 'openai' || provider === 'minimax' || provider === 'deepseek') {
       const apiMessages = systemPrompt
         ? [{ role: 'system', content: systemPrompt }, ...messages]
         : messages;
-      const endpoint = provider === 'minimax'
-        ? 'https://api.minimax.io/v1/text/chatcompletion_v2'
-        : 'https://api.openai.com/v1/chat/completions';
+      const endpoint = {
+        minimax: 'https://api.minimax.io/v1/text/chatcompletion_v2',
+        deepseek: 'https://api.deepseek.com/chat/completions',
+        openai: 'https://api.openai.com/v1/chat/completions',
+      }[provider];
+      const body = {
+        model: actualModel,
+        messages: apiMessages,
+        stream: true,
+      };
+      // DeepSeek 只认 max_tokens；OpenAI 新模型已废弃 max_tokens 改用 max_completion_tokens
+      if (provider === 'deepseek') {
+        body.max_tokens = maxTokens;
+        // V4 模型（v4-flash/v4-pro）默认开启 thinking（effort=high），思考 token 计费且计入
+        // max_tokens 预算，对流式摘要/翻译徒增延迟与费用，且本扩展会丢弃 reasoning_content
+        // → 显式关闭（与 buildClaudeBody 对 claude-sonnet-5 的处理同一思路）
+        body.thinking = { type: 'disabled' };
+      } else {
+        body.max_completion_tokens = maxTokens;
+      }
       response = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${key}`,
         },
-        body: JSON.stringify({
-          model: actualModel,
-          messages: apiMessages,
-          max_completion_tokens: maxTokens,
-          stream: true,
-        }),
+        body: JSON.stringify(body),
         signal: requestContext.signal,
       });
     } else if (provider === 'gemini') {
@@ -1452,7 +1466,7 @@ async function callProvider(provider, opts) {
         }
       );
     } else if (isSub2(provider)) {
-      // sub2api / sub2api2 中转：按模型前缀分别走 Anthropic / Gemini / OpenAI 格式
+      // sub2api 中转：按模型前缀分别走 Anthropic / Gemini / OpenAI 格式
       const trimmedBase = sub2Gateway.baseUrl;
       if (sub2apiFmt === 'gemini') {
         const contents = messages.map(m => ({
@@ -1723,7 +1737,8 @@ function analyzeStreamPayload(provider, parsed, eventName) {
     return result;
   }
 
-  if (provider === 'openai' || provider === 'minimax') {
+  if (provider === 'openai' || provider === 'minimax' || provider === 'deepseek') {
+    // deepseek thinking 模式的 delta.reasoning_content（思考过程）不取，只取正文 content
     const choice = parsed?.choices?.[0];
     result.text = streamContentText(choice?.delta?.content);
     const finish = choice?.finish_reason;

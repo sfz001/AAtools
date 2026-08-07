@@ -216,6 +216,27 @@ test('provider payload analysis distinguishes text, errors, and abnormal finishe
   assert.match(context.analyzeStreamPayload('minimax', {
     base_resp: { status_code: 1001, status_msg: 'denied' },
   }, 'message').error, /denied/);
+  assert.equal(context.analyzeStreamPayload('deepseek', {
+    choices: [{ delta: { content: '你好' }, finish_reason: null }],
+  }, 'message').text, '你好');
+  // deepseek thinking 模式思考阶段只有 reasoning_content，不应产出正文
+  assert.equal(context.analyzeStreamPayload('deepseek', {
+    choices: [{ delta: { reasoning_content: 'thinking...', content: null }, finish_reason: null }],
+  }, 'message').text, '');
+  assert.equal(context.analyzeStreamPayload('deepseek', {
+    choices: [{ delta: {}, finish_reason: 'stop' }],
+  }, 'message').terminal, true);
+});
+
+test('sanitizeModel rejects retired model names and wrong-provider prefixes', () => {
+  const { context } = loadBackground();
+
+  // deepseek 旧模型名（2026-07-24 退役）清空回退默认模型
+  assert.equal(context.sanitizeModel('deepseek', 'deepseek-chat'), '');
+  assert.equal(context.sanitizeModel('deepseek', 'deepseek-reasoner'), '');
+  assert.equal(context.sanitizeModel('deepseek', 'deepseek-v4-flash'), 'deepseek-v4-flash');
+  assert.equal(context.sanitizeModel('deepseek', 'gpt-5.6'), '');
+  assert.equal(context.sanitizeModel('claude', 'claude-3-5-sonnet-20241022'), '');
 });
 
 test('stream consumer requires meaningful text and a normal terminal event', async () => {

@@ -11,7 +11,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 3. **小红书体验增强** — 帖子弹窗滚动修复
 4. **鼠标手势** — 右键拖拽：后退/前进/关闭标签页/恢复关闭页
 
-支持 Claude / OpenAI / Gemini / MiniMax / Sub2API #1 / Sub2API #2 / Sub2API #3（三个独立的中转网关槽位）七个 API 提供商，无字幕视频可通过 Gemini 视频模式分析。
+支持 Claude / OpenAI / Gemini / MiniMax / DeepSeek / Sub2API（自定义中转网关）六个 API 提供商，无字幕视频可通过 Gemini 视频模式分析。
 
 **技术栈**: 原生 HTML/CSS/JS，零依赖，无构建步骤。
 
@@ -142,12 +142,12 @@ YTX.features.KEY = {
 
 ### `callProvider()` — API 调用核心
 
-`background.js` 中统一处理五家 API 的流式调用：
+`background.js` 中统一处理六家 API 的流式调用：
 
 - **Key 自读**: `loadProviderConfig(provider)` 从 `chrome.storage.sync` 按 provider 字段名读取 key + model；sub2api 还会额外读 `sub2apiBaseUrl`。content script（YouTube 模块 + translate）**完全不读取 `*Key` 字段**，缺 key 时由 background 在响应里回 `{PREFIX}_ERROR`
-- **模型验证**: `sanitizeModel(provider, model)` 检查模型前缀（`claude-`/`gpt-`/`gemini-`），不匹配则静默回退到默认模型；claude 额外用 `RETIRED_CLAUDE` 正则拦截已退役的 Claude 2.x / 3.x / instant 系列（存量配置命中时清空回退默认模型，避免 404）；minimax / sub2api / sub2api2 / sub2api3 跳过严格校验（sub2api 系列同时支持 `claude-*` / `gemini-*` / `gpt-*`）；sub2api 系列额外经 `normalizeSub2ApiModel()` 归一化——补全手填模型名漏写的前缀连字符（`gpt5.6`/`GPT_5.6` → `gpt-5.6`），否则前缀路由会误走 `/v1/messages` 且网关按名字找不到模型
+- **模型验证**: `sanitizeModel(provider, model)` 检查模型前缀（`claude-`/`gpt-`/`gemini-`/`deepseek-`），不匹配则静默回退到默认模型；claude 额外用 `RETIRED_CLAUDE` 正则拦截已退役的 Claude 2.x / 3.x / instant 系列（存量配置命中时清空回退默认模型，避免 404）；minimax / sub2api 跳过严格校验（sub2api 同时支持 `claude-*` / `gemini-*` / `gpt-*`）；sub2api 额外经 `normalizeSub2ApiModel()` 归一化——补全手填模型名漏写的前缀连字符（`gpt5.6`/`GPT_5.6` → `gpt-5.6`），否则前缀路由会误走 `/v1/messages` 且网关按名字找不到模型
 - **Claude 请求体组装**: `buildClaudeBody(model, maxTokens, messages, systemPrompt)` 为 Claude direct 与 sub2api claude 格式共用。处理新模型 thinking 默认值差异：`claude-sonnet-5*` 不传 thinking 时默认开 adaptive thinking（思考 token 计入 max_tokens）→ 显式传 `thinking: {type:'disabled'}`；`claude-fable-5` / `claude-mythos-5` thinking 恒开且显式 disabled 会 400 → 不传 thinking 并把 max_tokens 放大到至少 16000 给思考留余量
-- **Sub2API 三槽位**: provider 为 `sub2api`（第一组）/ `sub2api2`（第二组）/ `sub2api3`（第三组），三套配置完全独立（key/model/baseUrl 都各存一份），路由逻辑共用。`isSub2(provider)` 辅助函数判断是否为 sub2api 系列；`SUB2API_BASE_FIELD` 映射表把 provider 映射到对应的 baseUrl 字段名。常见用法：每个槽位绑一个网关分组（比如 #1 走 Claude、#2 走 OpenAI、#3 走 Gemini）
+- **Sub2API 单槽位**: provider 为 `sub2api`，配置为 key/model/baseUrl 三个字段。`isSub2(provider)` 辅助函数判断（历史上曾有 sub2api2/sub2api3 三槽位，2026-08 移除，options.js 启动时一次性迁移清理残留 storage 键并撤销多余网关域名权限）
 - **baseUrl 归一化**: `normalizeSub2ApiBase()` 自动剥离用户从 codex/opencode 配置直接复制的常见路径后缀（`/v1beta` / `/v1/messages` / `/v1/chat/completions` / `/v1/responses`），避免与代码自拼路径产生 `/v1beta/v1beta/...` 这类双前缀
 - **Sub2API 路由**: `isSub2(provider)` 时按 `sub2apiFormatOf(model)` 决定走哪种格式：
   - `claude-*` → POST `{baseUrl}/v1/messages`，body 与 Anthropic 完全一致；同时附 `x-api-key` + `Authorization: Bearer` 头部以兼容不同网关
@@ -155,10 +155,10 @@ YTX.features.KEY = {
   - `gpt-*` → POST `{baseUrl}/v1/responses`（**Responses API**，对应 codex `wire_api = "responses"`）。请求体贴近 codex CLI：`{model, input(typed), instructions, stream:true, store:false, reasoning:{effort:"minimal"}, tools:[], parallel_tool_calls:false, tool_choice:"auto"}`，user 消息用 `input_text`，assistant 用 `output_text`；不发 `max_output_tokens`（codex 不发，部分网关会因此拒）
   - SSE 解析按 `parseAs = sub2apiFormatOf(model)`：claude/gemini 直接对应；sub2api+openai 走 `'openai-responses'` 分支（解析 `type === 'response.output_text.delta'` 的 `delta` 字段，`response.completed`/`response.done` 结束，`error`/`response.failed` 也标记 done 避免挂死）
   - baseUrl 缺失时 `callProvider` 直接回 `{PREFIX}_ERROR`，不会发出请求
-  - baseUrl 缺失时 `callProvider` 直接回 `{PREFIX}_ERROR`，不会发出请求
+- **DeepSeek**: OpenAI 兼容的 Chat Completions，POST `https://api.deepseek.com/chat/completions`，与 openai/minimax 共用同一代码分支；请求体用 `max_tokens`（DeepSeek 不认 `max_completion_tokens`），并显式传 `thinking: {type:'disabled'}` —— V4 模型（`deepseek-v4-flash`/`deepseek-v4-pro`，默认 v4-flash）默认开启 thinking（effort=high），思考 token 计费且计入 max_tokens 预算，对流式摘要/翻译徒增延迟费用且扩展会丢弃思考内容；SSE 解析同 OpenAI 分支，thinking 模式的 `delta.reasoning_content` 不取，只取正文 `delta.content`。旧模型名 `deepseek-chat`/`deepseek-reasoner` 已于 2026-07-24 退役，`RETIRED_DEEPSEEK` 正则在 background sanitizeModel 与 options.js 两侧同款拦截（存量配置命中时清空回退默认模型）
 - **SSE 解析**: 统一由 `readSSEStream()` 处理，按 provider 提取文本：
   - Claude: `content_block_delta` → `delta.text`，`message_stop` 结束
-  - OpenAI: `choices[0].delta.content`，`[DONE]` 行结束
+  - OpenAI / MiniMax / DeepSeek: `choices[0].delta.content`，`[DONE]` 行结束
   - Gemini: `candidates[0].content.parts[0].text`，流结束即完成
 - **请求 ID 透传**: `callProvider` + `readSSEStream` 内定义局部 `send(msg) = safeSend(tabId, {requestId, ...msg})`，所有发往 content script 的消息自动带上 requestId
 - **防重复**: `doneSent` 标志防止重复发送 `{PREFIX}_DONE`
@@ -286,10 +286,10 @@ YouTube SPA 切视频时旧异步操作会污染新视频结果。用四层防�
 ### 存储结构
 
 **`chrome.storage.sync`**（跨设备同步）：
-- `provider` — `'claude'` | `'openai'` | `'gemini'` | `'minimax'` | `'sub2api'` | `'sub2api2'` | `'sub2api3'`
-- `claudeKey`, `openaiKey`, `geminiKey`, `minimaxKey`, `sub2apiKey`, `sub2api2Key`, `sub2api3Key` — 各 provider 的 API Key
-- `claudeModel`, `openaiModel`, `geminiModel`, `minimaxModel`, `sub2apiModel`, `sub2api2Model`, `sub2api3Model` — 各 provider 的模型 ID
-- `sub2apiBaseUrl`, `sub2api2BaseUrl`, `sub2api3BaseUrl` — 三个 Sub2API 槽位各自的中转网关地址（不含路径后缀，由 `normalizeSub2ApiBase()` 自动剥离）
+- `provider` — `'claude'` | `'openai'` | `'gemini'` | `'minimax'` | `'deepseek'` | `'sub2api'`
+- `claudeKey`, `openaiKey`, `geminiKey`, `minimaxKey`, `deepseekKey`, `sub2apiKey` — 各 provider 的 API Key
+- `claudeModel`, `openaiModel`, `geminiModel`, `minimaxModel`, `deepseekModel`, `sub2apiModel` — 各 provider 的模型 ID
+- `sub2apiBaseUrl` — Sub2API 中转网关地址（不含路径后缀，由 `normalizeSub2ApiBase()` 自动剥离）
 - `prompt`, `promptHtml`, `promptMindmap` — 自定义 prompt（注意 summary 的 key 是 `prompt` 而非 `promptSummary`，向后兼容；设置页 UI 已移除编辑入口，但 storage 已写入的值仍生效）
 - `promptTranslateDict`, `promptTranslateSentence` — 翻译自定义 prompt（同上，UI 已移除）
 - `generateAllSummary`, `generateAllMindmap`, `generateAllHtml` — 「全部生成」是否包含对应功能（boolean，默认 true，`!== false` 判断）
@@ -299,7 +299,7 @@ YouTube SPA 切视频时旧异步操作会污染新视频结果。用四层防�
 - `mindmapAlignTop` — 导图对齐偏好
 
 **`chrome.storage.local`**（仅本地）：
-- `fetchedModels_claude`, `fetchedModels_openai`, `fetchedModels_gemini` — API 拉取的模型列表缓存
+- `fetchedModels_claude`, `fetchedModels_openai`, `fetchedModels_gemini`, `fetchedModels_deepseek` — API 拉取的模型列表缓存
 
 **IndexedDB**（`AAtoolsCache` → `results` store）：
 - key 为 `videoId`，`cache.save(videoId, featureKey, data)` 合并写入
@@ -313,4 +313,4 @@ YouTube SPA 切视频时旧异步操作会污染新视频结果。用四层防�
 - 时间戳点击：面板级事件委托，匹配 `.ytx-timestamp, .ytx-ts`，设 `video.currentTime` 并 `play()`
 - 所有 AI 输出默认要求简体中文
 - options.js 设置页：所有输入 1.5s 防抖自动保存，import 需验证 `_meta.version` 为 `'AATube'` 或 `'AAtools'`
-- options.js 模型下拉框：已存模型不在当前列表时会补一个「（当前已保存）」选项显示真实值——否则 UI 误显示第一项、随后任意 autoSave 会把存量配置静默改写。claude 的已退役模型（`RETIRED_CLAUDE` 正则，与 background.js 同款）在两层过滤：拉取缓存列表过滤 + 选中值命中时视为未选择（落回推荐默认，autoSave 顺势完成存储迁移）
+- options.js 模型下拉框：已存模型不在当前列表时会补一个「（当前已保存）」选项显示真实值——否则 UI 误显示第一项、随后任意 autoSave 会把存量配置静默改写。claude / deepseek 的已退役模型（`RETIRED_CLAUDE` / `RETIRED_DEEPSEEK` 正则，与 background.js 同款）在两层过滤：拉取缓存列表过滤 + 选中值命中时视为未选择（落回推荐默认，autoSave 顺势完成存储迁移）

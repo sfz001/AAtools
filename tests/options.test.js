@@ -122,15 +122,13 @@ test('a gateway changed while the permission prompt is open cannot be committed 
   assert.equal(sameOrigin.savedSettings[0].sub2apiBaseUrl, 'https://first.example/other-api');
 });
 
-test('unused historical gateway permissions are revoked but shared and required origins are retained', () => {
+test('unused historical gateway permissions are revoked but in-use and required origins are retained', () => {
   const loaded = loadOptions();
   loaded.context.setSavedGatewayBase('sub2api', 'https://shared.example');
-  loaded.context.setSavedGatewayBase('sub2api2', 'https://shared.example');
   loaded.context.revokeGatewayOriginIfUnused('https://shared.example/*');
   assert.equal(loaded.permissionRemovals.length, 0);
 
   loaded.context.setSavedGatewayBase('sub2api', '');
-  loaded.context.setSavedGatewayBase('sub2api2', '');
   loaded.context.revokeGatewayOriginIfUnused('https://shared.example/*');
   assert.deepEqual(JSON.parse(JSON.stringify(loaded.permissionRemovals)), [{ origins: ['https://shared.example/*'] }]);
 
