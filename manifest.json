@@ -5,6 +5,8 @@
   "description": "AI 驱动的 YouTube 视频总结/笔记/思维导图 + 全网划词翻译 + 小红书体验增强",
   "permissions": ["storage", "activeTab", "scripting", "sessions"],
   "host_permissions": [
+    "https://*/*",
+    "http://*/*",
     "https://api.anthropic.com/*",
     "https://api.openai.com/*",
     "https://generativelanguage.googleapis.com/*",
@@ -12,11 +14,6 @@
     "https://api.deepseek.com/*",
     "https://api.moonshot.cn/*",
     "https://www.youtube.com/*"
-  ],
-  "optional_host_permissions": [
-    "https://*/*",
-    "http://localhost/*",
-    "http://127.0.0.1/*"
   ],
   "background": {
     "service_worker": "background.js"

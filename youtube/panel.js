@@ -16,6 +16,25 @@
   var collapsePanelIcon = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/><path d="m10 9 3 3-3 3"/></svg>';
   var expandPanelIcon = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/><path d="m13 15-3-3 3-3"/></svg>';
 
+  // ── 代际接管：扩展重载后 background 会重注入 youtube/*.js 整组 ──
+  // panel.js 是组内最后加载的文件，执行到这里说明新一代已完整就绪。
+  // 广播接管事件（DOM 事件跨 isolated world 传播），旧实例收到后自我卸载：
+  // 摘掉导航监听、清字幕/转写在途状态、重置功能模块、移除面板与分栏条。
+  var destroyed = false;
+  var GEN_EVENT = 'aatools-takeover-ytx';
+  try { document.dispatchEvent(new Event(GEN_EVENT)); } catch (_) {}
+  document.addEventListener(GEN_EVENT, function () {
+    destroyed = true;
+    document.removeEventListener('yt-navigate-finish', onNavigate);
+    try { resetTranscriptState(); } catch (_) {}
+    YTX.featureOrder.forEach(function (key) {
+      var f = YTX.features[key];
+      if (f && f.reset) { try { f.reset(); } catch (_) {} }
+    });
+    removePanel();
+    removeResizer();
+  });
+
   // ── 入口 ──────────────────────────────────────────────
 
   function init() {
@@ -148,6 +167,7 @@
   // ── 等待右侧栏加载 ────────────────────────────────────
 
   function waitForContainer(callback, retries) {
+    if (destroyed) return;
     retries = retries !== undefined ? retries : 30;
     var container = document.querySelector('#secondary, #secondary-inner');
     if (container) { callback(); }
@@ -157,6 +177,7 @@
   // ── 面板注入 ─────────────────────────────────────────
 
   function injectPanel() {
+    if (destroyed) return;
     removePanel();
     var panel = document.createElement('div');
     panel.id = 'ytx-panel';
@@ -328,6 +349,10 @@
 
   function removePanel() {
     if (YTX.panel) { YTX.panel.remove(); YTX.panel = null; }
+    // 兜底按 id 清理：重注入与 manifest 注入撞进同一 isolated world 时，
+    // 全局 YTX 已被新实例覆盖，旧面板只能靠 DOM id 找到并移除
+    var stray = document.getElementById('ytx-panel');
+    if (stray) stray.remove();
   }
 
   function setPanelCollapsed(collapsed) {
@@ -805,6 +830,7 @@
   // ── 消息路由 ─────────────────────────────────────────
 
   chrome.runtime.onMessage.addListener(function (message) {
+    if (destroyed) return;
     if (!YTX.panel) return;
 
     // 模型信息（调试用，显示在面板底部）

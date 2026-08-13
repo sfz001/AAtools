@@ -11,7 +11,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 3. **小红书体验增强** — 帖子弹窗滚动修复
 4. **鼠标手势** — 右键拖拽：后退/前进/关闭标签页/恢复关闭页
 
-支持 Claude / OpenAI / Gemini / MiniMax / DeepSeek / Kimi / Sub2API（自定义中转网关）七个 API 提供商，无字幕视频可通过 Gemini 视频模式分析。
+支持 Claude / OpenAI / ChatGPT 订阅（Codex OAuth）/ Gemini / MiniMax / DeepSeek / Kimi / Sub2API（自定义中转网关）八个提供商，无字幕视频可通过 Gemini 视频模式分析。
 
 **技术栈**: 原生 HTML/CSS/JS，零依赖，无构建步骤。
 
@@ -48,7 +48,7 @@ AAtools/
 没有构建、lint 或测试命令。开发流程：
 
 1. `chrome://extensions/` → 开启开发者模式 → 加载已解压的扩展程序（选择项目根目录）
-2. 修改代码后在扩展页点击刷新图标，然后刷新 YouTube 页面
+2. 修改代码后在扩展页点击刷新图标即可——**无需刷新已打开的页面**：`onInstalled` 时 background 会把 content scripts 重注入到所有已打开的匹配标签页（见"扩展重载免刷新"）
 3. 修改 `background.js` 后需要在扩展页重新加载 Service Worker
 
 ## Architecture
@@ -142,7 +142,7 @@ YTX.features.KEY = {
 
 ### `callProvider()` — API 调用核心
 
-`background.js` 中统一处理七家 API 的流式调用：
+`background.js` 中统一处理八家 API 的流式调用：
 
 - **Key 自读**: `loadProviderConfig(provider)` 从 `chrome.storage.sync` 按 provider 字段名读取 key + model；sub2api 还会额外读 `sub2apiBaseUrl`。content script（YouTube 模块 + translate）**完全不读取 `*Key` 字段**，缺 key 时由 background 在响应里回 `{PREFIX}_ERROR`
 - **模型验证**: `sanitizeModel(provider, model)` 检查模型前缀（`claude-`/`gpt-`/`gemini-`/`deepseek-`/kimi 的 `kimi-`+`moonshot-`），`MODEL_PREFIX` 的值可以是字符串或字符串数组（kimi 两条模型线），不匹配则静默回退到默认模型；claude 额外用 `RETIRED_CLAUDE` 正则拦截已退役的 Claude 2.x / 3.x / instant 系列（存量配置命中时清空回退默认模型，避免 404）；minimax / sub2api 跳过严格校验（sub2api 同时支持 `claude-*` / `gemini-*` / `gpt-*`）；sub2api 额外经 `normalizeSub2ApiModel()` 归一化——补全手填模型名漏写的前缀连字符（`gpt5.6`/`GPT_5.6` → `gpt-5.6`），否则前缀路由会误走 `/v1/messages` 且网关按名字找不到模型
@@ -155,6 +155,7 @@ YTX.features.KEY = {
   - `gpt-*` → POST `{baseUrl}/v1/responses`（**Responses API**，对应 codex `wire_api = "responses"`）。请求体贴近 codex CLI：`{model, input(typed), instructions, stream:true, store:false, reasoning:{effort:"minimal"}, tools:[], parallel_tool_calls:false, tool_choice:"auto"}`，user 消息用 `input_text`，assistant 用 `output_text`；不发 `max_output_tokens`（codex 不发，部分网关会因此拒）
   - SSE 解析按 `parseAs = sub2apiFormatOf(model)`：claude/gemini 直接对应；sub2api+openai 走 `'openai-responses'` 分支（解析 `type === 'response.output_text.delta'` 的 `delta` 字段，`response.completed`/`response.done` 结束，`error`/`response.failed` 也标记 done 避免挂死）
   - baseUrl 缺失时 `callProvider` 直接回 `{PREFIX}_ERROR`，不会发出请求
+- **ChatGPT 订阅（provider `chatgpt`）**: 不走付费 API，复用 codex CLI 的 OAuth 凭据消耗 ChatGPT 订阅额度。用户在设置页粘贴 `~/.codex/auth.json` 全文（需先 `codex login`），options.js 解析出 `access_token/refresh_token/id_token/account_id` 存入 **`chrome.storage.local.chatgptAuth`**（体积大且不宜跨设备同步，故不放 sync，也不随导入/导出走），粘贴框保存后即清空。请求 POST `https://chatgpt.com/backend-api/codex/responses`（Responses API，请求体与 sub2api 的 gpt 分支共用 `buildResponsesApiBody()`），头部带 `Authorization: Bearer` + `chatgpt-account-id` + `OpenAI-Beta: responses=experimental` + `originator: codex_cli_rs` + `session_id`；SSE 走 `'openai-responses'` 解析分支。`ensureChatgptAccessToken()` 在 access token 剩余有效期 <5 分钟时自动 POST `https://auth.openai.com/oauth/token`（codex 的 client_id `app_EMoamEEZ73f0CkXaXp7hrann`，grant_type=refresh_token）刷新并回写 storage.local；刷新失败/凭据缺失以 `{PREFIX}_ERROR` 中文提示（引导重新 `codex login` + 重新粘贴）。`loadProviderConfig('chatgpt')` 以 local 里是否存在凭据充当"已配置"标记（`key: 'chatgpt-oauth'`），模型仍从 sync 读 `chatgptModel`（默认 `gpt-5.6-sol`，前缀校验 `gpt-`）。classifyApiError 对 chatgpt 的 401/403、429 有专门文案（订阅授权失效 / 订阅额度用尽）
 - **DeepSeek**: OpenAI 兼容的 Chat Completions，POST `https://api.deepseek.com/chat/completions`，与 openai/minimax 共用同一代码分支；请求体用 `max_tokens`（DeepSeek 不认 `max_completion_tokens`），并显式传 `thinking: {type:'disabled'}` —— V4 模型（`deepseek-v4-flash`/`deepseek-v4-pro`，默认 v4-flash）默认开启 thinking（effort=high），思考 token 计费且计入 max_tokens 预算，对流式摘要/翻译徒增延迟费用且扩展会丢弃思考内容；SSE 解析同 OpenAI 分支，thinking 模式的 `delta.reasoning_content` 不取，只取正文 `delta.content`。旧模型名 `deepseek-chat`/`deepseek-reasoner` 已于 2026-07-24 退役，`RETIRED_DEEPSEEK` 正则在 background sanitizeModel 与 options.js 两侧同款拦截（存量配置命中时清空回退默认模型）
 - **Kimi**: OpenAI 兼容 Chat Completions，POST `https://api.moonshot.cn/v1/chat/completions`，与 openai/minimax/deepseek 共用同一代码分支；用 `max_completion_tokens`（Kimi 已废弃 `max_tokens`，与 DeepSeek 相反）。思考按模型分档处理，目的同样是只保留正文：`kimi-k3` 思考恒开不可关但默认 `reasoning_effort: 'max'` → 压到 `'low'`；`kimi-k2.5`/`k2.6` 传 `thinking: {type:'disabled'}`；`kimi-k2.7-code` 恒开且无 effort 档位 → 不传任何思考参数（传了会被拒）。**思考关不掉的两条线（k3 / k2.7-code）额外把 `max_completion_tokens` 抬到至少 16000** —— reasoning_content 与正文共用同一份预算（官方明确 `max_tokens` 与 `max_completion_tokens` 含义相同、建议 ≥16000），沿用调用方的 2048/4096/8096 会被思考吃光导致正文截断或为空，与 `buildClaudeBody` 对 claude-fable/mythos 的处理是同一问题同一解法。SSE 解析同 OpenAI 分支，`reasoning_content` 不取。注：`max_completion_tokens` 是接口级参数，对 legacy `moonshot-v1-*` 同样有效（`max_tokens` 已被官方整体标记 deprecated，不是新模型线专属）
 - **SSE 解析**: 统一由 `readSSEStream()` 处理，按 provider 提取文本：
@@ -176,6 +177,16 @@ YTX.features.KEY = {
 3. **AI 输出 time 字段防注入** — mindmap 的 `time` 字段直接拼到 `innerHTML`/SVG，渲染前必须经 `YTX.safeTime(str)` 校验（仅允许 `H:MM:SS`/`MM:SS`/`M:SS`），不合法 → 返回 null → 不渲染时间戳。防止恶意/被劫持的 LLM 返回带 `<script>` 或事件处理器的 time 字符串导致 DOM 注入
 4. **HTML 笔记导出清洗 + 严格 CSP** — `YTX.Export.sanitizeHtml(html)` 用 DOMParser 删除所有可执行/外部加载元素：`<script>`、`<iframe>`、`<frame>`、`<object>`、`<embed>`、`<applet>`、`<link rel=stylesheet|preload|prefetch|...>`、`<link as=...>`、`<base>`；剥离所有 `on*` 事件属性、`javascript:`/`data:`/`vbscript:` 链接（仅放行 `data:image/`）。再注入严格 CSP：`default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src 'none'; connect-src 'none'; frame-src 'none'; media-src 'none'; object-src 'none'; script-src 'none'; base-uri 'none'; form-action 'none';`。openInNewTab、downloadHtml、面板内 iframe.srcdoc 全部走它，导出文件离线打开后**不会向任何外部域发请求**
 5. **请求隔离（videoId + requestId 双层）** — 见下方"请求隔离"。translate 也加了本地 `currentRequestId`，关弹窗后立刻发起下一次翻译时旧 chunk 不会污染新弹窗
+
+### 扩展重载免刷新（重注入 + 代际接管）
+
+扩展 reload/更新后，已打开页面里的旧 content script 变成孤儿（`chrome.runtime` 失效，表现为"扩展已更新，请刷新页面后重试"）。两段机制让用户无需刷新页面：
+
+- **background 重注入**：`chrome.runtime.onInstalled` → `reinjectContentScripts()` 读 `chrome.runtime.getManifest().content_scripts`，对所有已打开的匹配标签页按组 `insertCSS` + `executeScript`（组内文件顺序与 manifest 一致，panel.js 仍最后执行）。**权限前提**：`chrome.scripting.executeScript` 和 `tabs.query` 的 url 可见性都只认 `host_permissions`（content script 的 `matches` 不算数），所以 manifest 把 `https://*/*` + `http://*/*` 列为必需 host 权限——安装警告不变（`<all_urls>` content script 本就触发"读取所有网站数据"），副作用是 Sub2API 的 `optional_host_permissions` 域名授权流程被通配权限覆盖（`permissions.request` 直接返回已授权、`permissions.remove` 对必需权限静默失败，options.js 两处均已容错，manifest 已删除 `optional_host_permissions`）。受限页（chrome://、商店、PDF viewer 等）注入失败被 try/catch 忽略（这些页面 manifest 注入本来也不生效，无回归）
+- **代际接管（takeover 事件）**：4 个入口脚本（translate.js、gestures.js、xhs-scroll-fix.js、panel.js 代表 youtube 整组）顶部各有一段：先 `document.dispatchEvent(new Event('aatools-takeover-<name>'))` 广播，再注册同名监听。DOM 事件跨 isolated world 传播 → 旧实例收到后置 `destroyed = true` 并自我卸载（移除 UI/observer；youtube 组额外摘掉 `yt-navigate-finish`、`resetTranscriptState()`、重置 features、`removePanel()`/`removeResizer()`）。**dispatch 在 addEventListener 之前**，新实例不会杀死自己
+- **destroyed 守卫**：旧实例无法逐个摘除全部 DOM 监听，改为在各事件入口首行 `if (destroyed) return;` 短路（translate 的 mouseup/mousedown/keydown/iframe mouseup/onMessage、gestures 的 mousedown/contextmenu、xhs 的 wheel、panel 的 onMessage/waitForContainer/injectPanel）。`chrome.runtime.onMessage` 也要守卫——重注入与 manifest 注入撞进**同一** isolated world 时（如 reload 瞬间正在加载的 tab），旧副本的 chrome 监听仍然存活
+- **同 world 撞车兜底**：同 world 双注入时全局 `YTX` 被新实例覆盖，旧面板无法经 `YTX.panel` 找到 → `removePanel()` 额外按 `document.getElementById('ytx-panel')` 兜底移除。translate/gestures 的 UI 引用是闭包变量，不受影响
+- **安全性**：恶意页面可伪造 takeover 事件，但效果仅是让该页上的扩展 UI 失效（页面本可用 CSS/事件拦截达到同样效果），无任何权限收益
 
 ### 请求隔离
 
@@ -287,9 +298,9 @@ YouTube SPA 切视频时旧异步操作会污染新视频结果。用四层防�
 ### 存储结构
 
 **`chrome.storage.sync`**（跨设备同步）：
-- `provider` — `'claude'` | `'openai'` | `'gemini'` | `'minimax'` | `'deepseek'` | `'kimi'` | `'sub2api'`
-- `claudeKey`, `openaiKey`, `geminiKey`, `minimaxKey`, `deepseekKey`, `kimiKey`, `sub2apiKey` — 各 provider 的 API Key
-- `claudeModel`, `openaiModel`, `geminiModel`, `minimaxModel`, `deepseekModel`, `kimiModel`, `sub2apiModel` — 各 provider 的模型 ID
+- `provider` — `'claude'` | `'openai'` | `'chatgpt'` | `'gemini'` | `'minimax'` | `'deepseek'` | `'kimi'` | `'sub2api'`
+- `claudeKey`, `openaiKey`, `geminiKey`, `minimaxKey`, `deepseekKey`, `kimiKey`, `sub2apiKey` — 各 provider 的 API Key（chatgpt 无 key，OAuth 凭据在 local）
+- `claudeModel`, `openaiModel`, `geminiModel`, `minimaxModel`, `deepseekModel`, `kimiModel`, `sub2apiModel`, `chatgptModel` — 各 provider 的模型 ID
 - `sub2apiBaseUrl` — Sub2API 中转网关地址（不含路径后缀，由 `normalizeSub2ApiBase()` 自动剥离）
 - `prompt`, `promptHtml`, `promptMindmap` — 自定义 prompt（注意 summary 的 key 是 `prompt` 而非 `promptSummary`，向后兼容；设置页 UI 已移除编辑入口，但 storage 已写入的值仍生效）
 - `promptTranslateDict`, `promptTranslateSentence` — 翻译自定义 prompt（同上，UI 已移除）
@@ -300,6 +311,7 @@ YouTube SPA 切视频时旧异步操作会污染新视频结果。用四层防�
 - `mindmapAlignTop` — 导图对齐偏好
 
 **`chrome.storage.local`**（仅本地）：
+- `chatgptAuth` — ChatGPT 订阅的 OAuth 凭据 `{ access_token, refresh_token, id_token, account_id }`，来自设置页粘贴的 `~/.codex/auth.json`；token 刷新后由 background 回写。不进 sync（体积/敏感性）、不随导入导出
 - `fetchedModels_claude`, `fetchedModels_openai`, `fetchedModels_gemini`, `fetchedModels_deepseek`, `fetchedModels_kimi` — API 拉取的模型列表缓存。渲染时由 `mergeModels()` 与预置列表合并（预置在前、按 value 去重），不能直接替换预置——`/v1/models` 只返回该 key 有权访问的模型真名，权限不足时整代新模型会整批缺席，而该缓存持久化在 storage.local 会一直遮蔽推荐模型
 
 **IndexedDB**（`AAtoolsCache` → `results` store）：

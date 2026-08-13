@@ -5,6 +5,12 @@
   'use strict';
   if (!/xiaohongshu\.com$/.test(location.hostname)) return;
 
+  // ── 代际接管：扩展重载后 background 会重注入本脚本，旧实例停止处理 ──
+  var destroyed = false;
+  var GEN_EVENT = 'aatools-takeover-xhs';
+  try { document.dispatchEvent(new Event(GEN_EVENT)); } catch (_) {}
+  document.addEventListener(GEN_EVENT, function () { destroyed = true; });
+
   // 从 target 向上查找覆盖视口的 fixed 弹窗（不依赖类名）
   function findOverlay(el) {
     while (el && el !== document.documentElement) {
@@ -31,6 +37,7 @@
   }
 
   document.addEventListener('wheel', function (e) {
+    if (destroyed) return;
     var overlay = findOverlay(e.target);
     if (!overlay) return;
     // 阻止事件传播，防止小红书 JS 滚动处理器驱动背景滚动

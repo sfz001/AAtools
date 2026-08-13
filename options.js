@@ -25,6 +25,18 @@ const PROVIDERS = {
       { value: 'gpt-5.6-luna', label: 'GPT-5.6 Luna — 快速低价' },
     ]
   },
+  chatgpt: {
+    // ChatGPT 订阅（Codex OAuth）：无 API key，凭据为粘贴的 ~/.codex/auth.json（存 storage.local）
+    label: 'ChatGPT 订阅授权',
+    keyField: null,
+    placeholder: '',
+    helpUrl: 'https://developers.openai.com/codex/cli/',
+    models: [
+      { value: 'gpt-5.6-sol', label: 'GPT-5.6 Sol — 推荐（最强）' },
+      { value: 'gpt-5.6-terra', label: 'GPT-5.6 Terra — 均衡' },
+      { value: 'gpt-5.6-luna', label: 'GPT-5.6 Luna — 快速' },
+    ]
+  },
   gemini: {
     label: 'Gemini API Key',
     keyField: 'geminiKey',
@@ -85,7 +97,7 @@ const $ = (sel) => document.querySelector(sel);
 
 let currentProvider = 'claude';
 let keyCache = { claudeKey: '', openaiKey: '', geminiKey: '', minimaxKey: '', deepseekKey: '', kimiKey: '', sub2apiKey: '' };
-let modelCache = { claude: '', openai: '', gemini: '', minimax: '', deepseek: '', kimi: '', sub2api: '' };
+let modelCache = { claude: '', openai: '', gemini: '', minimax: '', deepseek: '', kimi: '', sub2api: '', chatgpt: '' };
 let sub2apiBaseUrl = '';
 
 const SUB2API_BASE_INPUT = {
@@ -245,7 +257,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const STORAGE_KEYS = [
     'provider', 'claudeKey', 'openaiKey', 'geminiKey', 'minimaxKey', 'deepseekKey', 'kimiKey', 'sub2apiKey',
-    'claudeModel', 'openaiModel', 'geminiModel', 'minimaxModel', 'deepseekModel', 'kimiModel', 'sub2apiModel',
+    'claudeModel', 'openaiModel', 'geminiModel', 'minimaxModel', 'deepseekModel', 'kimiModel', 'sub2apiModel', 'chatgptModel',
     'sub2apiBaseUrl', 'model',
     'youtubePanelDefaultCollapsed',
     'generateAllSummary', 'generateAllMindmap', 'generateAllHtml',
@@ -278,6 +290,7 @@ document.addEventListener('DOMContentLoaded', () => {
       modelCache.deepseek = data.deepseekModel || '';
       modelCache.kimi = data.kimiModel || '';
       modelCache.sub2api = data.sub2apiModel || '';
+      modelCache.chatgpt = data.chatgptModel || '';
       sub2apiBaseUrl = data.sub2apiBaseUrl || '';
       $('#sub2apiBaseUrl').value = sub2apiBaseUrl;
 
@@ -319,7 +332,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Provider select
   $('#providerSelect').addEventListener('change', (e) => {
     const cfg = PROVIDERS[currentProvider];
-    keyCache[cfg.keyField] = $('#currentKey').value.trim();
+    if (cfg.keyField) keyCache[cfg.keyField] = $('#currentKey').value.trim();
     modelCache[currentProvider] = $('#model').value;
     switchProvider(e.target.value);
   });
@@ -336,7 +349,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const SETTING_KEYS = [
     'provider', 'claudeKey', 'openaiKey', 'geminiKey', 'minimaxKey', 'deepseekKey', 'kimiKey', 'sub2apiKey',
-    'claudeModel', 'openaiModel', 'geminiModel', 'minimaxModel', 'deepseekModel', 'kimiModel', 'sub2apiModel',
+    'claudeModel', 'openaiModel', 'geminiModel', 'minimaxModel', 'deepseekModel', 'kimiModel', 'sub2apiModel', 'chatgptModel',
     'sub2apiBaseUrl', 'model',
     'youtubePanelDefaultCollapsed',
     'generateAllSummary', 'generateAllMindmap', 'generateAllHtml',
@@ -441,6 +454,66 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
+  // ── ChatGPT 订阅授权（粘贴 ~/.codex/auth.json，存 storage.local 不同步）──
+  function refreshChatgptAuthStatus() {
+    chrome.storage.local.get(['chatgptAuth'], (d) => {
+      const el = $('#chatgptAuthStatus');
+      if (!el) return;
+      const auth = d && d.chatgptAuth;
+      if (!auth || !auth.access_token) { el.textContent = '未配置'; return; }
+      let expText = '';
+      try {
+        const payload = auth.access_token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+        const exp = JSON.parse(atob(payload)).exp;
+        if (exp) expText = '，access token 有效期至 ' + new Date(exp * 1000).toLocaleString();
+      } catch (_) {}
+      el.textContent = '已配置 ✓' + expText + (auth.refresh_token ? '（过期自动刷新）' : '（无 refresh_token，过期需重新粘贴）');
+    });
+  }
+
+  const saveChatgptAuthPaste = debounce(() => {
+    const raw = $('#chatgptAuthPaste').value.trim();
+    if (!raw) return;
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (_) {
+      showStatus('auth.json 解析失败：不是有效的 JSON', 'error');
+      return;
+    }
+    // 兼容两种结构：{ tokens: { access_token, ... } } 或扁平 { access_token, ... }
+    const t = parsed && parsed.tokens && parsed.tokens.access_token ? parsed.tokens : parsed;
+    if (!t || typeof t.access_token !== 'string' || !t.access_token) {
+      showStatus('auth.json 中没有 access_token，请粘贴完整文件内容', 'error');
+      return;
+    }
+    const auth = {
+      access_token: t.access_token,
+      refresh_token: t.refresh_token || '',
+      id_token: t.id_token || '',
+      account_id: t.account_id || parsed.account_id || '',
+    };
+    chrome.storage.local.set({ chatgptAuth: auth }, () => {
+      if (chrome.runtime.lastError) {
+        showStatus('授权保存失败：' + chrome.runtime.lastError.message, 'error');
+        return;
+      }
+      $('#chatgptAuthPaste').value = ''; // 保存后清空，避免 token 明文留在输入框
+      refreshChatgptAuthStatus();
+      showStatus('ChatGPT 订阅授权已保存（仅存本机）', 'success');
+    });
+  }, 600);
+  $('#chatgptAuthPaste').addEventListener('input', saveChatgptAuthPaste);
+
+  $('#chatgptAuthClear').addEventListener('click', () => {
+    chrome.storage.local.remove('chatgptAuth', () => {
+      refreshChatgptAuthStatus();
+      showStatus('已清除 ChatGPT 订阅授权', 'success');
+    });
+  });
+
+  refreshChatgptAuthStatus();
+
   // 自动保存：监听所有表单变化，debounce 1.5 秒
   const autoSave = debounce(() => saveSettings(false), 1500);
   document.querySelectorAll('input, select, textarea').forEach(el => {
@@ -468,12 +541,15 @@ function switchProvider(id) {
 
   $('#keyLabel').textContent = cfg.label;
   $('#currentKey').placeholder = cfg.placeholder;
-  $('#currentKey').value = keyCache[cfg.keyField] || '';
+  $('#currentKey').value = cfg.keyField ? (keyCache[cfg.keyField] || '') : '';
   $('#currentKey').type = 'password';
   $('#helpLink').href = cfg.helpUrl;
 
   // sub2api 专属 base URL 字段
   $('#sub2apiBaseUrlField').style.display = (id === 'sub2api') ? '' : 'none';
+  // chatgpt 专属授权粘贴区；无 API key 的 provider 隐藏通用 key 输入框
+  $('#chatgptAuthField').style.display = (id === 'chatgpt') ? '' : 'none';
+  $('#apiKeyField').style.display = cfg.keyField ? '' : 'none';
 
   // 预置与拉取列表合并；claude / deepseek 旧缓存里可能有已退役模型，过滤掉
   let models = mergeModels(cfg.models, fetchedModelsCache[id]);
@@ -530,6 +606,10 @@ function showStatus(text, type) {
 
 // ── 从官网获取最新模型列表 ──────────────────────────────────
 async function fetchLatestModels() {
+  if (currentProvider === 'chatgpt') {
+    showStatus('ChatGPT 订阅模式使用预置模型列表，无需在线获取', 'error');
+    return;
+  }
   const key = $('#currentKey').value.trim();
   if (!key) {
     showStatus('请先填入 API Key', 'error');
@@ -595,8 +675,8 @@ function saveSettings(isManual, gatewayProvider, gatewayBaseOverride) {
     setSavedGatewayBase(gatewayProvider, attemptedGatewayBase);
   }
 
-  // 把当前表单值同步到缓存
-  keyCache[cfg.keyField] = $('#currentKey').value.trim();
+  // 把当前表单值同步到缓存（chatgpt 无 keyField，授权走 storage.local 单独保存）
+  if (cfg.keyField) keyCache[cfg.keyField] = $('#currentKey').value.trim();
   modelCache[currentProvider] = $('#model').value;
 
   const saveData = {
@@ -615,6 +695,7 @@ function saveSettings(isManual, gatewayProvider, gatewayBaseOverride) {
     deepseekModel: modelCache.deepseek,
     kimiModel: modelCache.kimi,
     sub2apiModel: modelCache.sub2api,
+    chatgptModel: modelCache.chatgpt,
     sub2apiBaseUrl: sub2apiBaseUrl,
     model: $('#model').value,
     youtubePanelDefaultCollapsed: $('#youtubePanelDefaultCollapsed').checked,

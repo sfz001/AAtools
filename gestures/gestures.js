@@ -26,6 +26,19 @@
   let suppressContext = false;
   let indicator = null;
 
+  // ── 代际接管：扩展重载后 background 会重注入本脚本 ──────
+  // 新实例广播接管事件（DOM 事件跨 isolated world 传播），旧实例收到后
+  // 自我卸载：移除浮层、mousedown 经 destroyed 短路（其余 handler 依赖 tracking）。
+  let destroyed = false;
+  const GEN_EVENT = 'aatools-takeover-gestures';
+  try { document.dispatchEvent(new Event(GEN_EVENT)); } catch (_) {}
+  document.addEventListener(GEN_EVENT, () => {
+    destroyed = true;
+    tracking = false;
+    if (indicator && indicator.parentNode) indicator.parentNode.removeChild(indicator);
+    indicator = null;
+  });
+
   // 启动时读取设置；监听变化实时响应（无需刷新页面）
   try {
     chrome.storage.sync.get(['enableGestures', 'gestureKeepMenu'], (data) => {
@@ -85,6 +98,7 @@
   }
 
   document.addEventListener('mousedown', function (e) {
+    if (destroyed) return;
     if (!enabled) return;
     if (!e.isTrusted) return;
     if (e.button !== 2) return;
@@ -171,6 +185,7 @@
   }, true);
 
   document.addEventListener('contextmenu', function (e) {
+    if (destroyed) return;
     // Mac 上 Shift 与 keepMenu 不一致时直接放行原生菜单（手势模式的 Shift 逃生口 + 保留菜单模式的默认行为）
     // 直接读 e.shiftKey，不依赖 mousedown 提前设状态——某些情况下 contextmenu 事件顺序可能在 mousedown 前
     if (isMac && keepMenu !== e.shiftKey) return;

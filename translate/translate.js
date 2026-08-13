@@ -16,6 +16,22 @@
   var isDragging = false;
   var dragOffsetX = 0, dragOffsetY = 0;
 
+  // ── 代际接管：扩展重载后 background 会重注入本脚本 ──────
+  // 新实例广播接管事件（DOM 事件跨 isolated world 传播），旧实例收到后
+  // 自我卸载：移除 UI、断开 observer、后续事件回调经 destroyed 短路。
+  // 恶意页面伪造此事件最多让翻译 UI 在该页失效，无任何权限收益。
+  var destroyed = false;
+  var GEN_EVENT = 'aatools-takeover-translate';
+  try { document.dispatchEvent(new Event(GEN_EVENT)); } catch (_) {}
+  document.addEventListener(GEN_EVENT, function () {
+    destroyed = true;
+    try { iframeObserver.disconnect(); } catch (_) {}
+    if (icon && icon.parentNode) icon.parentNode.removeChild(icon);
+    if (popup && popup.parentNode) popup.parentNode.removeChild(popup);
+    icon = null;
+    popup = null;
+  });
+
   // ── 目标语言选项 ──────────────────────────────────────
   var TARGET_LANGS = [
     { value: 'auto', label: '自动检测' },
@@ -47,6 +63,7 @@
         var doc = iframe.contentDocument;
         if (!doc) return;
         doc.addEventListener('mouseup', function (e) {
+          if (destroyed) return;
           if (!e.isTrusted) return;
           var sel = doc.getSelection ? doc.getSelection() : null;
           var text = sel ? sel.toString().trim() : '';
@@ -172,14 +189,14 @@
       return;
     }
     try {
-      chrome.storage.sync.get(['provider', 'claudeModel', 'openaiModel', 'geminiModel', 'minimaxModel', 'deepseekModel', 'kimiModel', 'sub2apiModel', 'promptTranslateDict', 'promptTranslateSentence'], function (s) {
+      chrome.storage.sync.get(['provider', 'claudeModel', 'openaiModel', 'geminiModel', 'minimaxModel', 'deepseekModel', 'kimiModel', 'sub2apiModel', 'chatgptModel', 'promptTranslateDict', 'promptTranslateSentence'], function (s) {
         if (chrome.runtime.lastError) {
           callback(null, chrome.runtime.lastError.message || '读取翻译设置失败');
           return;
         }
         s = s || {};
         var provider = s.provider || 'claude';
-        var modelMap = { claude: s.claudeModel, openai: s.openaiModel, gemini: s.geminiModel, minimax: s.minimaxModel, deepseek: s.deepseekModel, kimi: s.kimiModel, sub2api: s.sub2apiModel };
+        var modelMap = { claude: s.claudeModel, openai: s.openaiModel, gemini: s.geminiModel, minimax: s.minimaxModel, deepseek: s.deepseekModel, kimi: s.kimiModel, sub2api: s.sub2apiModel, chatgpt: s.chatgptModel };
         callback({
           provider: provider,
           model: modelMap[provider] || '',
@@ -211,6 +228,7 @@
   // ── mouseup：检测选中文本 → 显示图标（基于鼠标位置） ────
   // 使用 capture 阶段，确保在 YouTube 等 SPA 框架的事件处理之前捕获选区
   document.addEventListener('mouseup', function (e) {
+    if (destroyed) return;
     if (!e.isTrusted) return;
     if (icon && icon.contains(e.target)) return;
 
@@ -640,7 +658,7 @@
   function updateFooter(provider, model) {
     var el = popup && popup.querySelector('.ytx-translate-footer-text');
     if (!el) return;
-    var name = { claude: 'Claude', openai: 'OpenAI', gemini: 'Gemini', minimax: 'MiniMax', deepseek: 'DeepSeek', kimi: 'Kimi', sub2api: 'Sub2API' }[provider] || provider;
+    var name = { claude: 'Claude', openai: 'OpenAI', gemini: 'Gemini', minimax: 'MiniMax', deepseek: 'DeepSeek', kimi: 'Kimi', sub2api: 'Sub2API', chatgpt: 'ChatGPT' }[provider] || provider;
     el.textContent = 'Powered by ' + name + (model ? ' ' + model : '');
   }
 
@@ -737,6 +755,7 @@
 
   // ── 消息监听 ──────────────────────────────────────────
   chrome.runtime.onMessage.addListener(function (msg) {
+    if (destroyed) return;
     // requestId 过滤：旧请求的响应（含 _MODEL/_CHUNK/_DONE/_ERROR）必须匹配当前 requestId
     // 用户关弹窗后立刻发起下一次翻译时，旧 chunk 不会污染新弹窗
     if (msg.type === 'TRANSLATE_MODEL' || msg.type === 'TRANSLATE_CHUNK' ||
@@ -784,6 +803,7 @@
 
   // ── 关闭逻辑（固定时点外部不关闭）────────────────────
   document.addEventListener('mousedown', function (e) {
+    if (destroyed) return;
     if (icon && icon.contains(e.target)) return;
     if (popup && popup.contains(e.target)) return;
 
@@ -796,6 +816,7 @@
   });
 
   document.addEventListener('keydown', function (e) {
+    if (destroyed) return;
     if (e.key === 'Escape') hideAll();
   });
 })();

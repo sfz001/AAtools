@@ -904,9 +904,100 @@ function safeSend(tabId, msg) {
 
 // ── 从 storage 按 provider 读取对应 API key（不信任 content script 传入的 activeKey）──
 const KEY_FIELD = { claude: 'claudeKey', openai: 'openaiKey', gemini: 'geminiKey', minimax: 'minimaxKey', deepseek: 'deepseekKey', kimi: 'kimiKey', sub2api: 'sub2apiKey' };
-const MODEL_FIELD = { claude: 'claudeModel', openai: 'openaiModel', gemini: 'geminiModel', minimax: 'minimaxModel', deepseek: 'deepseekModel', kimi: 'kimiModel', sub2api: 'sub2apiModel' };
+const MODEL_FIELD = { claude: 'claudeModel', openai: 'openaiModel', gemini: 'geminiModel', minimax: 'minimaxModel', deepseek: 'deepseekModel', kimi: 'kimiModel', sub2api: 'sub2apiModel', chatgpt: 'chatgptModel' };
 const SUB2API_BASE_FIELD = { sub2api: 'sub2apiBaseUrl' };
 function isSub2(provider) { return provider === 'sub2api'; }
+
+// ── ChatGPT 订阅（Codex OAuth）─────────────────────────────
+// 不走付费 API，而是复用 codex CLI 的 OAuth 凭据（~/.codex/auth.json 粘贴到设置页），
+// 请求 chatgpt.com 的 codex Responses 后端，消耗 ChatGPT 订阅额度。
+// 凭据存 storage.local（体积大且不宜跨设备同步）；access token 过期用 refresh token 刷新。
+const CHATGPT_AUTH_FIELD = 'chatgptAuth';
+const CODEX_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann'; // codex CLI 的 OAuth client_id
+
+function decodeJwtClaims(token) {
+  try {
+    const payload = String(token).split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    return JSON.parse(atob(payload));
+  } catch {
+    return null;
+  }
+}
+
+function chatgptAccountIdOf(auth, claims) {
+  return (auth && auth.account_id) || claims?.['https://api.openai.com/auth']?.chatgpt_account_id || '';
+}
+
+function getChatgptAuth() {
+  return new Promise((resolve) => {
+    try {
+      chrome.storage.local.get([CHATGPT_AUTH_FIELD], (d) => resolve((d || {})[CHATGPT_AUTH_FIELD] || null));
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+async function ensureChatgptAccessToken(signal) {
+  const auth = await getChatgptAuth();
+  if (!auth || !auth.access_token) {
+    return { error: '尚未配置 ChatGPT 订阅授权，请在扩展设置中粘贴 ~/.codex/auth.json 内容' };
+  }
+  const claims = decodeJwtClaims(auth.access_token);
+  const now = Math.floor(Date.now() / 1000);
+  // 提前 5 分钟视为过期，避免长流式请求中途失效
+  if (claims && claims.exp && claims.exp > now + 300) {
+    return { accessToken: auth.access_token, accountId: chatgptAccountIdOf(auth, claims) };
+  }
+  if (!auth.refresh_token) {
+    return { error: 'ChatGPT 访问令牌已过期且缺少 refresh_token，请重新粘贴 auth.json' };
+  }
+  let resp;
+  try {
+    resp = await fetch('https://auth.openai.com/oauth/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        client_id: CODEX_CLIENT_ID,
+        grant_type: 'refresh_token',
+        refresh_token: auth.refresh_token,
+        scope: 'openid profile email',
+      }),
+      signal,
+    });
+  } catch {
+    return { error: 'ChatGPT 令牌刷新失败（网络错误），请检查网络后重试' };
+  }
+  if (!resp.ok) {
+    return { error: `ChatGPT 令牌刷新失败 (${resp.status})，请重新运行 codex login 并在扩展设置中重新粘贴 auth.json` };
+  }
+  let tok;
+  try {
+    tok = await resp.json();
+  } catch {
+    return { error: 'ChatGPT 令牌刷新响应解析失败，请稍后重试' };
+  }
+  const updated = Object.assign({}, auth, {
+    access_token: tok.access_token || auth.access_token,
+    refresh_token: tok.refresh_token || auth.refresh_token,
+    id_token: tok.id_token || auth.id_token,
+  });
+  await new Promise((resolve) => {
+    try {
+      chrome.storage.local.set({ [CHATGPT_AUTH_FIELD]: updated }, () => { void chrome.runtime.lastError; resolve(); });
+    } catch {
+      resolve();
+    }
+  });
+  const newClaims = decodeJwtClaims(updated.access_token);
+  return { accessToken: updated.access_token, accountId: chatgptAccountIdOf(updated, newClaims) };
+}
+
+function missingKeyError(provider) {
+  return provider === 'chatgpt'
+    ? '请先在扩展设置中粘贴 ChatGPT 订阅授权（~/.codex/auth.json 内容）'
+    : '请先在扩展设置中填入 API Key';
+}
 function loadProviderConfig(provider) {
   return new Promise((resolve) => {
     const fields = ['provider'];
@@ -920,11 +1011,18 @@ function loadProviderConfig(provider) {
           return;
         }
         data = data || {};
-        resolve({
+        const cfg = {
           provider: provider,
           key: data[KEY_FIELD[provider]] || '',
           model: data[MODEL_FIELD[provider]] || '',
           baseUrl: SUB2API_BASE_FIELD[provider] ? (data[SUB2API_BASE_FIELD[provider]] || '') : '',
+        };
+        if (provider !== 'chatgpt') { resolve(cfg); return; }
+        // chatgpt 没有 API key：以 storage.local 里的 OAuth 凭据是否存在作为“已配置”标记，
+        // 真正的 token 获取/刷新在 callProvider 内的 ensureChatgptAccessToken 完成
+        getChatgptAuth().then((auth) => {
+          cfg.key = auth && auth.access_token ? 'chatgpt-oauth' : '';
+          resolve(cfg);
         });
       });
     } catch (error) {
@@ -947,7 +1045,7 @@ async function handleSummarize(message, tabId, mode = 'SUMMARY', navigationEpoch
     return;
   }
   if (!key) {
-    safeSend(tabId, { type: `${PREFIX}_ERROR`, error: '请先在扩展设置中填入 API Key', requestId });
+    safeSend(tabId, { type: `${PREFIX}_ERROR`, error: missingKeyError(provider), requestId });
     return;
   }
 
@@ -972,7 +1070,7 @@ async function handleChat(message, tabId, navigationEpoch = currentNavigationEpo
     return;
   }
   if (!key) {
-    safeSend(tabId, { type: 'CHAT_ERROR', error: '请先在扩展设置中填入 API Key', requestId });
+    safeSend(tabId, { type: 'CHAT_ERROR', error: missingKeyError(provider), requestId });
     return;
   }
 
@@ -1002,7 +1100,7 @@ async function handleTranslate(message, tabId, navigationEpoch = currentNavigati
     return;
   }
   if (!key) {
-    safeSend(tabId, { type: `${PREFIX}_ERROR`, error: '请先在扩展设置中填入 API Key', requestId });
+    safeSend(tabId, { type: `${PREFIX}_ERROR`, error: missingKeyError(provider), requestId });
     return;
   }
 
@@ -1072,7 +1170,7 @@ ${context ? '📌 该词在语境中的含义：一句话解释' : '搭配: 词�
 
 // ── 校验 model 是否属于当前 provider，不匹配则清空让默认值生效 ──
 // 值为前缀字符串，或前缀数组（kimi 同时有 kimi-* 与旧的 moonshot-v1-* 两条模型线）
-const MODEL_PREFIX = { claude: 'claude-', openai: 'gpt-', gemini: 'gemini-', deepseek: 'deepseek-', kimi: ['kimi-', 'moonshot-'] };
+const MODEL_PREFIX = { claude: 'claude-', openai: 'gpt-', gemini: 'gemini-', deepseek: 'deepseek-', kimi: ['kimi-', 'moonshot-'], chatgpt: 'gpt-' };
 // Claude 2.x / 3.x 全系列已退役（2026-04 起 API 返回 404），存量配置命中时清空回退默认模型
 const RETIRED_CLAUDE = /^claude-(2[.-]|instant|3-)/;
 // deepseek-chat / deepseek-reasoner 旧模型名已于 2026-07-24 退役，命中时清空回退默认模型
@@ -1317,15 +1415,21 @@ async function _callGeminiTranscribe(key, model, videoUrl, prompt, tabId, videoI
 // ── API 错误分类提示 ─────────────────────────────────────
 function classifyApiError(status, body, provider) {
   const lower = body.toLowerCase();
-  const providerName = { claude: 'Claude', openai: 'OpenAI', gemini: 'Gemini', minimax: 'MiniMax', deepseek: 'DeepSeek', kimi: 'Kimi', sub2api: 'Sub2API' }[provider] || provider;
+  const providerName = { claude: 'Claude', openai: 'OpenAI', gemini: 'Gemini', minimax: 'MiniMax', deepseek: 'DeepSeek', kimi: 'Kimi', sub2api: 'Sub2API', chatgpt: 'ChatGPT 订阅' }[provider] || provider;
 
   // 401 / 403 — 认证失败
   if (status === 401 || status === 403 || lower.includes('invalid_api_key') || lower.includes('invalid api key') || lower.includes('unauthorized') || lower.includes('api_key_invalid')) {
+    if (provider === 'chatgpt') {
+      return 'ChatGPT 订阅授权无效或已过期，请重新运行 codex login 并在扩展设置中重新粘贴 auth.json';
+    }
     return `${providerName} API Key 无效或已过期，请在扩展设置中检查 Key 是否正确`;
   }
 
   // 429 — 限流 / 配额用尽
   if (status === 429 || lower.includes('rate_limit') || lower.includes('rate limit') || lower.includes('quota')) {
+    if (provider === 'chatgpt') {
+      return 'ChatGPT 订阅额度已用尽或请求过于频繁，请稍后再试（额度随时间窗口自动重置）';
+    }
     if (lower.includes('quota') || lower.includes('billing') || lower.includes('exceeded') || lower.includes('insufficient')) {
       return `${providerName} 账户余额不足或配额已用完，请前往 ${providerName} 控制台充值`;
     }
@@ -1364,13 +1468,45 @@ function classifyApiError(status, body, provider) {
   return `${providerName} API 错误 (${status}): ${body.substring(0, 200)}`;
 }
 
+// ── OpenAI Responses API 请求体（codex wire_api="responses" 同款格式）────
+// sub2api 网关与 ChatGPT 订阅后端共用。请求严格对齐 codex CLI 实际发出的格式 —
+// 部分中转网关会按 codex 指纹做请求过滤，偏离会被拒掉返回 503（"上游错误暂无数据"，
+// 意为没真转发上游）。
+function buildResponsesApiBody(model, messages, systemPrompt) {
+  const input = messages.map(m => ({
+    type: 'message',
+    role: m.role,
+    content: [{
+      type: m.role === 'assistant' ? 'output_text' : 'input_text',
+      text: m.content,
+    }],
+  }));
+  const body = {
+    model,
+    input,
+    stream: true,
+    store: false,
+    // codex 用 'high'/'xhigh' 等标准/扩展值；'minimal' 部分网关不识别
+    reasoning: { effort: 'medium', summary: 'auto' },
+    // codex 默认会带这个让上游回传加密推理内容
+    include: ['reasoning.encrypted_content'],
+    tools: [],
+    parallel_tool_calls: false,
+    tool_choice: 'auto',
+    // codex 会发一个稳定的会话级缓存 key（同一会话复用）
+    prompt_cache_key: 'aatools-' + Math.random().toString(36).slice(2, 12),
+  };
+  if (systemPrompt) body.instructions = systemPrompt;
+  return body;
+}
+
 // ── 统一调用入口 ─────────────────────────────────────────
 async function callProvider(provider, opts) {
   const { key, systemPrompt, messages, maxTokens, tabId, PREFIX, requestId, baseUrl, navigationEpoch } = opts;
   const model = sanitizeModel(provider, opts.model);
 
   // 计算实际使用的模型 ID
-  const DEFAULT_MODEL = { claude: 'claude-fable-5', openai: 'gpt-5.6-sol', gemini: 'gemini-3.6-flash', minimax: 'MiniMax-M2.5', deepseek: 'deepseek-v4-flash', kimi: 'kimi-k2.6', sub2api: 'claude-fable-5' };
+  const DEFAULT_MODEL = { claude: 'claude-fable-5', openai: 'gpt-5.6-sol', gemini: 'gemini-3.6-flash', minimax: 'MiniMax-M2.5', deepseek: 'deepseek-v4-flash', kimi: 'kimi-k2.6', sub2api: 'claude-fable-5', chatgpt: 'gpt-5.6-sol' };
   const actualModel = model || DEFAULT_MODEL[provider] || DEFAULT_MODEL.claude;
 
   // 局部 send：自动给所有发往 content script 的消息附 requestId
@@ -1482,6 +1618,31 @@ async function callProvider(provider, opts) {
           signal: requestContext.signal,
         }
       );
+    } else if (provider === 'chatgpt') {
+      // ChatGPT 订阅（Codex OAuth）：走 chatgpt.com 的 codex Responses 后端，
+      // 消耗订阅额度而非按量计费；token 缺失/过期在这里统一处理
+      const auth = await ensureChatgptAccessToken(requestContext.signal);
+      if (auth.error) {
+        requestContext.endAttempt();
+        streamEmitter.error(auth.error);
+        return;
+      }
+      const body = buildResponsesApiBody(actualModel, messages, systemPrompt);
+      response = await fetch('https://chatgpt.com/backend-api/codex/responses', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'text/event-stream',
+          'Authorization': `Bearer ${auth.accessToken}`,
+          'chatgpt-account-id': auth.accountId,
+          'OpenAI-Beta': 'responses=experimental',
+          // codex CLI 的请求指纹：后端按 originator 识别 codex 流量
+          'originator': 'codex_cli_rs',
+          'session_id': crypto.randomUUID(),
+        },
+        body: JSON.stringify(body),
+        signal: requestContext.signal,
+      });
     } else if (isSub2(provider)) {
       // sub2api 中转：按模型前缀分别走 Anthropic / Gemini / OpenAI 格式
       const trimmedBase = sub2Gateway.baseUrl;
@@ -1508,32 +1669,7 @@ async function callProvider(provider, opts) {
         );
       } else if (sub2apiFmt === 'openai') {
         // OpenAI /v1/responses（Responses API；codex wire_api="responses" 路径）
-        // 请求严格对齐 codex CLI 实际发出的格式 — 部分中转网关会按 codex 指纹做请求过滤
-        // 偏离这个格式会被网关拒掉返回 503（"上游错误暂无数据"，意为没真转发上游）
-        const input = messages.map(m => ({
-          type: 'message',
-          role: m.role,
-          content: [{
-            type: m.role === 'assistant' ? 'output_text' : 'input_text',
-            text: m.content,
-          }],
-        }));
-        const body = {
-          model: actualModel,
-          input,
-          stream: true,
-          store: false,
-          // codex 用 'high'/'xhigh' 等标准/扩展值；'minimal' 部分网关不识别
-          reasoning: { effort: 'medium', summary: 'auto' },
-          // codex 默认会带这个让上游回传加密推理内容
-          include: ['reasoning.encrypted_content'],
-          tools: [],
-          parallel_tool_calls: false,
-          tool_choice: 'auto',
-          // codex 会发一个稳定的会话级缓存 key（同一会话复用）
-          prompt_cache_key: 'aatools-' + Math.random().toString(36).slice(2, 12),
-        };
-        if (systemPrompt) body.instructions = systemPrompt;
+        const body = buildResponsesApiBody(actualModel, messages, systemPrompt);
         response = await fetch(`${trimmedBase}/v1/responses`, {
           method: 'POST',
           headers: {
@@ -1590,9 +1726,11 @@ async function callProvider(provider, opts) {
 
     // sub2api 的 SSE 实际是 Anthropic / Gemini / OpenAI Responses 格式，按 sub2apiFmt 走对应解析
     // sub2api+openai 走 Responses API（事件名带 response.* 前缀），与 OpenAI 直连的 Chat Completions 不同
-    const parseAs = isSub2(provider)
-      ? (sub2apiFmt === 'openai' ? 'openai-responses' : sub2apiFmt)
-      : provider;
+    const parseAs = provider === 'chatgpt'
+      ? 'openai-responses'
+      : isSub2(provider)
+        ? (sub2apiFmt === 'openai' ? 'openai-responses' : sub2apiFmt)
+        : provider;
     await readSSEStream(response, parseAs, requestContext, streamEmitter);
   } catch (err) {
     if (requestContext.signal.aborted) {
@@ -1902,3 +2040,47 @@ async function readSSEStream(response, provider, requestContext, streamEmitter) 
   if (result.warning) console.warn('[AAtools] 流式输出不完整:', result.warning);
   streamEmitter.done();
 }
+
+// ── 扩展重载/更新后重注入 content scripts（免刷新页面） ────────
+// 扩展 reload 后旧页面里的 content script 变成孤儿（chrome.* 失效），
+// 这里在 onInstalled 时把 manifest 声明的 content scripts 重新注入到所有
+// 已打开的匹配标签页。注意：chrome.scripting.executeScript 与 tabs.query
+// 的 url 可见性都只认 host_permissions（content script 的 matches 不算数），
+// 因此 manifest 必须有 https://*/* + http://*/* 必需 host 权限；无该权限的
+// 标签页 tab.url 为 undefined 会被跳过（chrome://、商店等注入失败也会被忽略）。
+// 旧实例的清理由各 content script 顶部的「代际接管」DOM 事件完成。
+function urlMatchesPatterns(url, patterns) {
+  return (patterns || []).some((pattern) => {
+    if (pattern === '<all_urls>') return /^https?:/i.test(url);
+    const re = new RegExp('^' + pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*') + '$');
+    return re.test(url);
+  });
+}
+
+async function reinjectContentScripts() {
+  const groups = chrome.runtime.getManifest().content_scripts || [];
+  let tabs;
+  try {
+    tabs = await chrome.tabs.query({});
+  } catch {
+    return;
+  }
+  for (const tab of tabs) {
+    if (!tab.id || !tab.url || !/^https?:/i.test(tab.url)) continue;
+    for (const group of groups) {
+      if (!urlMatchesPatterns(tab.url, group.matches)) continue;
+      try {
+        if (group.css && group.css.length) {
+          await chrome.scripting.insertCSS({ target: { tabId: tab.id }, files: group.css });
+        }
+        await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: group.js });
+      } catch {
+        // 无权限或不可注入的页面（受限页、已 discard 的 tab 等），跳过
+      }
+    }
+  }
+}
+
+chrome.runtime.onInstalled.addListener(() => {
+  reinjectContentScripts();
+});

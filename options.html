@@ -28,6 +28,7 @@
         <select id="providerSelect">
           <option value="claude">Claude</option>
           <option value="openai">OpenAI</option>
+          <option value="chatgpt">ChatGPT（订阅额度）</option>
           <option value="gemini">Gemini</option>
           <option value="minimax">MiniMax</option>
           <option value="deepseek">DeepSeek</option>
@@ -45,8 +46,18 @@
         <div class="hint">中转网关地址（不含 <code>/v1/messages</code>）。使用前需授权对应域名；仅允许 HTTPS，localhost 可用 HTTP。模型按前缀自动选格式。</div>
       </div>
 
+      <div class="field" id="chatgptAuthField" style="display:none">
+        <div class="label-row">
+          <label for="chatgptAuthPaste"><span>ChatGPT 订阅授权</span></label>
+          <button type="button" id="chatgptAuthClear" class="btn-link">清除授权</button>
+        </div>
+        <textarea id="chatgptAuthPaste" rows="3" placeholder="粘贴 ~/.codex/auth.json 的完整内容（需先在终端运行 codex login 登录 ChatGPT 账号）"></textarea>
+        <div class="hint" id="chatgptAuthStatus">未配置</div>
+        <div class="hint">复制凭据到剪贴板后回来粘贴——<br>macOS：<code>cat ~/.codex/auth.json | pbcopy</code><br>Windows：<code>type %USERPROFILE%\.codex\auth.json | clip</code><br>没有该文件则先运行 <code>codex login</code> 用 ChatGPT 账号登录。</div>
+        <div class="hint">走 chatgpt.com 的 Codex 通道，消耗 ChatGPT 订阅额度而非 API 计费。凭据仅存本机（storage.local），不随设置同步/导出；access token 过期后自动用 refresh token 刷新。</div>
+      </div>
 
-      <div class="field">
+      <div class="field" id="apiKeyField">
         <label for="currentKey">
           <span id="keyLabel">Claude API Key</span>
           <a id="helpLink" href="https://console.anthropic.com/settings/keys" target="_blank" class="help-link">获取</a>
