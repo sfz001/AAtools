@@ -11,6 +11,18 @@
   try { document.dispatchEvent(new Event(GEN_EVENT)); } catch (_) {}
   document.addEventListener(GEN_EVENT, function () { destroyed = true; });
 
+  // ── 功能开关（设置页「功能开关」卡片，storage 变化即时生效无需刷新）──
+  var featureEnabled = true;
+  try {
+    chrome.storage.sync.get(['enableXhs'], function (d) {
+      if (!chrome.runtime.lastError && d) featureEnabled = d.enableXhs !== false;
+    });
+    chrome.storage.onChanged.addListener(function (changes, area) {
+      if (destroyed || area !== 'sync' || !changes.enableXhs) return;
+      featureEnabled = changes.enableXhs.newValue !== false;
+    });
+  } catch (_) {}
+
   // 从 target 向上查找覆盖视口的 fixed 弹窗（不依赖类名）
   function findOverlay(el) {
     while (el && el !== document.documentElement) {
@@ -37,7 +49,7 @@
   }
 
   document.addEventListener('wheel', function (e) {
-    if (destroyed) return;
+    if (destroyed || !featureEnabled) return;
     var overlay = findOverlay(e.target);
     if (!overlay) return;
     // 阻止事件传播，防止小红书 JS 滚动处理器驱动背景滚动

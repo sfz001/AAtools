@@ -65,8 +65,11 @@
     YTX.isFetchingTranscript = false;
   }
 
+  // 功能开关（设置页「功能开关」卡片）；关闭时走 !videoId 清理路径拆面板
+  var featureEnabled = true;
+
   function onNavigate() {
-    var videoId = getVideoId();
+    var videoId = featureEnabled ? getVideoId() : null;
     if (!videoId) {
       // 离开视频页（首页/搜索/频道页等）：清状态 + 重置功能模块，
       // 否则旧 in-flight 转写会让下一个视频被错误拦截
@@ -998,10 +1001,18 @@
   });
 
   // ── 启动 ─────────────────────────────────────────────
-  chrome.storage.sync.get(['youtubePanelDefaultCollapsed'], function (data) {
+  chrome.storage.sync.get(['youtubePanelDefaultCollapsed', 'enableYoutube'], function (data) {
     if (!chrome.runtime.lastError && data) {
       YTX.panelCollapsed = data.youtubePanelDefaultCollapsed !== false;
+      featureEnabled = data.enableYoutube !== false;
     }
     init();
+  });
+
+  // 开关变化即时生效：开启 → 立即注入当前视频面板；关闭 → onNavigate 走清理路径
+  chrome.storage.onChanged.addListener(function (changes, area) {
+    if (destroyed || area !== 'sync' || !changes.enableYoutube) return;
+    featureEnabled = changes.enableYoutube.newValue !== false;
+    onNavigate();
   });
 })();

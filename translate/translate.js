@@ -20,6 +20,19 @@
   // 新实例广播接管事件（DOM 事件跨 isolated world 传播），旧实例收到后
   // 自我卸载：移除 UI、断开 observer、后续事件回调经 destroyed 短路。
   // 恶意页面伪造此事件最多让翻译 UI 在该页失效，无任何权限收益。
+  // ── 功能开关（设置页「功能开关」卡片，storage 变化即时生效无需刷新）──
+  var featureEnabled = true;
+  try {
+    chrome.storage.sync.get(['enableTranslate'], function (d) {
+      if (!chrome.runtime.lastError && d) featureEnabled = d.enableTranslate !== false;
+    });
+    chrome.storage.onChanged.addListener(function (changes, area) {
+      if (destroyed || area !== 'sync' || !changes.enableTranslate) return;
+      featureEnabled = changes.enableTranslate.newValue !== false;
+      if (!featureEnabled) hideAll();
+    });
+  } catch (_) {}
+
   var destroyed = false;
   var GEN_EVENT = 'aatools-takeover-translate';
   try { document.dispatchEvent(new Event(GEN_EVENT)); } catch (_) {}
@@ -63,7 +76,7 @@
         var doc = iframe.contentDocument;
         if (!doc) return;
         doc.addEventListener('mouseup', function (e) {
-          if (destroyed) return;
+          if (destroyed || !featureEnabled) return;
           if (!e.isTrusted) return;
           var sel = doc.getSelection ? doc.getSelection() : null;
           var text = sel ? sel.toString().trim() : '';
@@ -228,7 +241,7 @@
   // ── mouseup：检测选中文本 → 显示图标（基于鼠标位置） ────
   // 使用 capture 阶段，确保在 YouTube 等 SPA 框架的事件处理之前捕获选区
   document.addEventListener('mouseup', function (e) {
-    if (destroyed) return;
+    if (destroyed || !featureEnabled) return;
     if (!e.isTrusted) return;
     if (icon && icon.contains(e.target)) return;
 

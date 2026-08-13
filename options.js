@@ -161,7 +161,7 @@ function validateImportedSettings(data, settingKeys, localKeys) {
 
   const booleanKeys = new Set([
     'youtubePanelDefaultCollapsed', 'generateAllSummary', 'generateAllMindmap',
-    'generateAllHtml', 'enableGestures',
+    'generateAllHtml', 'enableYoutube', 'enableTranslate', 'enableXhs', 'enableGestures',
     'gestureKeepMenu', 'mindmapAlignTop',
   ]);
   const filtered = {};
@@ -261,6 +261,7 @@ document.addEventListener('DOMContentLoaded', () => {
     'sub2apiBaseUrl', 'model',
     'youtubePanelDefaultCollapsed',
     'generateAllSummary', 'generateAllMindmap', 'generateAllHtml',
+    'enableYoutube', 'enableTranslate', 'enableXhs',
     'enableGestures', 'gestureKeepMenu',
     ...ALL_PROMPT_KEYS,
   ];
@@ -321,6 +322,9 @@ document.addEventListener('DOMContentLoaded', () => {
       $('#generateAllMindmap').checked = data.generateAllMindmap !== false;
       $('#generateAllHtml').checked = data.generateAllHtml !== false;
 
+      $('#enableYoutube').checked = data.enableYoutube !== false;
+      $('#enableTranslate').checked = data.enableTranslate !== false;
+      $('#enableXhs').checked = data.enableXhs !== false;
       $('#enableGestures').checked = data.enableGestures !== false;
       $('#gestureKeepMenu').checked = !!data.gestureKeepMenu;
 
@@ -353,6 +357,7 @@ document.addEventListener('DOMContentLoaded', () => {
     'sub2apiBaseUrl', 'model',
     'youtubePanelDefaultCollapsed',
     'generateAllSummary', 'generateAllMindmap', 'generateAllHtml',
+    'enableYoutube', 'enableTranslate', 'enableXhs',
     'enableGestures', 'gestureKeepMenu',
     'mindmapAlignTop',
     ...ALL_PROMPT_KEYS,
@@ -702,6 +707,9 @@ function saveSettings(isManual, gatewayProvider, gatewayBaseOverride) {
     generateAllSummary: $('#generateAllSummary').checked,
     generateAllMindmap: $('#generateAllMindmap').checked,
     generateAllHtml: $('#generateAllHtml').checked,
+    enableYoutube: $('#enableYoutube').checked,
+    enableTranslate: $('#enableTranslate').checked,
+    enableXhs: $('#enableXhs').checked,
     enableGestures: $('#enableGestures').checked,
     gestureKeepMenu: $('#gestureKeepMenu').checked,
   };

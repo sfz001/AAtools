@@ -284,7 +284,7 @@ YouTube SPA 切视频时旧异步操作会污染新视频结果。用四层防�
 
 **总开关 / 设置**
 
-- `chrome.storage.sync.enableGestures`（boolean，默认 true，设置页"鼠标手势设置"卡片）：手势总开关，关闭后 `mousedown` 直接 return，原生右键菜单完全不受影响
+- `chrome.storage.sync.enableGestures`（boolean，默认 true，设置页顶部"功能开关"卡片）：手势总开关，关闭后 `mousedown` 直接 return，原生右键菜单完全不受影响
 - `chrome.storage.sync.gestureKeepMenu`（boolean，默认 false）：见上文"识别逻辑"小节
 - 启动时一次性读取，并监听 `chrome.storage.onChanged`：用户在设置页切换后所有页面**无需刷新**即可生效
 
@@ -306,7 +306,7 @@ YouTube SPA 切视频时旧异步操作会污染新视频结果。用四层防�
 - `promptTranslateDict`, `promptTranslateSentence` — 翻译自定义 prompt（同上，UI 已移除）
 - `generateAllSummary`, `generateAllMindmap`, `generateAllHtml` — 「全部生成」是否包含对应功能（boolean，默认 true，`!== false` 判断）
 - `youtubePanelDefaultCollapsed` — YouTube 面板首次加载时是否默认折叠（boolean，默认 true，`!== false` 判断）
-- `enableGestures` — 鼠标手势总开关（boolean，默认 true，`!== false` 判断）
+- `enableYoutube`, `enableTranslate`, `enableXhs`, `enableGestures` — 四大模块总开关（boolean，默认 true，`!== false` 判断），设置页顶部「功能开关」卡片；各 content script 启动时读取并监听 `chrome.storage.onChanged` 即时生效无需刷新（YouTube 关闭时 panel.js `onNavigate` 走 `!videoId` 清理路径拆面板，重新开启立即重注入面板并恢复缓存）
 - `gestureKeepMenu` — 是否保留原生右键菜单（boolean，默认 false：右键直接走手势，Mac 上 Shift+右键 临时弹原生菜单；true 时 Mac 普通右键弹菜单、Shift+右键 进手势，Win/Linux 用 mouseup 时位移判断）
 - `mindmapAlignTop` — 导图对齐偏好
 

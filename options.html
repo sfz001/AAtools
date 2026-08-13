@@ -11,6 +11,31 @@
       <span class="subtitle">YouTube 视频助手 & 划词翻译 & 小红书增强 & 鼠标手势</span>
     </div>
 
+    <!-- Card: 功能开关 -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-header-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
+        </div>
+        <div>
+          <div class="card-title">功能开关</div>
+          <div class="card-desc">四大模块启用状态，修改即时生效，无需刷新页面</div>
+        </div>
+      </div>
+      <div class="field">
+        <label class="checkbox-label"><input type="checkbox" id="enableYoutube" checked> YouTube 视频 AI 助手（总结 / 思维导图 / 笔记 / 问答）</label>
+      </div>
+      <div class="field">
+        <label class="checkbox-label"><input type="checkbox" id="enableTranslate" checked> 全网划词翻译</label>
+      </div>
+      <div class="field">
+        <label class="checkbox-label"><input type="checkbox" id="enableGestures" checked> 鼠标手势（右键拖拽：← 后退 / → 前进 / ↓→ 关闭 / ←↑ 恢复）</label>
+      </div>
+      <div class="field">
+        <label class="checkbox-label"><input type="checkbox" id="enableXhs" checked> 小红书体验增强（帖子弹窗滚动修复）</label>
+      </div>
+    </div>
+
     <!-- Card 1: AI 模型配置 -->
     <div class="card card-hero">
       <div class="card-header">
@@ -130,11 +155,8 @@
         </div>
         <div>
           <div class="card-title">鼠标手势设置</div>
-          <div class="card-desc">右键拖拽手势开关</div>
+          <div class="card-desc">右键菜单行为（总开关在顶部「功能开关」卡片）</div>
         </div>
-      </div>
-      <div class="field">
-        <label class="checkbox-label"><input type="checkbox" id="enableGestures" checked> 启用鼠标手势（右键拖拽：← 后退 / → 前进 / ↓→ 关闭 / ←↑ 恢复）</label>
       </div>
       <div class="field">
         <label class="checkbox-label"><input type="checkbox" id="gestureKeepMenu"> 保留原生右键菜单</label>

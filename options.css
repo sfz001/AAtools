@@ -1,29 +1,29 @@
 /* ── CSS 变量（Light 主题）─────────────────────────── */
 :root {
-  --color-primary: #7c3aed;
-  --color-primary-hover: #6d28d9;
-  --color-primary-light: #ede9fe;
-  --color-primary-bg: #f5f3ff;
-  --color-primary-border: #ddd6fe;
-  --color-primary-muted: #c4b5fd;
+  --color-primary: #2563eb;
+  --color-primary-hover: #1d4ed8;
+  --color-primary-light: #dbeafe;
+  --color-primary-bg: #eff6ff;
+  --color-primary-border: #93c5fd;
+  --color-primary-muted: #60a5fa;
 
   --color-text-primary: #1a1a1a;
-  --color-text-secondary: #374151;
-  --color-text-tertiary: #6b7280;
-  --color-text-muted: #9ca3af;
+  --color-text-secondary: #334155;
+  --color-text-tertiary: #475569;
+  --color-text-muted: #64748b;
 
-  --color-bg-page: #f5f3ff;
+  --color-bg-page: #f1f5f9;
   --color-bg-card: #fff;
-  --color-bg-input: #fafafa;
+  --color-bg-input: #f8fafc;
   --color-bg-input-focus: #fff;
   --color-bg-code: #f3f4f6;
 
-  --color-border: #e5e7eb;
-  --color-border-light: #f0f0f0;
-  --color-border-input: #d1d5db;
+  --color-border: #cbd5e1;
+  --color-border-light: #e2e8f0;
+  --color-border-input: #94a3b8;
 
-  --shadow-card: 0 1px 3px rgba(124, 58, 237, 0.06), 0 4px 16px rgba(124, 58, 237, 0.04);
-  --shadow-card-hover: 0 2px 8px rgba(124, 58, 237, 0.10), 0 8px 24px rgba(124, 58, 237, 0.06);
+  --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.05), 0 4px 14px rgba(15, 23, 42, 0.05);
+  --shadow-card-hover: 0 2px 6px rgba(15, 23, 42, 0.08), 0 10px 24px rgba(15, 23, 42, 0.07);
 
   --color-success: #16a34a;
   --color-error: #dc2626;
@@ -35,27 +35,27 @@
 /* ── Dark 主题 ─────────────────────────────────────── */
 @media (prefers-color-scheme: dark) {
   :root {
-    --color-primary: #a78bfa;
-    --color-primary-hover: #8b5cf6;
-    --color-primary-light: #1e1346;
-    --color-primary-bg: #111;
-    --color-primary-border: #3b2d6e;
-    --color-primary-muted: #7c3aed;
+    --color-primary: #60a5fa;
+    --color-primary-hover: #93c5fd;
+    --color-primary-light: #172554;
+    --color-primary-bg: #0f172a;
+    --color-primary-border: #1d4ed8;
+    --color-primary-muted: #3b82f6;
 
-    --color-text-primary: #e5e5e5;
-    --color-text-secondary: #d4d4d4;
-    --color-text-tertiary: #9ca3af;
-    --color-text-muted: #6b7280;
+    --color-text-primary: #f8fafc;
+    --color-text-secondary: #e2e8f0;
+    --color-text-tertiary: #cbd5e1;
+    --color-text-muted: #94a3b8;
 
-    --color-bg-page: #111;
-    --color-bg-card: #1a1a1a;
-    --color-bg-input: #252525;
-    --color-bg-input-focus: #2a2a2a;
-    --color-bg-code: #2d1b69;
+    --color-bg-page: #0f172a;
+    --color-bg-card: #111827;
+    --color-bg-input: #1e293b;
+    --color-bg-input-focus: #243247;
+    --color-bg-code: #172554;
 
-    --color-border: #333;
-    --color-border-light: #2a2a2a;
-    --color-border-input: #444;
+    --color-border: #475569;
+    --color-border-light: #334155;
+    --color-border-input: #64748b;
 
     --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.2), 0 4px 16px rgba(0, 0, 0, 0.15);
     --shadow-card-hover: 0 2px 8px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.2);
@@ -309,13 +309,13 @@ input, select, textarea {
 
 input:focus, select:focus, textarea:focus {
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.1);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14);
   background: var(--color-bg-input-focus);
 }
 
 @media (prefers-color-scheme: dark) {
   input:focus, select:focus, textarea:focus {
-    box-shadow: 0 0 0 2px rgba(167, 139, 250, 0.15);
+    box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.2);
   }
 }
 
@@ -434,11 +434,11 @@ textarea {
   transition: background 0.2s;
 }
 
-.btn-secondary:hover { background: rgba(124, 58, 237, 0.06); }
+.btn-secondary:hover { background: rgba(37, 99, 235, 0.08); }
 .btn-secondary:active { transform: scale(0.99); }
 
 @media (prefers-color-scheme: dark) {
-  .btn-secondary:hover { background: rgba(167, 139, 250, 0.1); }
+  .btn-secondary:hover { background: rgba(96, 165, 250, 0.12); }
 }
 
 /* ── 状态反馈 ──────────────────────────────────────── */
