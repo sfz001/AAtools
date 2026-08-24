@@ -24,6 +24,7 @@ function jsonStreamResponse(value) {
 
 function loadOptions(options = {}) {
   const elements = new Map();
+  const documentListeners = new Map();
   const permissionRequests = [];
   const permissionRemovals = [];
   const savedSettings = [];
@@ -40,12 +41,47 @@ function loadOptions(options = {}) {
 
   function element(selector) {
     if (!elements.has(selector)) {
-      elements.set(selector, {
+      const listeners = new Map();
+      const children = [];
+      const value = {
         checked: false,
         className: '',
+        disabled: false,
         textContent: '',
         value: '',
+        style: {},
+        children,
+        options: children,
+        addEventListener(type, listener) {
+          if (!listeners.has(type)) listeners.set(type, []);
+          listeners.get(type).push(listener);
+        },
+        appendChild(child) {
+          children.push(child);
+          if (!this.value && typeof child?.value === 'string') this.value = child.value;
+          return child;
+        },
+        dispatchEvent(event) {
+          const actual = typeof event === 'string' ? { type: event } : event;
+          if (!actual.target) actual.target = this;
+          return Promise.all((listeners.get(actual.type) || []).map(listener => listener.call(this, actual)));
+        },
+        listenerCount(type) {
+          return (listeners.get(type) || []).length;
+        },
+      };
+      let innerHtml = '';
+      Object.defineProperty(value, 'innerHTML', {
+        get() { return innerHtml; },
+        set(next) {
+          innerHtml = String(next);
+          if (innerHtml === '') {
+            children.length = 0;
+            this.value = '';
+          }
+        },
       });
+      elements.set(selector, value);
     }
     return elements.get(selector);
   }
@@ -53,6 +89,7 @@ function loadOptions(options = {}) {
   const runtime = {
     id: 'test-extension',
     lastError: null,
+    getManifest() { return { version: '1.3.0' }; },
     sendMessage(message, callback) {
       runtimeMessages.push(structuredClone(message));
       let response;
@@ -198,9 +235,27 @@ function loadOptions(options = {}) {
     },
     clearTimeout: options.clearTimeout || (() => {}),
     console,
-    document: {
+    window: {
       addEventListener() {},
+    },
+    document: {
+      addEventListener(type, listener) {
+        if (!documentListeners.has(type)) documentListeners.set(type, []);
+        documentListeners.get(type).push(listener);
+      },
       querySelector(selector) { return element(selector); },
+      querySelectorAll(selector) {
+        return options.querySelectorAll ? options.querySelectorAll(selector, element) : [];
+      },
+      getElementById(id) { return element('#' + id); },
+      createElement(tagName) {
+        return {
+          tagName: String(tagName).toUpperCase(),
+          textContent: '',
+          value: '',
+          style: {},
+        };
+      },
     },
     setTimeout: options.setTimeout || (() => 1),
   };
@@ -224,8 +279,240 @@ function loadOptions(options = {}) {
     runtimeMessages,
     storageData,
     setRequestGranted(value) { requestGranted = value; },
+    dispatchDocumentEvent(type) {
+      return Promise.all((documentListeners.get(type) || []).map(listener => listener({ type })));
+    },
   };
 }
+
+function coreSettingsControls(selector, element) {
+  const ids = selector === 'input, select, textarea, button'
+    ? ['providerSelect', 'currentKey', 'model', 'save', 'fetchModels', 'fetchModelsBtn', 'toggleKey']
+    : selector === 'input, select, textarea'
+      ? ['providerSelect', 'currentKey', 'model']
+      : [];
+  return ids
+    .map((id) => {
+      const control = element('#' + id);
+      control.id = id;
+      control.tagName = id === 'providerSelect' || id === 'model' ? 'SELECT' : 'INPUT';
+      if (id === 'currentKey') control.type = 'password';
+      return control;
+    });
+}
+
+test('provider presets and switching remain usable when secure settings snapshot loading fails', async () => {
+  const loaded = loadOptions({
+    settingsLoaded: false,
+    querySelectorAll: coreSettingsControls,
+    runtimeSendMessage(message) {
+      if (message.type === 'MIGRATE_SECRETS') throw new Error('settings startup must not request redundant migration');
+      assert.equal(message.type, 'LOAD_SETTINGS_SNAPSHOT');
+      return { ok: false, error: 'simulated snapshot failure' };
+    },
+  });
+
+  await loaded.dispatchDocumentEvent('DOMContentLoaded');
+  assert.deepEqual(loaded.runtimeMessages, [{ type: 'LOAD_SETTINGS_SNAPSHOT' }]);
+  assert.equal(loaded.element('#keyLabel').textContent, 'Claude API Key');
+  assert.ok(loaded.element('#model').options.length > 0, 'Claude presets should render before settings load');
+  assert.ok(loaded.element('#providerSelect').listenerCount('change') > 0, 'provider change listener should bind before settings load');
+  assert.equal(loaded.element('#providerSelect').disabled, false);
+  assert.equal(loaded.element('#model').disabled, false);
+  assert.equal(loaded.element('#currentKey').disabled, true);
+  assert.equal(loaded.element('#save').disabled, true);
+  assert.equal(loaded.element('#fetchModels').disabled, true);
+
+  loaded.element('#providerSelect').value = 'openai';
+  await loaded.element('#providerSelect').dispatchEvent({ type: 'change' });
+  assert.equal(loaded.element('#keyLabel').textContent, 'OpenAI API Key');
+  assert.ok(loaded.element('#model').options.length > 0, 'OpenAI presets should render after switching');
+  assert.equal(loaded.element('#persistentStatus').textContent.includes('设置安全加载失败'), true);
+});
+
+test('a provider preview selected during loading survives the late settings snapshot', async () => {
+  let resolveSnapshot;
+  const commits = [];
+  const loaded = loadOptions({
+    settingsLoaded: false,
+    querySelectorAll: coreSettingsControls,
+    runtimeSendMessage(message) {
+      if (message.type === 'LOAD_SETTINGS_SNAPSHOT') {
+        return new Promise((resolve) => { resolveSnapshot = resolve; });
+      }
+      assert.equal(message.type, 'COMMIT_SETTINGS_TRANSACTION');
+      commits.push(structuredClone(message.transaction));
+      return { ok: true, revision: 3 };
+    },
+  });
+
+  const initialization = loaded.dispatchDocumentEvent('DOMContentLoaded');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(loaded.element('#currentKey').disabled, true);
+  assert.equal(loaded.element('#model').disabled, false);
+  loaded.element('#providerSelect').value = 'openai';
+  await loaded.element('#providerSelect').dispatchEvent({ type: 'change' });
+  assert.equal(loaded.element('#keyLabel').textContent, 'OpenAI API Key');
+  loaded.element('#model').value = 'gpt-5.6-terra';
+  await loaded.element('#model').dispatchEvent({ type: 'change' });
+
+  resolveSnapshot({
+    ok: true,
+    revision: 2,
+    local: { claudeKey: 'claude-key', openaiKey: 'openai-key' },
+    sync: { provider: 'claude', claudeModel: 'claude-opus-5', openaiModel: 'gpt-5.6-sol' },
+  });
+  await initialization;
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(loaded.element('#providerSelect').value, 'openai');
+  assert.equal(loaded.element('#keyLabel').textContent, 'OpenAI API Key');
+  assert.equal(loaded.element('#currentKey').value, 'openai-key');
+  assert.equal(loaded.element('#model').value, 'gpt-5.6-terra');
+  assert.equal(loaded.element('#currentKey').disabled, false);
+  assert.equal(loaded.element('#model').disabled, false);
+  assert.equal(commits.length, 1);
+  assert.equal(commits[0].expectedRevision, 2);
+  assert.equal(commits[0].syncSet.provider, 'openai');
+  assert.equal(commits[0].syncSet.openaiModel, 'gpt-5.6-terra');
+  assert.equal(commits[0].syncSet.model, 'gpt-5.6-terra');
+});
+
+test('provider changes after initialization use the real autosave selector and persist immediately', async () => {
+  const commits = [];
+  const loaded = loadOptions({
+    settingsLoaded: false,
+    querySelectorAll: coreSettingsControls,
+    runtimeSendMessage(message) {
+      if (message.type === 'LOAD_SETTINGS_SNAPSHOT') {
+        return {
+          ok: true,
+          revision: 6,
+          local: { claudeKey: 'claude-key', openaiKey: 'openai-key' },
+          sync: { provider: 'claude', claudeModel: 'claude-opus-5', openaiModel: 'gpt-5.6-sol' },
+        };
+      }
+      assert.equal(message.type, 'COMMIT_SETTINGS_TRANSACTION');
+      commits.push(structuredClone(message.transaction));
+      return { ok: true, revision: 7 };
+    },
+  });
+
+  await loaded.dispatchDocumentEvent('DOMContentLoaded');
+  assert.ok(loaded.element('#providerSelect').listenerCount('change') >= 2,
+    'provider should have both the renderer and generic autosave listeners');
+  loaded.element('#providerSelect').value = 'openai';
+  await loaded.element('#providerSelect').dispatchEvent({ type: 'change' });
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.equal(commits.length, 1);
+  assert.equal(commits[0].expectedRevision, 6);
+  assert.equal(commits[0].syncSet.provider, 'openai');
+  assert.equal(commits[0].syncSet.openaiModel, 'gpt-5.6-sol');
+});
+
+test('every provider switch renders its own label and preset models', () => {
+  const loaded = loadOptions();
+  const providers = JSON.parse(JSON.stringify(vm.runInContext(
+    'Object.fromEntries(Object.entries(PROVIDERS).map(([id, cfg]) => [id, { label: cfg.label, modelCount: cfg.models.length, hasKey: Boolean(cfg.keyField) }]))',
+    loaded.context
+  )));
+
+  for (const [id, expected] of Object.entries(providers)) {
+    loaded.context.switchProvider(id);
+    assert.equal(loaded.element('#providerSelect').value, id);
+    assert.equal(loaded.element('#keyLabel').textContent, expected.label);
+    assert.ok(loaded.element('#model').options.length >= expected.modelCount, `${id} presets should render`);
+    assert.equal(loaded.element('#apiKeyField').style.display, expected.hasKey ? '' : 'none');
+  }
+});
+
+test('successful settings initialization hydrates safely, enables controls, and keeps warnings durable', async () => {
+  const timers = [];
+  const loaded = loadOptions({
+    settingsLoaded: false,
+    querySelectorAll: coreSettingsControls,
+    setTimeout(callback, ms) {
+      timers.push({ callback, ms });
+      return timers.length;
+    },
+    runtimeSendMessage(message) {
+      assert.equal(message.type, 'LOAD_SETTINGS_SNAPSHOT');
+      return {
+        ok: true,
+        revision: 4,
+        local: {
+          openaiKey: 'local-openai-key',
+          fetchedModels_openai: [
+            null,
+            { value: 'gpt-5.6-sol', label: 'duplicate preset' },
+            { value: 'gpt-extra', label: 'GPT Extra' },
+          ],
+        },
+        sync: { provider: 'openai', openaiModel: 'gpt-extra' },
+        warnings: ['simulated cleanup warning'],
+      };
+    },
+  });
+
+  await loaded.dispatchDocumentEvent('DOMContentLoaded');
+  assert.equal(vm.runInContext('settingsLoaded', loaded.context), true);
+  assert.equal(vm.runInContext('settingsRevision', loaded.context), 4);
+  assert.equal(loaded.element('#providerSelect').value, 'openai');
+  assert.equal(loaded.element('#keyLabel').textContent, 'OpenAI API Key');
+  assert.equal(loaded.element('#currentKey').value, 'local-openai-key');
+  assert.equal(loaded.element('#model').value, 'gpt-extra');
+  assert.equal(loaded.element('#model').options.filter(option => option.value === 'gpt-5.6-sol').length, 1);
+  assert.equal(loaded.element('#model').options.filter(option => option.value === 'gpt-extra').length, 1);
+  assert.equal(loaded.element('#model').disabled, false);
+  assert.equal(loaded.element('#currentKey').disabled, false);
+  assert.equal(loaded.element('#save').disabled, false);
+  assert.equal(loaded.element('#fetchModels').disabled, false);
+  assert.match(loaded.element('#persistentStatus').textContent, /simulated cleanup warning/);
+
+  loaded.context.showStatus('temporary success', 'success');
+  assert.equal(loaded.element('#status').textContent, 'temporary success');
+  timers.at(-1).callback();
+  assert.equal(loaded.element('#status').textContent, '');
+  assert.match(loaded.element('#persistentStatus').textContent, /simulated cleanup warning/);
+});
+
+test('successful manual recovery clears only the durable warnings it resolves', async () => {
+  const loaded = loadOptions();
+  loaded.context.setPersistentWarnings([
+    { kind: 'background', text: 'background cleanup still pending' },
+    { kind: 'consistency', text: 'settings conflict' },
+    { kind: 'gateway', text: 'gateway authorization required' },
+  ]);
+
+  assert.equal(loaded.context.saveSettings(true), true);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.match(loaded.element('#persistentStatus').textContent, /background cleanup still pending/);
+  assert.doesNotMatch(loaded.element('#persistentStatus').textContent, /settings conflict/);
+  assert.match(loaded.element('#persistentStatus').textContent, /gateway authorization required/);
+
+  assert.equal(loaded.context.saveSettings(true, 'sub2api', ''), true);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(loaded.element('#persistentStatus').textContent,
+    '设置已加载，但需要处理：background cleanup still pending');
+});
+
+test('a newer autosave cannot prevent a successful manual recovery from clearing its warning', async () => {
+  const loaded = loadOptions();
+  loaded.context.setPersistentWarnings([
+    { kind: 'consistency', text: 'settings conflict' },
+  ]);
+
+  assert.equal(loaded.context.saveSettings(true), true);
+  await new Promise((resolve, reject) => {
+    const started = loaded.context.saveSettings(false, undefined, undefined, (error) => {
+      if (error) reject(error);
+      else resolve();
+    });
+    assert.equal(started, true);
+  });
+
+  assert.equal(loaded.element('#persistentStatus').textContent, '');
+});
 
 test('gateway permission request uses the exact normalized origin including port', async () => {
   const loaded = loadOptions();
@@ -580,6 +867,26 @@ test('model fetch single-flight is scoped per provider and a timeout always unlo
   assert.match(timedOut.element('#status').textContent, /超时/);
 });
 
+test('provider rendering ignores malformed fetched-model caches and keeps all presets', () => {
+  const loaded = loadOptions();
+  const expected = JSON.parse(JSON.stringify(vm.runInContext(
+    'PROVIDERS.claude.models.map(model => model.value)',
+    loaded.context
+  )));
+  const malformedCaches = [
+    'not-an-array',
+    { length: 1, value: 'fake' },
+    [null, { value: 'claude-incomplete' }],
+  ];
+
+  for (const malformed of malformedCaches) {
+    loaded.context.__malformedFetchedModels = malformed;
+    vm.runInContext('fetchedModelsCache.claude = __malformedFetchedModels', loaded.context);
+    assert.doesNotThrow(() => loaded.context.switchProvider('claude'));
+    assert.deepEqual(loaded.element('#model').options.map(option => option.value), expected);
+  }
+});
+
 test('model fetchers paginate Claude/Gemini and direct OpenAI only offers backend-supported gpt models', async () => {
   let claudePage = 0;
   const claude = loadOptions({
@@ -671,9 +978,12 @@ test('manifest minimizes hosts, scopes frame injection, and exposes only require
 
 test('credential fields and external links have browser autofill, spellcheck, and opener hardening', () => {
   const html = fs.readFileSync(path.join(__dirname, '..', 'options.html'), 'utf8');
+  const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'manifest.json'), 'utf8'));
   assert.match(html, /id="currentKey"[^>]*spellcheck="false"[^>]*autocomplete="new-password"/);
   assert.match(html, /id="sub2apiBaseUrl"[^>]*spellcheck="false"[^>]*autocomplete="off"/);
   assert.match(html, /id="chatgptAuthPaste"[^>]*maxlength="1000000"[^>]*spellcheck="false"[^>]*autocomplete="off"/);
+  assert.match(html, /id="persistentStatus"[^>]*role="status"[^>]*aria-live="polite"/);
+  assert.match(html, new RegExp(`id="version-badge">v${manifest.version.replace(/\./g, '\\.')}`));
   for (const match of html.matchAll(/<a\b[^>]*target="_blank"[^>]*>/g)) {
     assert.match(match[0], /rel="noopener noreferrer"/);
   }

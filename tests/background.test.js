@@ -1426,6 +1426,198 @@ test('startup and options loading reconcile orphan gateway grants but retain act
   assert.equal(loaded.storageData.local.gatewayPermissionReauthorizationRequired, undefined);
 });
 
+test('options snapshot survives deprecated-setting cleanup failure and reports a warning', async () => {
+  const loaded = loadBackground({
+    localData: {
+      legacyBroadHostPermissionRemovedV1: { completed: true, removed: false, migratedAt: 1 },
+      settingsRevisionV1: 7,
+    },
+    syncData: { provider: 'openai', notionPage: 'legacy-page' },
+    storageRemove(area, keys) {
+      if (area === 'sync' && keys.includes('notionPage')) {
+        throw new Error('simulated deprecated cleanup failure');
+      }
+      return false;
+    },
+  });
+
+  const snapshot = await dispatchMessage(loaded, { type: 'LOAD_SETTINGS_SNAPSHOT' }, {
+    id: 'test-extension', url: 'chrome-extension://test-extension/options.html',
+  });
+
+  assert.equal(snapshot.response.ok, true);
+  assert.equal(snapshot.response.revision, 7);
+  assert.equal(snapshot.response.sync.provider, 'openai');
+  assert.ok(Array.isArray(snapshot.response.warnings));
+  assert.match(snapshot.response.warnings.join(' '), /simulated deprecated cleanup failure/);
+});
+
+test('options snapshot fails closed when a reintroduced deprecated secret cannot be scrubbed', async () => {
+  let failDeprecatedSecretRemoval = false;
+  const loaded = loadBackground({
+    localData: {
+      legacyBroadHostPermissionRemovedV1: { completed: true, removed: false, migratedAt: 1 },
+      settingsRevisionV1: 9,
+    },
+    syncData: { provider: 'openai' },
+    storageRemove(area, keys) {
+      if (failDeprecatedSecretRemoval && area === 'sync' && keys.includes('githubKey')) {
+        throw new Error('simulated deprecated secret scrub failure');
+      }
+      return false;
+    },
+  });
+
+  // Let the startup migration establish its cached-success state, then model
+  // an older synced device writing a retired credential back afterward.
+  assert.equal((await loaded.context.ensureSecretsMigrated()).ok, true);
+  assert.equal((await loaded.context.cleanupDeprecatedSyncSettings()).ok, true);
+  failDeprecatedSecretRemoval = true;
+  loaded.storageData.sync.githubKey = 'reintroduced-legacy-secret';
+  loaded.triggerStorageChange({
+    githubKey: { oldValue: undefined, newValue: 'reintroduced-legacy-secret' },
+  }, 'sync');
+
+  const blocked = await dispatchMessage(loaded, { type: 'LOAD_SETTINGS_SNAPSHOT' }, {
+    id: 'test-extension', url: 'chrome-extension://test-extension/options.html',
+  });
+  assert.equal(blocked.response.ok, false);
+  assert.match(blocked.response.error, /simulated deprecated secret scrub failure/);
+  assert.equal(loaded.storageData.sync.githubKey, 'reintroduced-legacy-secret');
+
+  // A later healthy retry must scrub the secret before returning a snapshot.
+  failDeprecatedSecretRemoval = false;
+  const recovered = await dispatchMessage(loaded, { type: 'LOAD_SETTINGS_SNAPSHOT' }, {
+    id: 'test-extension', url: 'chrome-extension://test-extension/options.html',
+  });
+  assert.equal(recovered.response.ok, true);
+  assert.equal(recovered.response.revision, 9);
+  assert.equal(Object.prototype.hasOwnProperty.call(loaded.storageData.sync, 'githubKey'), false);
+});
+
+test('a secret reintroduced while a snapshot scrub is settling forces another scrub before return', async () => {
+  let loadedRef;
+  let injectDuringSnapshot = false;
+  let secretScrubCount = 0;
+  const loaded = loadBackground({
+    localData: {
+      legacyBroadHostPermissionRemovedV1: { completed: true, removed: false, migratedAt: 1 },
+      settingsRevisionV1: 5,
+    },
+    syncData: { provider: 'openai' },
+    storageRemove(area, keys, commit) {
+      if (area !== 'sync' || !keys.includes('openaiKey')) return false;
+      secretScrubCount++;
+      commit();
+      if (injectDuringSnapshot) {
+        injectDuringSnapshot = false;
+        loadedRef.storageData.sync.openaiKey = 'race-reintroduced-secret';
+        loadedRef.triggerStorageChange({
+          openaiKey: { oldValue: undefined, newValue: 'race-reintroduced-secret' },
+        }, 'sync');
+      }
+      return true;
+    },
+  });
+  loadedRef = loaded;
+
+  assert.equal((await loaded.context.ensureSecretsMigrated()).ok, true);
+  const scrubsBeforeSnapshot = secretScrubCount;
+  injectDuringSnapshot = true;
+  const snapshot = await dispatchMessage(loaded, { type: 'LOAD_SETTINGS_SNAPSHOT' }, {
+    id: 'test-extension', url: 'chrome-extension://test-extension/options.html',
+  });
+
+  assert.equal(snapshot.response.ok, true);
+  assert.ok(secretScrubCount >= scrubsBeforeSnapshot + 2,
+    'the in-flight reintroduction should schedule a second stable scrub pass');
+  assert.equal(Object.prototype.hasOwnProperty.call(loaded.storageData.sync, 'openaiKey'), false);
+});
+
+test('options snapshot survives gateway-permission reconciliation failure and reports a warning', async () => {
+  const loaded = loadBackground({
+    localData: {
+      legacyBroadHostPermissionRemovedV1: { completed: true, removed: false, migratedAt: 1 },
+      settingsRevisionV1: 3,
+    },
+    syncData: { provider: 'gemini' },
+    permissionGetAll() {
+      throw new Error('simulated gateway reconcile failure');
+    },
+  });
+
+  const snapshot = await dispatchMessage(loaded, { type: 'LOAD_SETTINGS_SNAPSHOT' }, {
+    id: 'test-extension', url: 'chrome-extension://test-extension/options.html',
+  });
+
+  assert.equal(snapshot.response.ok, true);
+  assert.equal(snapshot.response.revision, 3);
+  assert.equal(snapshot.response.sync.provider, 'gemini');
+  assert.ok(Array.isArray(snapshot.response.warnings));
+  assert.match(snapshot.response.warnings.join(' '), /simulated gateway reconcile failure/);
+});
+
+test('options snapshot still fails closed when secret migration cannot establish trusted local storage', async () => {
+  const loaded = loadBackground({
+    accessLevelError: new Error('simulated trusted storage failure'),
+    syncData: { provider: 'claude' },
+  });
+
+  const snapshot = await dispatchMessage(loaded, { type: 'LOAD_SETTINGS_SNAPSHOT' }, {
+    id: 'test-extension', url: 'chrome-extension://test-extension/options.html',
+  });
+
+  assert.equal(snapshot.response.ok, false);
+  assert.match(snapshot.response.error, /simulated trusted storage failure/);
+});
+
+test('options snapshot still fails closed when its authoritative storage read fails', async () => {
+  const loaded = loadBackground({
+    localData: {
+      legacyBroadHostPermissionRemovedV1: { completed: true, removed: false, migratedAt: 1 },
+      settingsRevisionV1: 0,
+    },
+    syncData: { provider: 'claude' },
+    storageGet() {
+      throw new Error('simulated authoritative snapshot failure');
+    },
+  });
+
+  const snapshot = await dispatchMessage(loaded, { type: 'LOAD_SETTINGS_SNAPSHOT' }, {
+    id: 'test-extension', url: 'chrome-extension://test-extension/options.html',
+  });
+
+  assert.equal(snapshot.response.ok, false);
+  assert.match(snapshot.response.error, /simulated authoritative snapshot failure/);
+});
+
+test('options snapshot still fails closed when an external-sync revision cannot be persisted', async () => {
+  const loaded = loadBackground({
+    localData: {
+      legacyBroadHostPermissionRemovedV1: { completed: true, removed: false, migratedAt: 1 },
+      settingsRevisionV1: 0,
+    },
+    syncData: { provider: 'claude' },
+    storageSet(area, data) {
+      if (area === 'local' && Object.prototype.hasOwnProperty.call(data, 'settingsRevisionV1')) {
+        throw new Error('simulated revision persistence failure');
+      }
+      return false;
+    },
+  });
+  loaded.storageData.sync.provider = 'openai';
+  loaded.triggerStorageChange({
+    provider: { oldValue: 'claude', newValue: 'openai' },
+  }, 'sync');
+
+  const snapshot = await dispatchMessage(loaded, { type: 'LOAD_SETTINGS_SNAPSHOT' }, {
+    id: 'test-extension', url: 'chrome-extension://test-extension/options.html',
+  });
+
+  assert.equal(snapshot.response.ok, false);
+  assert.match(snapshot.response.error, /simulated revision persistence failure/);
+});
+
 test('malformed provider and ChatGPT values in storage are rejected before API calls', async () => {
   const malformedKey = loadBackground({ localData: { claudeKey: { secret: true } } });
   assert.match((await malformedKey.context.loadProviderConfig('claude')).error, /格式无效/);

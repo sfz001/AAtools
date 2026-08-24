@@ -2818,15 +2818,31 @@ function ensureSecretsMigrated() {
 ensureSecretsMigrated();
 
 let secretsMigrationRerunPromise = null;
+let secretsMigrationRerunRequested = false;
 function scheduleSecretsMigrationRerun() {
+  // Calls arriving while a scrub is in flight must request another pass. In
+  // particular, an older synced device can restore a secret after remove()
+  // commits but before the current migration Promise settles.
+  secretsMigrationRerunRequested = true;
   if (secretsMigrationRerunPromise) return secretsMigrationRerunPromise;
-  const activeMigration = secretsMigrationPromise || Promise.resolve();
-  secretsMigrationRerunPromise = Promise.resolve(activeMigration).then(() => {
-    secretsMigrationPromise = null;
-    return ensureSecretsMigrated();
-  }).finally(() => {
-    secretsMigrationRerunPromise = null;
-  });
+  secretsMigrationRerunPromise = (async () => {
+    try {
+      let result;
+      do {
+        secretsMigrationRerunRequested = false;
+        const activeMigration = secretsMigrationPromise;
+        if (activeMigration) await activeMigration;
+        secretsMigrationPromise = null;
+        result = await ensureSecretsMigrated();
+        if (result?.error) return result;
+      } while (secretsMigrationRerunRequested);
+      return result;
+    } finally {
+      // This runs in the same microtask as the final stability check, leaving
+      // no published settled-Promise window in which a new request is lost.
+      secretsMigrationRerunPromise = null;
+    }
+  })();
   return secretsMigrationRerunPromise;
 }
 
@@ -2929,11 +2945,21 @@ async function reconcileGatewayPermissions() {
 }
 
 async function loadOptionsSettingsSnapshot() {
-  const migration = await ensureSecretsMigrated();
+  // Always run a fresh scrub before exposing the trusted options snapshot.
+  // Another device running an older version can reintroduce current or
+  // deprecated credentials after the startup migration promise was cached.
+  const migration = await scheduleSecretsMigrationRerun();
   if (migration?.error) throw new Error(migration.error);
+  const warnings = [];
   const cleanup = await cleanupDeprecatedSyncSettings();
-  if (cleanup?.error) throw new Error(cleanup.error);
-  await reconcileGatewayPermissions();
+  if (cleanup?.error) warnings.push('旧版设置清理未完成：' + cleanup.error);
+  try {
+    await reconcileGatewayPermissions();
+  } catch (error) {
+    // Gateway requests independently fail closed on broad/missing grants. A
+    // cleanup error must not make unrelated providers' settings unreadable.
+    warnings.push('网关权限清理未完成：' + (error?.message || error));
+  }
   await flushExternalSyncRevisionInvalidation();
   return queueSettingsStorageOperation(async () => {
     const localFields = [
@@ -2950,7 +2976,7 @@ async function loadOptionsSettingsSnapshot() {
     ]);
     const revision = normalizeSettingsRevision(local[SETTINGS_REVISION_FIELD]);
     delete local[SETTINGS_REVISION_FIELD];
-    return { revision, local, sync };
+    return { revision, local, sync, ...(warnings.length ? { warnings } : {}) };
   });
 }
 
@@ -3037,7 +3063,7 @@ try {
 try {
   chrome.storage.onChanged.addListener((changes, areaName) => {
     if (areaName !== 'sync') return;
-    const secretReintroduced = SECRET_KEY_FIELDS.some((field) =>
+    const secretReintroduced = [...SECRET_KEY_FIELDS, ...DEPRECATED_SYNC_SECRET_FIELDS].some((field) =>
       Object.prototype.hasOwnProperty.call(changes || {}, field) && changes[field]?.newValue !== undefined
     );
     if (secretReintroduced) scheduleSecretsMigrationRerun();
