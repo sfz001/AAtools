@@ -437,18 +437,6 @@ textarea {
 .btn-secondary:hover { background: rgba(37, 99, 235, 0.08); }
 .btn-secondary:active { transform: scale(0.99); }
 
-button:disabled,
-input:disabled,
-select:disabled,
-textarea:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
-button:disabled:hover {
-  text-decoration: none;
-}
-
 @media (prefers-color-scheme: dark) {
   .btn-secondary:hover { background: rgba(96, 165, 250, 0.12); }
 }
@@ -460,7 +448,6 @@ button:disabled:hover {
   font-size: 13px;
   min-height: 20px;
 }
-#persistentStatus:empty { display: none; }
 .status.success { color: var(--color-success); }
 .status.error { color: var(--color-error); }
 

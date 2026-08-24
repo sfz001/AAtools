@@ -113,16 +113,12 @@ function loadSettingsSnapshot() {
           return;
         }
         if (!response?.ok || !Number.isSafeInteger(response.revision) || response.revision < 0 ||
-            !response.local || typeof response.local !== 'object' || Array.isArray(response.local) ||
-            !response.sync || typeof response.sync !== 'object' || Array.isArray(response.sync)) {
+            !response.local || typeof response.local !== 'object' ||
+            !response.sync || typeof response.sync !== 'object') {
           reject(new Error(response?.error || '设置快照格式无效'));
           return;
         }
-        const warnings = Array.isArray(response.warnings)
-          ? response.warnings.filter((warning) => typeof warning === 'string')
-            .slice(0, 10).map((warning) => warning.slice(0, 1000))
-          : [];
-        resolve({ ...response, warnings });
+        resolve(response);
       });
     } catch (error) {
       reject(error);
@@ -237,9 +233,6 @@ let sub2apiBaseUrl = '';
 let settingsLoaded = false;
 let settingsRevision = null;
 let settingsRevisionConflictDetected = false;
-let providerChangedDuringSettingsLoad = false;
-const modelSelectionsDuringSettingsLoad = {};
-let persistentStartupWarnings = [];
 let settingsCommitTail = Promise.resolve();
 
 const SUB2API_BASE_INPUT = {
@@ -564,100 +557,58 @@ function saveAuthorizedGateway(authorization) {
   return started !== false;
 }
 
-function handleProviderChange(event) {
-  const cfg = PROVIDERS[currentProvider];
-  if (cfg.keyField) keyCache[cfg.keyField] = $('#currentKey').value.trim();
-  modelCache[currentProvider] = $('#model').value;
-  if (!settingsLoaded) providerChangedDuringSettingsLoad = true;
-  switchProvider(event.target.value);
-}
-
-function handleModelChangeDuringLoad(event) {
-  if (settingsLoaded) return;
-  const model = boundedStoredString(event.target.value, 500);
-  if (model) modelSelectionsDuringSettingsLoad[currentProvider] = model;
-}
-
-function setSettingsControlsReady(ready) {
-  document.querySelectorAll('input, select, textarea, button').forEach((element) => {
-    if (element.id === 'providerSelect' || element.id === 'model') return;
-    element.disabled = !ready;
-  });
-  updateModelFetchButtons();
-}
-
 document.addEventListener('DOMContentLoaded', async () => {
-  // Provider rendering only depends on static presets, so make it usable before
-  // contacting the service worker. A stale/restarting extension context must not
-  // leave the page stuck on the HTML fallback label with an empty model list.
-  const providerSelect = $('#providerSelect');
-  providerSelect.addEventListener('change', handleProviderChange);
-  $('#model').addEventListener('change', handleModelChangeDuringLoad);
-  setSettingsControlsReady(false);
-  switchProvider(Object.prototype.hasOwnProperty.call(PROVIDERS, providerSelect.value)
-    ? providerSelect.value
-    : 'claude');
-  try {
-    const versionBadge = document.getElementById('version-badge');
-    if (versionBadge) versionBadge.textContent = 'v' + chrome.runtime.getManifest().version;
-  } catch (_) {}
-
   let snapshot;
   try {
+    await migrateLegacySecrets();
     snapshot = await loadSettingsSnapshot();
   } catch (error) {
-    $('#currentKey').value = '';
-    showPersistentStatus('设置安全加载失败；当前服务商和模型仅供查看，无法保存。请重新加载扩展后再打开本页：' + (error.message || error), 'error');
+    showStatus('设置安全加载失败：' + (error.message || error), 'error');
     return;
   }
 
   const local = snapshot.local;
   const data = snapshot.sync;
-  const startupWarnings = Array.isArray(snapshot.warnings)
-    ? snapshot.warnings.map((text) => ({ kind: 'background', text }))
-    : [];
   settingsRevision = snapshot.revision;
   settingsRevisionConflictDetected = false;
-  for (const provider of ['claude', 'openai', 'gemini', 'minimax', 'deepseek', 'kimi']) {
-    const models = normalizeFetchedModels(local['fetchedModels_' + provider]);
-    if (models.length) fetchedModelsCache[provider] = models;
-  }
+  if (local.fetchedModels_claude) fetchedModelsCache.claude = local.fetchedModels_claude;
+  if (local.fetchedModels_openai) fetchedModelsCache.openai = local.fetchedModels_openai;
+  if (local.fetchedModels_gemini) fetchedModelsCache.gemini = local.fetchedModels_gemini;
+  if (local.fetchedModels_minimax) fetchedModelsCache.minimax = local.fetchedModels_minimax;
+  if (local.fetchedModels_deepseek) fetchedModelsCache.deepseek = local.fetchedModels_deepseek;
+  if (local.fetchedModels_kimi) fetchedModelsCache.kimi = local.fetchedModels_kimi;
 
-  keyCache.claudeKey = boundedStoredString(local.claudeKey, 10000);
-  keyCache.openaiKey = boundedStoredString(local.openaiKey, 10000);
-  keyCache.geminiKey = boundedStoredString(local.geminiKey, 10000);
-  keyCache.minimaxKey = boundedStoredString(local.minimaxKey, 10000);
-  keyCache.deepseekKey = boundedStoredString(local.deepseekKey, 10000);
-  keyCache.kimiKey = boundedStoredString(local.kimiKey, 10000);
-  keyCache.sub2apiKey = boundedStoredString(local.sub2apiKey, 10000);
+  keyCache.claudeKey = local.claudeKey || '';
+  keyCache.openaiKey = local.openaiKey || '';
+  keyCache.geminiKey = local.geminiKey || '';
+  keyCache.minimaxKey = local.minimaxKey || '';
+  keyCache.deepseekKey = local.deepseekKey || '';
+  keyCache.kimiKey = local.kimiKey || '';
+  keyCache.sub2apiKey = local.sub2apiKey || '';
 
-  modelCache.claude = boundedStoredString(data.claudeModel, 500);
-  modelCache.openai = boundedStoredString(data.openaiModel, 500);
-  modelCache.gemini = boundedStoredString(data.geminiModel, 500);
-  modelCache.minimax = boundedStoredString(data.minimaxModel, 500);
-  modelCache.deepseek = boundedStoredString(data.deepseekModel, 500);
-  modelCache.kimi = boundedStoredString(data.kimiModel, 500);
-  modelCache.sub2api = boundedStoredString(data.sub2apiModel, 500);
-  modelCache.chatgpt = boundedStoredString(data.chatgptModel, 500);
-  for (const [provider, model] of Object.entries(modelSelectionsDuringSettingsLoad)) {
-    if (Object.prototype.hasOwnProperty.call(PROVIDERS, provider)) modelCache[provider] = model;
-  }
-  sub2apiBaseUrl = boundedStoredString(data.sub2apiBaseUrl, 2048);
+  modelCache.claude = data.claudeModel || '';
+  modelCache.openai = data.openaiModel || '';
+  modelCache.gemini = data.geminiModel || '';
+  modelCache.minimax = data.minimaxModel || '';
+  modelCache.deepseek = data.deepseekModel || '';
+  modelCache.kimi = data.kimiModel || '';
+  modelCache.sub2api = data.sub2apiModel || '';
+  modelCache.chatgpt = data.chatgptModel || '';
+  sub2apiBaseUrl = data.sub2apiBaseUrl || '';
   $('#sub2apiBaseUrl').value = sub2apiBaseUrl;
   if (keyCache.sub2apiKey && sub2apiBaseUrl && local[SUB2API_KEY_ORIGIN_FIELD] !== gatewayOrigin(sub2apiBaseUrl)) {
-    startupWarnings.push({ kind: 'gateway', text: 'Sub2API Key 尚未绑定当前网关；请重新点击“授权域名”并保存' });
+    showStatus('Sub2API Key 尚未绑定当前网关；请重新点击“授权域名”并保存', 'error');
   }
   if (local[GATEWAY_REAUTH_MARKER] && sub2apiBaseUrl) {
-    startupWarnings.push({ kind: 'gateway', text: '已移除旧版全站权限；请选择 Sub2API 并重新点击“授权域名”' });
+    showStatus('已移除旧版全站权限；请选择 Sub2API 并重新点击“授权域名”', 'error');
   }
   if (local[SETTINGS_CONSISTENCY_ERROR_FIELD]) {
-    startupWarnings.push({ kind: 'consistency', text: '检测到设置同步冲突；请检查当前服务商与网关地址，然后手动保存一次以恢复请求' });
+    showStatus('检测到设置同步冲突；请检查当前服务商与网关地址，然后手动保存一次以恢复请求', 'error');
   }
 
-  const savedProvider = Object.prototype.hasOwnProperty.call(PROVIDERS, data.provider) ? data.provider : 'claude';
-  if (!modelCache[savedProvider]) modelCache[savedProvider] = boundedStoredString(data.model, 500);
-  const displayProvider = providerChangedDuringSettingsLoad ? currentProvider : savedProvider;
-  switchProvider(displayProvider);
+  currentProvider = Object.prototype.hasOwnProperty.call(PROVIDERS, data.provider) ? data.provider : 'claude';
+  if (!modelCache[currentProvider] && data.model) modelCache[currentProvider] = data.model;
+  switchProvider(currentProvider);
 
   const panelDefaultCollapsed = data.youtubePanelDefaultCollapsed !== false;
   $('#youtubePanelDefaultCollapsed').checked = panelDefaultCollapsed;
@@ -671,9 +622,17 @@ document.addEventListener('DOMContentLoaded', async () => {
   $('#enableGestures').checked = data.enableGestures !== false;
   $('#gestureKeepMenu').checked = data.gestureKeepMenu !== false;
 
+  var vb = document.getElementById('version-badge');
+  if (vb) vb.textContent = 'v' + chrome.runtime.getManifest().version;
   settingsLoaded = true;
-  setSettingsControlsReady(true);
-  setPersistentWarnings(startupWarnings);
+
+  // Provider select
+  $('#providerSelect').addEventListener('change', (e) => {
+    const cfg = PROVIDERS[currentProvider];
+    if (cfg.keyField) keyCache[cfg.keyField] = $('#currentKey').value.trim();
+    modelCache[currentProvider] = $('#model').value;
+    switchProvider(e.target.value);
+  });
 
   $('#toggleKey').addEventListener('click', () => {
     const input = $('#currentKey');
@@ -918,17 +877,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     saveChatgptAuthPaste.flush();
     autoSave.flush();
   });
-  const selectionChangedDuringLoad = providerChangedDuringSettingsLoad ||
-    Object.keys(modelSelectionsDuringSettingsLoad).length > 0;
-  providerChangedDuringSettingsLoad = false;
-  Object.keys(modelSelectionsDuringSettingsLoad).forEach((provider) => {
-    delete modelSelectionsDuringSettingsLoad[provider];
-  });
-  if (selectionChangedDuringLoad) {
-    saveSettings(false, undefined, undefined, (error) => {
-      if (error) showPersistentStatus('加载期间选择的服务商或模型未能保存：' + error.message, 'error');
-    });
-  }
 });
 
 // 缓存已拉取的模型列表（从 storage.local 加载）
@@ -950,8 +898,8 @@ function updateModelFetchButtons() {
   const loading = modelFetchFlights.has(currentProvider);
   const iconButton = $('#fetchModelsBtn');
   const textButton = $('#fetchModels');
-  iconButton.disabled = !settingsLoaded || loading;
-  textButton.disabled = !settingsLoaded || loading;
+  iconButton.disabled = loading;
+  textButton.disabled = loading;
   iconButton.innerHTML = loading
     ? '<svg class="ytx-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10" stroke-opacity="0.25"/><path d="M12 2a10 10 0 0 1 10 10" stroke-linecap="round"/></svg>'
     : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>';
@@ -998,39 +946,14 @@ function switchProvider(id) {
   updateModelFetchButtons();
 }
 
-function boundedStoredString(value, maxLength) {
-  return typeof value === 'string' && value.length <= maxLength ? value : '';
-}
-
-function normalizeFetchedModels(models) {
-  if (!Array.isArray(models)) return [];
-  const normalized = [];
-  const limit = Math.min(models.length, MAX_FETCHED_MODELS);
-  for (let index = 0; index < limit; index++) {
-    const model = models[index];
-    if (!model || typeof model !== 'object' ||
-        typeof model.value !== 'string' || typeof model.label !== 'string' ||
-        !model.value || model.value.length > 500 || model.label.length > 500) continue;
-    normalized.push({ value: model.value, label: model.label });
-  }
-  return normalized;
-}
-
 // 预置模型与「从官网获取」的列表合并，预置在前、按 value 去重。
 // 拉取列表不能直接替换预置：/v1/models 只返回该 key 有权访问的模型真名，既不含别名
 // （gpt-5.6 → gpt-5.6-sol），组织未获得新模型权限时整代新模型也会整批缺席。直接替换会让
 // 推荐模型从下拉里彻底消失，而且拉取结果持久缓存在 storage.local，换 key 后不重新拉取就一直被遮蔽。
 function mergeModels(preset, fetched) {
-  const normalized = normalizeFetchedModels(fetched);
-  if (!normalized.length) return preset;
+  if (!fetched || !fetched.length) return preset;
   const seen = new Set(preset.map(m => m.value));
-  const merged = preset.slice();
-  normalized.forEach((model) => {
-    if (seen.has(model.value)) return;
-    seen.add(model.value);
-    merged.push(model);
-  });
-  return merged;
+  return preset.concat(fetched.filter(m => !seen.has(m.value)));
 }
 
 function populateModelSelect(models, selected) {
@@ -1053,39 +976,6 @@ function populateModelSelect(models, selected) {
     }
     select.value = selected;
   }
-}
-
-function showPersistentStatus(text, type) {
-  const el = $('#persistentStatus') || $('#status');
-  if (!el) return;
-  el.textContent = text;
-  el.className = 'status ' + type;
-}
-
-function renderPersistentWarnings() {
-  const el = $('#persistentStatus') || $('#status');
-  if (!el) return;
-  if (!persistentStartupWarnings.length) {
-    el.textContent = '';
-    el.className = 'status';
-    return;
-  }
-  el.textContent = '设置已加载，但需要处理：' +
-    persistentStartupWarnings.map(warning => warning.text).join('；');
-  el.className = 'status error';
-}
-
-function setPersistentWarnings(warnings) {
-  persistentStartupWarnings = Array.isArray(warnings)
-    ? warnings.filter(warning => warning && typeof warning.kind === 'string' && typeof warning.text === 'string')
-    : [];
-  renderPersistentWarnings();
-}
-
-function clearPersistentWarningKinds(kinds) {
-  const resolvedKinds = new Set(Array.isArray(kinds) ? kinds : []);
-  persistentStartupWarnings = persistentStartupWarnings.filter(warning => !resolvedKinds.has(warning.kind));
-  renderPersistentWarnings();
 }
 
 function showStatus(text, type) {
@@ -1297,16 +1187,8 @@ function saveSettings(isManual, gatewayProvider, gatewayBaseOverride, done, gate
       },
     } : {}),
   }).then(() => {
-    // 任何成功的手动恢复事务都已在后台清除对应标记，即使其后又
-    // 排队了 autosave，也不应留下假阳性告警。只有短暂的全局状态提示限于最新保存。
-    if (isManual) {
-      clearPersistentWarningKinds(gatewayProvider
-        ? ['consistency', 'gateway']
-        : ['consistency']);
-    }
-    if (isManual && saveVersion === settingsSaveVersion) {
-      showStatus('设置已保存 ✓', 'success');
-    }
+    // 只有最新一次保存更新全局状态提示；存储写入仍严格按调用顺序串行。
+    if (isManual && saveVersion === settingsSaveVersion) showStatus('设置已保存 ✓', 'success');
     if (done) done(null);
   }).catch((error) => fail(error.message || error));
   return true;
