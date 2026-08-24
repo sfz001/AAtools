@@ -67,8 +67,8 @@
           <label for="sub2apiBaseUrl"><span>Sub2API Base URL</span></label>
           <button type="button" id="authorizeSub2api" class="btn-link">授权域名</button>
         </div>
-        <input type="text" id="sub2apiBaseUrl" placeholder="https://your-sub2api.example.com">
-        <div class="hint">中转网关地址（不含 <code>/v1/messages</code>）。使用前需授权对应域名；仅允许 HTTPS，localhost 可用 HTTP。模型按前缀自动选格式。</div>
+        <input type="text" id="sub2apiBaseUrl" maxlength="2048" placeholder="https://your-sub2api.example.com" spellcheck="false" autocomplete="off" autocapitalize="off">
+        <div class="hint">中转网关地址（不含 <code>/v1/messages</code>）。使用前需授权对应域名；仅允许 HTTPS，localhost 可用 HTTP。模型按前缀自动选格式。由旧版升级后，全站旧权限会被移除，已保存网关需重新点击“授权域名”。</div>
       </div>
 
       <div class="field" id="chatgptAuthField" style="display:none">
@@ -76,7 +76,7 @@
           <label for="chatgptAuthPaste"><span>ChatGPT 订阅授权</span></label>
           <button type="button" id="chatgptAuthClear" class="btn-link">清除授权</button>
         </div>
-        <textarea id="chatgptAuthPaste" rows="3" placeholder="粘贴 ~/.codex/auth.json 的完整内容（需先在终端运行 codex login 登录 ChatGPT 账号）"></textarea>
+        <textarea id="chatgptAuthPaste" rows="3" maxlength="1000000" spellcheck="false" autocomplete="off" autocapitalize="off" placeholder="粘贴 ~/.codex/auth.json 的完整内容（需先在终端运行 codex login 登录 ChatGPT 账号）"></textarea>
         <div class="hint" id="chatgptAuthStatus">未配置</div>
         <div class="hint">复制凭据到剪贴板后回来粘贴——<br>macOS：<code>cat ~/.codex/auth.json | pbcopy</code><br>Windows：<code>type %USERPROFILE%\.codex\auth.json | clip</code><br>没有该文件则先运行 <code>codex login</code> 用 ChatGPT 账号登录。</div>
         <div class="hint">走 chatgpt.com 的 Codex 通道，消耗 ChatGPT 订阅额度而非 API 计费。凭据仅存本机（storage.local），不随设置同步/导出；access token 过期后自动用 refresh token 刷新。</div>
@@ -85,14 +85,15 @@
       <div class="field" id="apiKeyField">
         <label for="currentKey">
           <span id="keyLabel">Claude API Key</span>
-          <a id="helpLink" href="https://console.anthropic.com/settings/keys" target="_blank" class="help-link">获取</a>
+          <a id="helpLink" href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer" class="help-link">获取</a>
         </label>
         <div class="input-wrap">
-          <input type="password" id="currentKey" placeholder="sk-ant-api03-...">
+          <input type="password" id="currentKey" maxlength="10000" placeholder="sk-ant-api03-..." spellcheck="false" autocomplete="new-password" autocapitalize="off">
           <button id="toggleKey" class="btn-icon" title="显示/隐藏">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
           </button>
         </div>
+        <div class="hint">API Key 仅保存在本机受信任的扩展存储中，不同步，也不会包含在设置导出文件里。</div>
       </div>
 
       <div class="field">
@@ -159,18 +160,19 @@
         </div>
       </div>
       <div class="field">
-        <label class="checkbox-label"><input type="checkbox" id="gestureKeepMenu"> 保留原生右键菜单</label>
+        <label class="checkbox-label"><input type="checkbox" id="gestureKeepMenu" checked> 保留原生右键菜单</label>
         <div class="hint">
-          <div><b>关闭（默认）</b>：按住右键 + 滑动直接触发手势，不弹菜单（Mac 触控板友好）；Mac 上 <code>Shift+右键</code> 临时弹原生菜单</div>
-          <div style="margin-top:4px"><b>开启</b>：Mac 普通右键弹菜单、<code>Shift+右键</code> 进手势；Win/Linux 短按弹菜单、拖动触发手势</div>
+          <div><b>开启（默认）</b>：Mac 普通右键弹菜单、<code>Shift+右键</code> 进手势；Win/Linux 短按弹菜单、拖动触发手势</div>
+          <div style="margin-top:4px"><b>关闭</b>：按住右键 + 滑动直接触发手势，不弹菜单（Mac 触控板友好）；Mac 上 <code>Shift+右键</code> 临时弹原生菜单</div>
         </div>
       </div>
     </div>
 
     <button id="save" class="btn-primary">保存设置</button>
     <div class="settings-actions">
-      <button id="exportSettings" class="btn-secondary">导出设置</button>
+      <button id="exportSettings" class="btn-secondary" title="不会导出 API Key 或 ChatGPT 授权">导出设置（不含凭据）</button>
       <button id="importSettings" class="btn-secondary">导入设置</button>
+      <button id="clearAllCache" class="btn-secondary" title="删除本机保存的全部 YouTube 生成结果">清空全部本地缓存</button>
       <input type="file" id="importFile" accept=".json" hidden>
     </div>
     <div id="status" class="status"></div>
@@ -178,7 +180,7 @@
     <div class="footer">
       <span id="version-badge">v1.1.0</span>
       <span class="footer-sep">&middot;</span>
-      <a href="https://github.com/sfz001/AAtools" target="_blank">GitHub</a>
+      <a href="https://github.com/sfz001/AAtools" target="_blank" rel="noopener noreferrer">GitHub</a>
     </div>
   </div>
   <script src="options.js"></script>

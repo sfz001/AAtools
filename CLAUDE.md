@@ -1,329 +1,178 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+本文件给在此仓库中工作的编码代理提供约束和架构说明。事实以代码、`manifest.json` 与测试为准；修改协议或安全边界时，应同步更新本文、`README.md`、`PRIVACY.md` 和测试。
 
-## Project Overview
+## 项目概览
 
-**AAtools** — 自用 Chrome 扩展（Manifest V3），四大核心功能：
+AAtools 是原生 HTML/CSS/JavaScript 编写的 Chrome Manifest V3 扩展，无构建步骤、无运行时第三方依赖。最低 Chrome 版本为 140。
 
-1. **YouTube 视频 AI 助手** — 总结/笔记/问答/思维导图
-2. **全网划词翻译** — 选词即译，字典/句段双模式
-3. **小红书体验增强** — 帖子弹窗滚动修复
-4. **鼠标手势** — 右键拖拽：后退/前进/关闭标签页/恢复关闭页
+主要功能：
 
-支持 Claude / OpenAI / ChatGPT 订阅（Codex OAuth）/ Gemini / MiniMax / DeepSeek / Kimi / Sub2API（自定义中转网关）八个提供商，无字幕视频可通过 Gemini 视频模式分析。
+1. YouTube 总结、结构化网页笔记、思维导图、问答与字幕/视频转录
+2. HTTP(S) 页面划词翻译
+3. 小红书帖子弹窗滚动修复
+4. 鼠标手势
 
-**技术栈**: 原生 HTML/CSS/JS，零依赖，无构建步骤。
+支持 Claude、OpenAI、ChatGPT 订阅、Gemini、MiniMax、DeepSeek、Kimi，以及用户明确授权域名的自定义 Sub2API 网关。
+
+## 开发与验证
+
+加载项目根目录为“已解压的扩展程序”。修改后在 `chrome://extensions/` 重新加载扩展，并刷新已打开的目标网页；扩展不会申请全站后台脚本权限来自动重注入旧标签页。
+
+常用验证命令：
+
+```bash
+node --test tests/*.test.js
+node --check background.js
+git diff --check
+```
+
+涉及多个 JavaScript 文件时，对全部文件执行 `node --check`。协议、权限、存储或 UI 隔离有变化时必须补回归测试。
 
 ## 目录结构
 
-```
-AAtools/
-├── youtube/          ← YouTube 视频助手模块
-│   ├── core.js          YTX 命名空间、共享状态、工具函数
-│   ├── prompts.js       默认 Prompt 模板
-│   ├── markdown.js      Markdown 渲染
-│   ├── export.js        Markdown / Obsidian 导出
-│   ├── summary.js       总结功能
-│   ├── html-notes.js    HTML 笔记
-│   ├── chat.js          问答
-│   ├── mindmap.js       思维导图
-│   ├── panel.js         面板 UI + 消息路由（必须最后加载）
-│   └── content.css      面板样式
-├── translate/        ← 划词翻译模块
-│   ├── translate.js     翻译功能（独立 IIFE，不依赖 YTX）
-│   └── translate.css    翻译弹窗样式
-├── xhs/              ← 小红书增强模块
-│   └── xhs-scroll-fix.js  帖子弹窗滚动修复
-├── gestures/         ← 鼠标手势模块
-│   └── gestures.js        右键拖拽手势识别（独立 IIFE）
-├── background.js     ← Service Worker（API 调用 + 标签页操作）
-├── options.html/js/css ← 设置页
-├── icons/            ← 扩展图标
-└── manifest.json
+```text
+background.js               Service Worker：消息验证、配置、路由、字幕与缓存
+offscreen/
+  network-host.html/js      隐藏扩展页及私有 Port 宿主
+  network-worker.js         长时网络请求、SSE、OAuth 刷新、视频转录
+options.html/js/css         设置页
+youtube/
+  core.js                   YTX 共享状态、字幕、缓存协议与通用限制
+  prompts.js                内置 Prompt
+  markdown.js               有界 Markdown 渲染
+  export.js                 本地 Markdown/Obsidian 导出
+  summary.js                总结
+  html-notes.js             结构化笔记解析、模板、隔离预览
+  mindmap.js                思维导图
+  chat.js                   问答状态与隔离输入框宿主
+  chat-frame.html/js/css    扩展来源问答输入页
+  panel.js                  面板、SPA/BFCache 生命周期、消息路由；最后加载
+  content.css               面板样式
+translate/                  划词翻译（独立 IIFE）
+xhs/                        小红书增强（独立 IIFE）
+gestures/                   鼠标手势（独立 IIFE）
+tests/                      Node 协议、权限、竞态和内容脚本测试
 ```
 
-## Development
+## 请求架构
 
-没有构建、lint 或测试命令。开发流程：
+长请求不是由 Service Worker 直接 `fetch`：
 
-1. `chrome://extensions/` → 开启开发者模式 → 加载已解压的扩展程序（选择项目根目录）
-2. 修改代码后在扩展页点击刷新图标即可——**无需刷新已打开的页面**：`onInstalled` 时 background 会把 content scripts 重注入到所有已打开的匹配标签页（见"扩展重载免刷新"）
-3. 修改 `background.js` 后需要在扩展页重新加载 Service Worker
-
-## Architecture
-
-### 双层通信模型
-
-```
-YouTube 页面 (content scripts)          Service Worker
-┌────────────────────────────┐    chrome.runtime    ┌──────────────┐
-│  youtube/*.js → YTX 命名空间│ ◄──── sendMessage ──► │ background.js│
-│  panel.js (消息路由 + UI)   │     (流式分段转发)     │ (API 调用)   │
-└────────────────────────────┘                       └──────────────┘
+```text
+content script
+  -> runtime message
+Service Worker（校验 sender/字段/上限，读取受信任配置，登记 requestId）
+  -> 私有 runtime Port
+offscreen host -> Dedicated Worker（fetch/SSE/OAuth）
+  -> 有界、合并后的事件
+Service Worker
+  -> tabs.sendMessage(tabId, ..., {frameId, documentId})
+原始发起文档
 ```
 
-- **content scripts → background**: 通过 `chrome.runtime.sendMessage` 发送请求（如 `SUMMARIZE`、`CHAT_ASK`），消息体里**不携带 API key**（见下方"安全模型"）
-- **background → content scripts**: 通过 `chrome.tabs.sendMessage` 流式转发 `{PREFIX}_CHUNK` / `{PREFIX}_DONE` / `{PREFIX}_ERROR`
-- 流式开始前发送 `{PREFIX}_MODEL` 消息通知 content script 当前使用的 provider 和 model（显示模型徽章）
-- panel.js 中的消息路由用正则 `/^(.+?)_(CHUNK|DONE|ERROR)$/` 解析前缀，分发到 `YTX.features[key]`
-- 所有流式 handler 立即返回 `{ started: true }` 并 `return true` 保持消息通道
-- 每个请求带 `requestId`（`YTX.makeRequestId()` 生成），background 在所有 _MODEL/_CHUNK/_DONE/_ERROR 消息里回传；panel.js 路由层在 dispatch 给 feature 之前检查 `message.requestId === feature.requestId`，不匹配则丢弃 → 防止 SPA 切视频/重复触发产生的旧 chunk 污染新结果
+Service Worker 可以随时重启，因此不能把请求正确性建立在仅内存状态上。offscreen 端负责持有实际网络任务和可确认的终态；握手会协调尚存任务。offscreen 空闲后应关闭，新任务再按需创建。宿主断线重连不得形成永久唤醒循环。
 
-### 消息类型完整列表
+YouTube timed-text 字幕抓取是短请求例外，由 Service Worker 执行并有覆盖响应头和响应体的超时。不要把其他 AI/OAuth 长请求迁回 Service Worker。
 
-| content → background | 前缀 | 说明 |
-|---|---|---|
-| `FETCH_TRANSCRIPT` | — | 同步返回字幕数据 |
-| `SUMMARIZE` | `SUMMARY` | 总结 |
-| `GENERATE_HTML` | `HTML` | HTML 笔记 |
-| `GENERATE_MINDMAP` | `MINDMAP` | 思维导图 |
-| `CHAT_ASK` | `CHAT` | 问答 |
-| `TRANSCRIBE_VIDEO` | `TRANSCRIBE` | 视频转录（特殊：`PROGRESS`/`CHUNK`/`SEGMENT`） |
-| `TRANSLATE` | `TRANSLATE` | 划词翻译 |
-| `GESTURE_CLOSE_TAB` | — | 关闭 sender 所在标签页 |
-| `GESTURE_REOPEN_TAB` | — | `chrome.sessions.restore()` 恢复刚关闭的标签页 |
-| `GESTURE_RELOAD_HARD` | — | `chrome.tabs.reload(tabId, { bypassCache: true })` 强制刷新当前标签页 |
+### 消息与路由约束
 
-导出功能（Obsidian / Markdown）完全在 content script 端处理（生成 .md Blob 直接下载），不走 background。
+- 所有 AI/转录请求都使用不可预测且格式受限的 `requestId`。
+- 后台在承认启动前完成同步可验证项；拒绝返回明确错误，不得先返回 `started: true` 再静默丢失终态。
+- 流式消息必须回传 `requestId`。YouTube 转录还必须回传 `videoId`。
+- 后台交付必须绑定原始 `tabId`、`frameId`、`documentId`；不能把结果广播到同标签页的新文档。
+- `panel.js` 只接受与当前 feature `requestId` 完全匹配的 `_MODEL/_CHUNK/_DONE/_ERROR`。
+- 取消消息可能早于请求登记；后台的短期 tombstone 必须覆盖这个竞态。
+- 导航、tab 关闭、BFCache `pagehide` 都要取消/失效在途工作；`pageshow.persisted` 必须重建状态，不能恢复带禁用按钮的旧快照。
+- provider 小 chunk 必须在 Worker 侧按大小/时间合并；正文、错误体、JSON、SSE 行数和输出均需硬上限。
+- 不完整、拒绝、超时和截断是不同终态。不得把部分输出标成完整成功或写成可信缓存。
 
-### 全局命名空间 `YTX`
+主要 content → background 消息包括：`FETCH_TRANSCRIPT`、`SUMMARIZE`、`GENERATE_HTML`、`GENERATE_MINDMAP`、`CHAT_ASK`、`TRANSCRIBE_VIDEO`、`TRANSLATE`、`CANCEL_REQUEST`、缓存消息、设置事务消息和三个手势动作。
 
-所有 YouTube content scripts 共享 `var YTX` 全局对象（`youtube/core.js` 中定义）。关键状态：
+## YouTube 状态约定
 
-- `YTX.panel` — 注入的面板 DOM 元素
-- `YTX.panelCollapsed` — 当前 YouTube 标签页内的面板收起状态；启动时从 `youtubePanelDefaultCollapsed` 初始化，之后在 SPA 导航中保留手动状态
-- `YTX.currentVideoId` — 当前视频 ID
-- `YTX.transcriptData` — `{ segments, full, truncated }`，null 表示未获取
-- `YTX.videoMode` — 是否使用 Gemini 视频模式
-- `YTX.isFetchingTranscript` — 正在获取字幕时为 true，禁止生成操作
-- `YTX.features` — 功能模块注册表
-- `YTX.featureOrder` — 标签页排列顺序：`['summary', 'mindmap', 'html', 'chat']`
+所有 YouTube 脚本共享 `YTX`。`core.js` 必须先加载，`panel.js` 必须最后加载。
 
-关键工具函数：
+关键约束：
 
-- `YTX.makeRequestId()` — 生成形如 `r<base36ts><rand6>` 的请求 ID，用于流式响应隔离
-- `YTX.getSettings()` — 返回 Promise，包含 provider/model/prompt 等**非敏感字段**；不读 `*Key` 字段（API key 完全由 background `loadProviderConfig()` 自读）
-- `YTX.safeTime(str)` — 校验 AI 返回的时间戳字符串（仅允许 `H:MM:SS` / `MM:SS` / `M:SS`），不合法返回 null。mindmap 渲染时间戳到 innerHTML 必须先经此校验，防 DOM 注入
-- `YTX.ensureTranscript()` — 获取字幕的统一入口，有缓存则直接返回，失败自动回退 Gemini 视频模式。**in-flight 去重**：同一 videoId 的并发调用复用 `YTX._transcriptPromise`，避免多功能并行触发多次 Gemini 转录；切视频/清缓存都会清空该 promise。手动视频模式（`switchToVideoMode`）也写入同一个 `_transcriptPromise`，普通功能在视频模式运行期间调用 `ensureTranscript` 会复用同一路转录流，不会再触发新一路
-- `YTX.getContentPayload()` — 返回 `{ transcript }` 用于发送到 background
-- `YTX.sendToBg(message)` — Promise 包装的 `chrome.runtime.sendMessage`，所有 feature 用它与 background 通信
-- `YTX.extractJSON(text, 'array'|'object')` — 健壮的 JSON 提取，6 层回退策略（直接解析 → 去尾逗号 → 修复控制字符 → 组合修复 → 截断到最后完整 `}` → 截断后再修复）
-- `YTX.createDeferred()` — 返回 `{ promise, resolve, reject }`；feature `start()` 用它把流式生命周期包成可 await 的 Promise
-- `YTX.generateAll()` — 并行生成所有功能（chat 除外），直接用 `Promise.all(keys.map(k => YTX.features[k].start()))`；不再 patch `onDone`/`onError`，避免 hook 残留与永不 resolve；用 try/catch/finally 包裹，字幕获取失败时面板顶部显示错误条 6 秒，按钮状态在 finally 中无条件恢复
-- `YTX.fmtTime(seconds)` / `YTX.timeToSeconds(str)` — 时间格式转换
-- `YTX.btnRefresh(btn)` / `YTX.btnPrimary(btn, icon)` — 按钮状态切换
+- 在每个异步入口早绑定 `currentVideoId`、request generation 和必要的 DOM 引用；每次 `await` 后重新校验。
+- `ensureTranscript()` 同一视频复用 `_transcriptPromise`，切视频或文档离开时失效。
+- `reset()` 必须取消 request、清定时器、清有界 buffer，并结算 deferred，不能留下几十分钟的悬挂 Promise。
+- `generateAll()` 只组合功能模块公开的 `start()` Promise，不临时替换 handler。
+- 时间戳必须先经 `safeTime`/数值校验再进入 DOM 或 URL。
+- 所有模型文本都有字符/行/节点上限；不得对攻击者可控的大字符串做反复全量拼接或无界 DOM 追加。
+- 面板使用 closed ShadowRoot。涉及新输入的问答框运行在 extension-origin sandbox iframe 中，并通过 capability token 与后台中继；不要退回宿主页可监听的 light-DOM 输入框。
 
-### 功能模块接口
+### 字幕与视频模式
 
-每个 feature 必须实现统一接口：
+字幕先从当前 YouTube player 的 caption track/带 `pot` 的 timed-text 请求获取，再回退页面转录 DOM。请求必须校验 player/video ID，并设总 watchdog。没有可用字幕时，Gemini 视频模式在 offscreen Worker 中转录；后续总结仍用用户选定 provider。
 
-```js
-YTX.features.KEY = {
-  // 标识
-  tab: { key, label, icon },  prefix,  contentId,  actionsId,  displayMode,
-  // 状态
-  isGenerating: false,
-  requestId: null,            // 当前请求 ID（panel.js 路由按它过滤过期 chunk）
-  // 生命周期（panel.js 调用）
-  reset(), actionsHtml(), contentHtml(), bindEvents(panel),
-  // 生成（start 内部调用 YTX.ensureTranscript → getSettings → sendMessage）
-  async start(),
-  // 流式回调（panel.js 消息路由调用）
-  onChunk(text), onDone(), onError(error),
-};
-```
+视频转录使用 `videoId + requestId + documentId` 共同隔离。`TRANSCRIBE_SEGMENT` 是终态；终态前要刷完批处理 buffer。切视频、BFCache、超时或通信失败必须取消后台任务并 reject 对应 deferred。
 
-`start()` 模式：设 `isGenerating=true` → 创建 `this._deferred = YTX.createDeferred()`（旧 deferred 先 reject 让位）→ **抓 `var startVideoId = YTX.currentVideoId`**（早绑定）→ 禁用按钮显示 spinner → `await YTX.ensureTranscript()` → **校验 `YTX.currentVideoId === startVideoId` 否则 `bailSilently()`（resolve deferred 静默退出）** → `getSettings()` → 再次校验 → `this.requestId = YTX.makeRequestId()` → `sendMessage` 到 background（带 requestId）→ `return deferred.promise`，等待流式回调。`isGenerating` 与 `_deferred` 在 `onDone`(resolve) / `onError`(reject) 中才清理；`reset()` 把 `requestId` 设 null 并 `reject('视频已切换')` 释放挂起的 deferred。路由层会拒绝任何 requestId 不匹配的过期 chunk（含 feature.requestId 为 null 时的旧 chunk）。这套 deferred 机制让 `generateAll` 可以直接 `Promise.all(features.map(f => f.start()))`，无需 patch handler。
+### 缓存
 
-`onChunk` 差异：summary 用 80ms 节流批量渲染，chat 实时渲染，mindmap 仅累积原始文本在 `onDone` 中一次性 `extractJSON` + 渲染。
+生成结果保存在扩展来源 IndexedDB，不存进 `youtube.com` 页面来源。旧页面来源数据库只做不读取内容的 best-effort 删除，绝不迁入扩展权限域。
 
-加载顺序由 `manifest.json` 中 `content_scripts.js` 数组决定，`panel.js` 必须最后加载（它在顶部构建 `prefixMap`）。
+缓存清空使用持久化 epoch：
 
-### `callProvider()` — API 调用核心
+- 内容脚本生命周期启动时捕获 epoch。
+- load 返回当前 epoch；save/remove 必须携带捕获的 epoch。
+- clear 在单一事务中清记录并递增 epoch。
+- 缺失或过期 epoch 的写入失败关闭，防止清空后的延迟任务复活数据。
+- Incognito 不读写持久缓存，也不得修改普通窗口 epoch。
 
-`background.js` 中统一处理八家 API 的流式调用：
+### 结构化网页笔记
 
-- **Key 自读**: `loadProviderConfig(provider)` 从 `chrome.storage.sync` 按 provider 字段名读取 key + model；sub2api 还会额外读 `sub2apiBaseUrl`。content script（YouTube 模块 + translate）**完全不读取 `*Key` 字段**，缺 key 时由 background 在响应里回 `{PREFIX}_ERROR`
-- **模型验证**: `sanitizeModel(provider, model)` 检查模型前缀（`claude-`/`gpt-`/`gemini-`/`deepseek-`/kimi 的 `kimi-`+`moonshot-`），`MODEL_PREFIX` 的值可以是字符串或字符串数组（kimi 两条模型线），不匹配则静默回退到默认模型；claude 额外用 `RETIRED_CLAUDE` 正则拦截已退役的 Claude 2.x / 3.x / instant 系列（存量配置命中时清空回退默认模型，避免 404）；minimax / sub2api 跳过严格校验（sub2api 同时支持 `claude-*` / `gemini-*` / `gpt-*`）；sub2api 额外经 `normalizeSub2ApiModel()` 归一化——补全手填模型名漏写的前缀连字符（`gpt5.6`/`GPT_5.6` → `gpt-5.6`），否则前缀路由会误走 `/v1/messages` 且网关按名字找不到模型
-- **Claude 请求体组装**: `buildClaudeBody(model, maxTokens, messages, systemPrompt)` 为 Claude direct 与 sub2api claude 格式共用。处理新模型 thinking 默认值差异：`claude-sonnet-5*` 不传 thinking 时默认开 adaptive thinking（思考 token 计入 max_tokens）→ 显式传 `thinking: {type:'disabled'}`；`claude-fable-5` / `claude-mythos-5` thinking 恒开且显式 disabled 会 400 → 不传 thinking 并把 max_tokens 放大到至少 16000 给思考留余量
-- **Sub2API 单槽位**: provider 为 `sub2api`，配置为 key/model/baseUrl 三个字段。`isSub2(provider)` 辅助函数判断（历史上曾有 sub2api2/sub2api3 三槽位，2026-08 移除，options.js 启动时一次性迁移清理残留 storage 键并撤销多余网关域名权限）
-- **baseUrl 归一化**: `normalizeSub2ApiBase()` 自动剥离用户从 codex/opencode 配置直接复制的常见路径后缀（`/v1beta` / `/v1/messages` / `/v1/chat/completions` / `/v1/responses`），避免与代码自拼路径产生 `/v1beta/v1beta/...` 这类双前缀
-- **Sub2API 路由**: `isSub2(provider)` 时按 `sub2apiFormatOf(model)` 决定走哪种格式：
-  - `claude-*` → POST `{baseUrl}/v1/messages`，body 与 Anthropic 完全一致；同时附 `x-api-key` + `Authorization: Bearer` 头部以兼容不同网关
-  - `gemini-*` → POST `{baseUrl}/v1beta/models/{model}:streamGenerateContent?alt=sse&key=...`；三种鉴权全附（`?key=` + `Authorization: Bearer` + `x-goog-api-key`）兼容不同网关
-  - `gpt-*` → POST `{baseUrl}/v1/responses`（**Responses API**，对应 codex `wire_api = "responses"`）。请求体贴近 codex CLI：`{model, input(typed), instructions, stream:true, store:false, reasoning:{effort:"minimal"}, tools:[], parallel_tool_calls:false, tool_choice:"auto"}`，user 消息用 `input_text`，assistant 用 `output_text`；不发 `max_output_tokens`（codex 不发，部分网关会因此拒）
-  - SSE 解析按 `parseAs = sub2apiFormatOf(model)`：claude/gemini 直接对应；sub2api+openai 走 `'openai-responses'` 分支（解析 `type === 'response.output_text.delta'` 的 `delta` 字段，`response.completed`/`response.done` 结束，`error`/`response.failed` 也标记 done 避免挂死）
-  - baseUrl 缺失时 `callProvider` 直接回 `{PREFIX}_ERROR`，不会发出请求
-- **ChatGPT 订阅（provider `chatgpt`）**: 不走付费 API，复用 codex CLI 的 OAuth 凭据消耗 ChatGPT 订阅额度。用户在设置页粘贴 `~/.codex/auth.json` 全文（需先 `codex login`），options.js 解析出 `access_token/refresh_token/id_token/account_id` 存入 **`chrome.storage.local.chatgptAuth`**（体积大且不宜跨设备同步，故不放 sync，也不随导入/导出走），粘贴框保存后即清空。请求 POST `https://chatgpt.com/backend-api/codex/responses`（Responses API，请求体与 sub2api 的 gpt 分支共用 `buildResponsesApiBody()`），头部带 `Authorization: Bearer` + `chatgpt-account-id` + `OpenAI-Beta: responses=experimental` + `originator: codex_cli_rs` + `session_id`；SSE 走 `'openai-responses'` 解析分支。`ensureChatgptAccessToken()` 在 access token 剩余有效期 <5 分钟时自动 POST `https://auth.openai.com/oauth/token`（codex 的 client_id `app_EMoamEEZ73f0CkXaXp7hrann`，grant_type=refresh_token）刷新并回写 storage.local；刷新失败/凭据缺失以 `{PREFIX}_ERROR` 中文提示（引导重新 `codex login` + 重新粘贴）。`loadProviderConfig('chatgpt')` 以 local 里是否存在凭据充当"已配置"标记（`key: 'chatgpt-oauth'`），模型仍从 sync 读 `chatgptModel`（默认 `gpt-5.6-sol`，前缀校验 `gpt-`）。classifyApiError 对 chatgpt 的 401/403、429 有专门文案（订阅授权失效 / 订阅额度用尽）
-- **DeepSeek**: OpenAI 兼容的 Chat Completions，POST `https://api.deepseek.com/chat/completions`，与 openai/minimax 共用同一代码分支；请求体用 `max_tokens`（DeepSeek 不认 `max_completion_tokens`），并显式传 `thinking: {type:'disabled'}` —— V4 模型（`deepseek-v4-flash`/`deepseek-v4-pro`，默认 v4-flash）默认开启 thinking（effort=high），思考 token 计费且计入 max_tokens 预算，对流式摘要/翻译徒增延迟费用且扩展会丢弃思考内容；SSE 解析同 OpenAI 分支，thinking 模式的 `delta.reasoning_content` 不取，只取正文 `delta.content`。旧模型名 `deepseek-chat`/`deepseek-reasoner` 已于 2026-07-24 退役，`RETIRED_DEEPSEEK` 正则在 background sanitizeModel 与 options.js 两侧同款拦截（存量配置命中时清空回退默认模型）
-- **Kimi**: OpenAI 兼容 Chat Completions，POST `https://api.moonshot.cn/v1/chat/completions`，与 openai/minimax/deepseek 共用同一代码分支；用 `max_completion_tokens`（Kimi 已废弃 `max_tokens`，与 DeepSeek 相反）。思考按模型分档处理，目的同样是只保留正文：`kimi-k3` 思考恒开不可关但默认 `reasoning_effort: 'max'` → 压到 `'low'`；`kimi-k2.5`/`k2.6` 传 `thinking: {type:'disabled'}`；`kimi-k2.7-code` 恒开且无 effort 档位 → 不传任何思考参数（传了会被拒）。**思考关不掉的两条线（k3 / k2.7-code）额外把 `max_completion_tokens` 抬到至少 16000** —— reasoning_content 与正文共用同一份预算（官方明确 `max_tokens` 与 `max_completion_tokens` 含义相同、建议 ≥16000），沿用调用方的 2048/4096/8096 会被思考吃光导致正文截断或为空，与 `buildClaudeBody` 对 claude-fable/mythos 的处理是同一问题同一解法。SSE 解析同 OpenAI 分支，`reasoning_content` 不取。注：`max_completion_tokens` 是接口级参数，对 legacy `moonshot-v1-*` 同样有效（`max_tokens` 已被官方整体标记 deprecated，不是新模型线专属）
-- **SSE 解析**: 统一由 `readSSEStream()` 处理，按 provider 提取文本：
-  - Claude: `content_block_delta` → `delta.text`，`message_stop` 结束
-  - OpenAI / MiniMax / DeepSeek / Kimi: `choices[0].delta.content`，`[DONE]` 行结束
-  - Gemini: `candidates[0].content.parts[0].text`，流结束即完成
-- **请求 ID 透传**: `callProvider` + `readSSEStream` 内定义局部 `send(msg) = safeSend(tabId, {requestId, ...msg})`，所有发往 content script 的消息自动带上 requestId
-- **防重复**: `doneSent` 标志防止重复发送 `{PREFIX}_DONE`
-- **安全发送**: `safeSend(tabId, msg)` 包裹 try/catch + `.catch(() => {})`，tab 关闭不会崩溃
-- **错误分类**: `classifyApiError()` 将 HTTP 状态码映射为中文提示（401→Key 无效，429+quota→余额不足，400+token→内容太长）
-- **SW 保活**: `startKeepalive()` 每 20 秒 ping 一次防止 Service Worker 被杀（视频转录时使用）
+`YTX.prompts.HTML` 要求模型输出结构化 JSON：`{summary, keyPoints:[{time,text}], sections:[{time,heading,text}], tags}`。`html-notes.js` 校验数据后用扩展内置模板生成页面。
 
-### 安全模型
+兼容路径只允许通过 `isLegacyHtmlOutput()` 严格形态、长度和节点限制的历史完整 HTML，供历史缓存或仍在使用的自定义 `promptHtml`。不能把任意“JSON 解析失败”文本当原始 HTML 渲染。预览 iframe 不允许 `allow-same-origin`；生成 HTML 需 CSP 和 sanitizer。当前 sanitizer 删除 SVG/MathML/SMIL 等动态命名空间，而不是尝试维护不完整的危险属性黑名单。
 
-`<all_urls>` content script（translate + gestures）暴露在所有页面，恶意页面可合成 mouse/keyboard 事件触发它们。多道防线：
+Markdown/Obsidian 导出视为跨信任边界：转义 YAML，去活图片、链接、reference definition、wiki embed、自动链接和编码/转义后的危险协议。新增导出语法时补协议绕过测试。
 
-1. **`isTrusted` 守卫** — 所有真实用户交互入口（translate 的 mouseup/click/Ctrl+Enter，gestures 的 mousedown/mousemove/mouseup）首行 `if (!e.isTrusted) return;`，合成事件无法触发任何 API 请求或浏览器导航
-2. **API key 不经 message channel，content script 不读 key** — content script（YouTube `youtube/*.js` + `<all_urls>` 的 translate.js）**完全不读取** `chrome.storage.sync` 里的 `*Key` 字段，也不再传 `activeKey`。所有 key 由 background `loadProviderConfig()` 自读，缺 key 时统一回 `{PREFIX}_ERROR`。Gemini 视频转录的"无 key 时提示用户配置"也走这条路径。即使 content script 被部分攻陷，也无法通过 message 通道或 page-context 直接劫持 key
-3. **AI 输出 time 字段防注入** — mindmap 的 `time` 字段直接拼到 `innerHTML`/SVG，渲染前必须经 `YTX.safeTime(str)` 校验（仅允许 `H:MM:SS`/`MM:SS`/`M:SS`），不合法 → 返回 null → 不渲染时间戳。防止恶意/被劫持的 LLM 返回带 `<script>` 或事件处理器的 time 字符串导致 DOM 注入
-4. **HTML 笔记导出清洗 + 严格 CSP** — `YTX.Export.sanitizeHtml(html)` 用 DOMParser 删除所有可执行/外部加载元素：`<script>`、`<iframe>`、`<frame>`、`<object>`、`<embed>`、`<applet>`、`<link rel=stylesheet|preload|prefetch|...>`、`<link as=...>`、`<base>`；剥离所有 `on*` 事件属性、`javascript:`/`data:`/`vbscript:` 链接（仅放行 `data:image/`）。再注入严格 CSP：`default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src 'none'; connect-src 'none'; frame-src 'none'; media-src 'none'; object-src 'none'; script-src 'none'; base-uri 'none'; form-action 'none';`。openInNewTab、downloadHtml、面板内 iframe.srcdoc 全部走它，导出文件离线打开后**不会向任何外部域发请求**
-5. **请求隔离（videoId + requestId 双层）** — 见下方"请求隔离"。translate 也加了本地 `currentRequestId`，关弹窗后立刻发起下一次翻译时旧 chunk 不会污染新弹窗
+## 其他内容脚本
 
-### 扩展重载免刷新（重注入 + 代际接管）
+### 划词翻译
 
-扩展 reload/更新后，已打开页面里的旧 content script 变成孤儿（`chrome.runtime` 失效，表现为"扩展已更新，请刷新页面后重试"）。两段机制让用户无需刷新页面：
+- 只在可信用户选区动作后发送请求。
+- 弹窗使用 closed ShadowRoot；宿主页内不提供自由编辑 textarea/contenteditable。
+- 重新翻译使用当前页面选区；复制只能由明确按钮调用 Clipboard API。
+- 支持可访问的 HTTP(S) frame，但 frame 结果必须回到原始 `documentId`。
+- partial completion 显示“不完整”警告，不得使用成功状态颜色/文字。
 
-- **background 重注入**：`chrome.runtime.onInstalled` → `reinjectContentScripts()` 读 `chrome.runtime.getManifest().content_scripts`，对所有已打开的匹配标签页按组 `insertCSS` + `executeScript`（组内文件顺序与 manifest 一致，panel.js 仍最后执行）。**权限前提**：`chrome.scripting.executeScript` 和 `tabs.query` 的 url 可见性都只认 `host_permissions`（content script 的 `matches` 不算数），所以 manifest 把 `https://*/*` + `http://*/*` 列为必需 host 权限——安装警告不变（`<all_urls>` content script 本就触发"读取所有网站数据"），副作用是 Sub2API 的 `optional_host_permissions` 域名授权流程被通配权限覆盖（`permissions.request` 直接返回已授权、`permissions.remove` 对必需权限静默失败，options.js 两处均已容错，manifest 已删除 `optional_host_permissions`）。受限页（chrome://、商店、PDF viewer 等）注入失败被 try/catch 忽略（这些页面 manifest 注入本来也不生效，无回归）
-- **代际接管（takeover 事件）**：4 个入口脚本（translate.js、gestures.js、xhs-scroll-fix.js、panel.js 代表 youtube 整组）顶部各有一段：先 `document.dispatchEvent(new Event('aatools-takeover-<name>'))` 广播，再注册同名监听。DOM 事件跨 isolated world 传播 → 旧实例收到后置 `destroyed = true` 并自我卸载（移除 UI/observer；youtube 组额外摘掉 `yt-navigate-finish`、`resetTranscriptState()`、重置 features、`removePanel()`/`removeResizer()`）。**dispatch 在 addEventListener 之前**，新实例不会杀死自己
-- **destroyed 守卫**：旧实例无法逐个摘除全部 DOM 监听，改为在各事件入口首行 `if (destroyed) return;` 短路（translate 的 mouseup/mousedown/keydown/iframe mouseup/onMessage、gestures 的 mousedown/contextmenu、xhs 的 wheel、panel 的 onMessage/waitForContainer/injectPanel）。`chrome.runtime.onMessage` 也要守卫——重注入与 manifest 注入撞进**同一** isolated world 时（如 reload 瞬间正在加载的 tab），旧副本的 chrome 监听仍然存活
-- **同 world 撞车兜底**：同 world 双注入时全局 `YTX` 被新实例覆盖，旧面板无法经 `YTX.panel` 找到 → `removePanel()` 额外按 `document.getElementById('ytx-panel')` 兜底移除。translate/gestures 的 UI 引用是闭包变量，不受影响
-- **安全性**：恶意页面可伪造 takeover 事件，但效果仅是让该页上的扩展 UI 失效（页面本可用 CSS/事件拦截达到同样效果），无任何权限收益
+### 小红书
 
-### 请求隔离
+仅在确认为 fixed overlay 且目标位于其可滚动区域时拦截 wheel。不要全页 capture 阻断普通滚动；DOM 变化需增量检查且 observer 工作量有界。
 
-YouTube SPA 切视频时旧异步操作会污染新视频结果。用四层防线封死所有竞态窗口：
+### 鼠标手势
 
-- **videoId 早绑定（feature 层）** — 各 feature `start()` / `generateAll()` 入口立即抓 `var startVideoId = YTX.currentVideoId;`；`ensureTranscript()` / `getSettings()` 等 await 之后立即检查 `if (YTX.currentVideoId !== startVideoId) { this.isGenerating = false; return; }`，旧 promise 不会用新视频的 transcript 发出新请求
-- **videoId 早绑定（字幕层）** — `YTX.ensureTranscript()` 内部也抓 `startVideoId`，`fetchTranscript()` await 完成后校验，不匹配则丢弃结果不写 `YTX.transcriptData`，缓存写入按 `startVideoId` 而非 `currentVideoId`，避免把 A 视频的字幕落到 B
-- **缓存恢复竞态防护** — `panel.js restoreFromCache(videoId)` 的 `cache.load(videoId).then(...)` 第一行 `if (videoId !== YTX.currentVideoId) return;`，IndexedDB 异步读期间切视频不会把旧记录渲染到新面板
-- **requestId 透传 + 路由过滤** — 每次请求带 `requestId`（`YTX.makeRequestId()`），background 把 requestId 放到所有 `_MODEL/_CHUNK/_DONE/_ERROR` 消息里。`panel.js` 路由层在 dispatch 给 feature 之前严格校验 `message.requestId === feature.requestId`，**即使 feature.requestId 为 null 也丢弃**。`_MODEL` 消息也走同一过滤，防止旧请求的模型徽章覆盖当前
-- **视频转录 videoId + requestId 双重隔离** — `TRANSCRIBE_VIDEO` 请求带 `videoId` 和 `requestId`，background 在 `TRANSCRIBE_PROGRESS/CHUNK/SEGMENT` 消息里都回传；`panel.js` 三个入口同时校验 `message.videoId !== YTX.currentVideoId` 和 `message.requestId !== YTX._transcribeRequestId`，任一不匹配则丢弃。这样即使同一视频下旧请求未取消时启动新转写（如手动取消未完成转录后再启动），旧 chunk/segment 也不会污染新结果。`_analyzeVideoWithGemini` 在 promise resolve 后再次 videoId 校验，不匹配则抛错丢弃结果
-- **非视频页导航清理** — `panel.js onNavigate` 检测到 `!videoId`（首页/搜索/频道页等）时调 `resetTranscriptState()` 清空 `_transcriptPromise/_transcriptVideoId/_transcribeVideoId/_transcribeRequestId/_transcribeBuffer/_transcribeReceiving/_transcribeTimer/isFetchingTranscript`，避免 A 视频转录中跳到首页再进 B 视频时被旧 in-flight 状态错误拦截
+仅顶层 frame 工作。所有动作要求可信事件；扩展特权动作必须检查后台 `{ok: true}`，失败给用户可见反馈。手势事件如果来自 AAtools 自身 Shadow/iframe UI，应直接忽略。关闭/恢复/强刷必须只作用于经过后台 sender 校验的目标。
 
-### 字幕获取流程
+## 安全、权限与存储
 
-1. content script 发送 `FETCH_TRANSCRIPT` 到 background
-2. **快速路径**（`fastScrapeTranscriptViaPlayerAPI`，~300ms，MAIN world）：
-   - 从 `#movie_player.getPlayerResponse()` 拿当前视频的 `captionTracks`（注意 `window.ytInitialPlayerResponse` SPA 切视频后不更新，只能用 player API）
-   - 校验 player.videoId === 请求的 videoId（防 SPA 切视频拿到旧字幕）
-   - 在 `performance.getEntriesByType('resource')` 里查带 `pot=` 的 `/api/timedtext` URL
-   - 没有则触发 `player.loadModule('captions') + setOption('captions','track',{languageCode})`，让 player 自己发带 pot 的请求
-   - 用户原本没开字幕的话，触发后立即 `setOption('captions','track',{}) + unloadModule('captions')` 关掉，避免污染观看体验
-   - 拿到 URL 后直接 fetch（追加 `&fmt=json3`），解析 `events[].segs[].utf8` + `tStartMs` 为 segments
-   - **关键约束**：YouTube `/api/timedtext` 服务端校验 `pot` (proof-of-origin token)，没有 pot 的 fetch 返回 200 + 空 body。pot 由 player 内部生成，无法逆向，所以必须借 player 发的请求
-3. **回退**（`scrapeTranscriptFromDOM`，6-30s）：快速路径失败（无字幕轨道、player 未就绪等）时走 DOM 抓取——点描述区转录按钮 → "..." 菜单 → 暴力搜索 → 解析 `ytd-transcript-renderer` DOM
-4. 失败时若有 Gemini Key，启用视频模式：调用 Gemini API（固定使用 `gemini-flash-lite-latest`，忽略用户模型选择）分析视频 URL 生成虚拟字幕。**仅走原生 Gemini direct**（`generativelanguage.googleapis.com`），不走 sub2api — sub2api 网关大多绑的是 OAuth/codeassist 账号，不支持 `file_data.file_uri` 的 YouTube URL 视频处理（虽然 sub2api 源码本身是透明转发，但上游 Google 账号没视频权限）。`_callGeminiTranscribe` 内置 180 秒首块超时（`reader.cancel()` 兜底防挂死）+ SSE 上游错误事件解析（`parsed.error` / `promptFeedback.blockReason` / 异常 finishReason 都会冒泡）
-5. 字幕截断保护：`YTX.TRANSCRIPT_MAX_CHARS = 200000`
+### 凭据
 
-### 划词翻译（`translate/translate.js`）
+- API Key、ChatGPT access/refresh token 和 account ID 只存 `chrome.storage.local`。
+- 启动时调用 `storage.local.setAccessLevel({accessLevel:'TRUSTED_CONTEXTS'})`；失败时敏感操作应 fail closed。
+- 非敏感偏好放 `storage.sync`。旧版 sync 凭据在后台串行迁移并删除。
+- 不持久化 ChatGPT `id_token`；导入时也只保留最小所需字段。
+- 设置导出永远排除凭据；旧备份中的凭据可迁入 local，但不能重新写回 sync。
 
-完全独立于 YTX 命名空间的 IIFE，运行在所有页面（`<all_urls>`）。
+### 设置事务与网关授权
 
-- **`isTrusted` 守卫**: 5 个真实交互入口（document mouseup、icon click、iframe mouseup、textarea Ctrl+Enter、翻译按钮 click）首行检查，合成事件无法触发翻译请求
-- **字典/句段模式判定**（background.js 和 translate.js 各有一份相同逻辑）：CJK ≤4 字符或 Latin ≤3 单词走字典格式，否则走纯翻译
-- **语境查词**: 在翻译弹窗的原文区选中某词，自动带全文语境发送到 background
-- **iframe 支持**: MutationObserver 监听 DOM 变化，自动 hook `iframe.contentDocument` 的 mouseup 事件
-- **选区捕获**: mouseup 同步捕获 + 10ms setTimeout 回退，防 SPA 清空选区
-- **Pin 状态**: `isPinned` 控制点击外部是否关闭弹窗，`userPinPreference` 在页面会话内持久
-- **自有 Markdown 渲染器**: 不用 `YTX.renderMarkdown`，有独立的 regex 渲染规则（音标、词性、搭配等格式）
+`storage.local` 和 `storage.sync` 没有跨 area 原子事务。设置保存/导入由后台串行事务处理：使用持久 revision/CAS、分区快照与冲突感知回滚，并把自定义网关权限的申请/撤销纳入成功或失败路径。外部 Chrome Sync 与回滚重叠时必须保留远端代际；若无法证明两区仍配对，持久 consistency fuse 会让所有 provider 读取 fail-closed。只有设置页明确发起的手动恢复事务才可清除 fuse；普通自动保存、模型缓存和 ChatGPT 单独授权事务均不得清除。Sub2API Key 只可在匹配的精确授权事务中绑定或改绑 origin，导入自定义网关必须重新精确授权。
 
-### 小红书增强（`xhs/xhs-scroll-fix.js`）
+必需 host permissions 只包含内置 provider、ChatGPT 和 YouTube；自定义网关通过 optional permission 精确授权。公网只允许 HTTPS，HTTP 仅允许 localhost/127.0.0.1。旧版遗留 `https://*/*` 授权在启动迁移中撤销。不要为了免刷新或自定义网关便利恢复必需的全站 host permission。
 
-独立 IIFE，仅在 `xiaohongshu.com` 生效。
+注意：content script 的 HTTP(S) `matches` 让本地 UI 在页面运行，不等同于允许 Service Worker 对任意网站发跨域请求。
 
-- **问题**: 打开帖子弹窗后，滚动鼠标会导致背景页面滚动而非弹窗内容滚动
-- **原因**: 小红书用 JS 监听 wheel 事件驱动背景滚动
-- **修复**: capture 阶段拦截 wheel 事件，`stopPropagation` 阻断背景滚动处理器
-- **弹窗检测**: 结构化检测（`position: fixed` + 覆盖视口 40%+），不依赖 CSS 类名
-- **边界处理**: 弹窗内可滚动区域到达顶部/底部时 `preventDefault` 阻止穿透
+### Web 内容边界
 
-### 鼠标手势（`gestures/gestures.js`）
+- 模型、字幕、页面 DOM、缓存和导入文件均视为不可信输入。
+- 禁止远程代码、`eval`、内联事件 handler 和未清洗的 `innerHTML`。
+- 对 extension iframe/Port/options 消息验证 sender URL、extension ID、frame/document 和 capability；不能只验证可伪造字段。
+- UI 隔离不能只依赖 `stopPropagation`：宿主页 capture listener 更早执行，所以敏感输入必须放 extension-origin iframe。
+- Offscreen 通信只使用经过身份验证的私有 Port，不使用页面可观察的广播通道。
 
-独立 IIFE，运行在所有页面（`<all_urls>`），仅在顶层窗口启用（跳过 iframe，避免重复触发与跨域冲突）。
+## 文档维护
 
-**手势映射**
-
-| 手势 | 序列 | 动作 | 实现 |
-|---|---|---|---|
-| `←` | `L` | 后退 | `history.back()` |
-| `→` | `R` | 前进 | `history.forward()` |
-| `↑` | `U` | 滚动到顶部 | `window.scrollTo({ top: 0 })` |
-| `↓` | `D` | 滚动到底部 | `window.scrollTo({ top: documentElement.scrollHeight })` |
-| `↓→` | `DR` | 关闭当前标签页 | 消息 `GESTURE_CLOSE_TAB` → `chrome.tabs.remove(sender.tab.id)` |
-| `←↑` | `LU` | 恢复刚关闭的标签页 | 消息 `GESTURE_REOPEN_TAB` → `chrome.sessions.restore()` |
-| `↑↓` | `UD` | 强制刷新（绕过缓存） | 消息 `GESTURE_RELOAD_HARD` → `chrome.tabs.reload(tabId, { bypassCache: true })` |
-
-注意 `D` / `↓→`、`L` / `←↑`、`U` / `↑↓` 这几对：单字母手势是较长复合手势的前缀，但执行只在 `mouseup` 时根据**最终序列**触发。所以 `DR`/`LU`/`UD` 整段一气呵成不会误触发单字母版本。
-
-**识别逻辑**
-
-- 右键 `mousedown` 开始追踪 → `mousemove`（鼠标）/ `wheel`（Mac 触控板按住右键 + 另一指滑动会发 wheel 而非 mousemove）累计方向序列 → `mouseup` 匹配 `GESTURES` 表执行
-- **`gestureKeepMenu` 设置**（`chrome.storage.sync`，boolean，默认 `false`）：
-  - **`false`（默认，触控板友好）**：所有平台右键直接进手势模式，contextmenu 抑制（`suppressContext = true` 在 mousedown 时设置）。Mac 用户配"左下角=右键"后，按住左下角 + 触控板滑动即触发手势；wheel 事件 handler 把滑动按 `-deltaX/-deltaY` 计入方向序列（自然滚动取反）。**Mac 上 `Shift+右键` 是逃生口**：mousedown 守卫直接 return 不进 tracking，contextmenu 不被抑制，原生菜单照常弹
-  - **`true`（保留菜单）**：
-    - Windows/Linux：contextmenu 在 mouseup 后触发 → 短按弹菜单、拖动触发手势（mouseup 时若 `totalMoved >= MIN_GESTURE` 才置 suppressContext）
-    - macOS：contextmenu 在 mousedown 立即触发 → 普通右键放行弹菜单，**Shift+右键** 才进手势模式（mousedown 时立即 `suppressContext = true`）
-  - **统一规则（Mac）**：守卫公式 `if (isMac && keepMenu !== e.shiftKey) return;` —— Shift 翻转 keepMenu 行为（XOR），Shift 状态与 keepMenu 一致即放行菜单
-  - **双重判断**：mousedown 和 contextmenu listener 各自独立按上面公式判断。原因：Mac 上 mousedown→contextmenu 的派发顺序在不同 Chrome 版本/通道可能不一致，仅靠 mousedown 提前设 `suppressContext` 可能漏判；contextmenu listener 自己读 `e.shiftKey` 是兜底。mousedown 分支额外把 `suppressContext = false` 显式清掉，防止上次未拖动的 mouseup 残留把后续菜单吞掉
-- **`isTrusted` 守卫**：mousedown/mousemove/wheel/mouseup 首行检查，合成事件不触发
-- **单段阈值** `MIN_SEGMENT = 30` 像素：超过才记一次方向
-- **总位移阈值** `MIN_GESTURE = 8` 像素：低于此值视为短按；keepMenu=true 模式下放行原生菜单（Win/Linux）
-- **方向去重**: 连续相同方向只记一次，所以 `LL` 不存在，长拖动也只算 `L`
-- **`←↑` 不会误触发后退**: 动作只在 `mouseup` 时根据完整序列执行，一气呵成的 `←↑` 整段被识别为 `LU`
-- **抑制 contextmenu**: 拖动达到阈值后置 `suppressContext = true`（200ms 窗口），下一次右键菜单被吞掉
-
-**视觉反馈**
-
-- 屏幕中央浮层（`z-index: 2147483647`，`pointer-events: none`），实时显示当前方向序列
-- 命中合法手势时不透明度提升至 `1`，未命中维持 `0.7`
-- `mouseup` 后立即隐藏；`window.blur` 时复位 tracking 状态防卡死
-
-**所需权限**
-
-- `sessions` — `chrome.sessions.restore()` 必需
-- `chrome.tabs.remove` 不需要单独权限（通过 sender.tab.id 操作自身 tab）
-
-**总开关 / 设置**
-
-- `chrome.storage.sync.enableGestures`（boolean，默认 true，设置页顶部"功能开关"卡片）：手势总开关，关闭后 `mousedown` 直接 return，原生右键菜单完全不受影响
-- `chrome.storage.sync.gestureKeepMenu`（boolean，默认 false）：见上文"识别逻辑"小节
-- 启动时一次性读取，并监听 `chrome.storage.onChanged`：用户在设置页切换后所有页面**无需刷新**即可生效
-
-### Prompt 模板
-
-- 所有默认 prompt 在 `youtube/prompts.js`（`YTX.prompts.*`），content script 通过 `YTX.prompts.*` 引用
-- 占位符：YouTube 功能用 `{transcript}`，翻译用 `{langInstruction}`
-- 自定义 prompt 存储约定：**空字符串表示未自定义**，`getSettings()` 读取时回退到 `YTX.prompts.*` 默认值
-- 设置页 UI 已移除自定义 prompt 编辑入口（options.html 不再有该卡片，options.js 仅保留 `ALL_PROMPT_KEYS` 用于导入/导出兼容老配置），但已存储的自定义 prompt 仍会被读取生效。如需新增编辑入口需要恢复 options.html 卡片 + options.js 的 promptCache/switchPromptTab 等逻辑
-
-### 存储结构
-
-**`chrome.storage.sync`**（跨设备同步）：
-- `provider` — `'claude'` | `'openai'` | `'chatgpt'` | `'gemini'` | `'minimax'` | `'deepseek'` | `'kimi'` | `'sub2api'`
-- `claudeKey`, `openaiKey`, `geminiKey`, `minimaxKey`, `deepseekKey`, `kimiKey`, `sub2apiKey` — 各 provider 的 API Key（chatgpt 无 key，OAuth 凭据在 local）
-- `claudeModel`, `openaiModel`, `geminiModel`, `minimaxModel`, `deepseekModel`, `kimiModel`, `sub2apiModel`, `chatgptModel` — 各 provider 的模型 ID
-- `sub2apiBaseUrl` — Sub2API 中转网关地址（不含路径后缀，由 `normalizeSub2ApiBase()` 自动剥离）
-- `prompt`, `promptHtml`, `promptMindmap` — 自定义 prompt（注意 summary 的 key 是 `prompt` 而非 `promptSummary`，向后兼容；设置页 UI 已移除编辑入口，但 storage 已写入的值仍生效）
-- `promptTranslateDict`, `promptTranslateSentence` — 翻译自定义 prompt（同上，UI 已移除）
-- `generateAllSummary`, `generateAllMindmap`, `generateAllHtml` — 「全部生成」是否包含对应功能（boolean，默认 true，`!== false` 判断）
-- `youtubePanelDefaultCollapsed` — YouTube 面板首次加载时是否默认折叠（boolean，默认 true，`!== false` 判断）
-- `enableYoutube`, `enableTranslate`, `enableXhs`, `enableGestures` — 四大模块总开关（boolean，默认 true，`!== false` 判断），设置页顶部「功能开关」卡片；各 content script 启动时读取并监听 `chrome.storage.onChanged` 即时生效无需刷新（YouTube 关闭时 panel.js `onNavigate` 走 `!videoId` 清理路径拆面板，重新开启立即重注入面板并恢复缓存）
-- `gestureKeepMenu` — 是否保留原生右键菜单（boolean，默认 false：右键直接走手势，Mac 上 Shift+右键 临时弹原生菜单；true 时 Mac 普通右键弹菜单、Shift+右键 进手势，Win/Linux 用 mouseup 时位移判断）
-- `mindmapAlignTop` — 导图对齐偏好
-
-**`chrome.storage.local`**（仅本地）：
-- `chatgptAuth` — ChatGPT 订阅的 OAuth 凭据 `{ access_token, refresh_token, id_token, account_id }`，来自设置页粘贴的 `~/.codex/auth.json`；token 刷新后由 background 回写。不进 sync（体积/敏感性）、不随导入导出
-- `fetchedModels_claude`, `fetchedModels_openai`, `fetchedModels_gemini`, `fetchedModels_deepseek`, `fetchedModels_kimi` — API 拉取的模型列表缓存。渲染时由 `mergeModels()` 与预置列表合并（预置在前、按 value 去重），不能直接替换预置——`/v1/models` 只返回该 key 有权访问的模型真名，权限不足时整代新模型会整批缺席，而该缓存持久化在 storage.local 会一直遮蔽推荐模型
-
-**IndexedDB**（`AAtoolsCache` → `results` store）：
-- key 为 `videoId`，`cache.save(videoId, featureKey, data)` 合并写入
-
-### 关键约定
-
-- YouTube SPA 适配：监听 `yt-navigate-finish` 事件，同视频 + 面板已存在则跳过
-- 面板注入：等待 `#secondary`/`#secondary-inner` 出现（轮询 30×500ms），prepend 到 `#secondary`
-- 面板收起：保留 `YTX.panel` DOM 以继续接收流式消息，移除 resizer 恢复 YouTube 原布局；恢复时重建 resizer
-- 可调分栏：`#ytx-resizer` 拖拽手柄，默认 3:2 分割，min secondary 440px
-- 时间戳点击：面板级事件委托，匹配 `.ytx-timestamp, .ytx-ts`，设 `video.currentTime` 并 `play()`
-- 所有 AI 输出默认要求简体中文
-- options.js 设置页：所有输入 1.5s 防抖自动保存，import 需验证 `_meta.version` 为 `'AATube'` 或 `'AAtools'`
-- options.js 模型下拉框：已存模型不在当前列表时会补一个「（当前已保存）」选项显示真实值——否则 UI 误显示第一项、随后任意 autoSave 会把存量配置静默改写。claude / deepseek 的已退役模型（`RETIRED_CLAUDE` / `RETIRED_DEEPSEEK` 正则，与 background.js 同款）在两层过滤：拉取缓存列表过滤 + 选中值命中时视为未选择（落回推荐默认，autoSave 顺势完成存储迁移）
+用户可见行为、最低 Chrome 版本、数据留存、第三方传输或权限变化时，必须同步更新 README 与隐私政策。不要在文档中声称尚未由代码和测试保证的生命周期、安全或兼容行为。

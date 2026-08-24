@@ -6,9 +6,9 @@ const path = require('node:path');
 const test = require('node:test');
 const vm = require('node:vm');
 
-function createLegacyIndexedDB(records) {
+function createLegacyIndexedDB(records, { deleteMode = 'success' } = {}) {
   const storedRecords = structuredClone(records);
-  const stats = { deleteCount: 0, deletedRecordIds: [], openCount: 0 };
+  const stats = { deleteAttempts: 0, deleteCount: 0, deletedRecordIds: [], getAllCount: 0, getCount: 0, openCount: 0 };
   let databaseExists = true;
   const db = {
     objectStoreNames: { contains(name) { return name === 'results'; } },
@@ -20,6 +20,7 @@ function createLegacyIndexedDB(records) {
         objectStore() {
           return {
             getAll() {
+              stats.getAllCount++;
               const request = { result: null, error: null, onsuccess: null, onerror: null };
               queueMicrotask(() => {
                 request.result = structuredClone(storedRecords);
@@ -28,6 +29,7 @@ function createLegacyIndexedDB(records) {
               return request;
             },
             get(videoId) {
+              stats.getCount++;
               const request = { result: null, error: null, onsuccess: null, onerror: null };
               queueMicrotask(() => {
                 const record = storedRecords.find(item => item.videoId === videoId);
@@ -78,9 +80,19 @@ function createLegacyIndexedDB(records) {
       return request;
     },
     deleteDatabase() {
+      stats.deleteAttempts++;
       const request = { onsuccess: null, onerror: null, onblocked: null };
       queueMicrotask(() => {
+        if (deleteMode === 'blocked') {
+          if (request.onblocked) request.onblocked();
+          return;
+        }
+        if (deleteMode === 'error') {
+          if (request.onerror) request.onerror();
+          return;
+        }
         databaseExists = false;
+        storedRecords.length = 0;
         stats.deleteCount++;
         if (request.onsuccess) request.onsuccess();
       });
@@ -138,7 +150,7 @@ function loadCore({ indexedDB, responseFor, storageGet } = {}) {
   return { context, messages, runtime };
 }
 
-test('unchanged legacy cache records are removed only after every record is acknowledged', async () => {
+test('startup deletes the page-origin legacy database without opening or reading values', async () => {
   const records = [
     { videoId: 'abcdefghijk', summary: { text: 'one' } },
     { videoId: 'lmnopqrstuv', summary: { text: 'two' } },
@@ -147,69 +159,114 @@ test('unchanged legacy cache records are removed only after every record is ackn
   const loaded = loadCore({
     indexedDB: legacy,
     responseFor(message) {
-      if (message.type === 'CACHE_LOAD') return { ok: true, record: null };
+      if (message.type === 'CACHE_EPOCH') return { ok: true, epoch: 1 };
+      if (message.type === 'CACHE_LOAD') return { ok: true, record: null, epoch: 1 };
       return { ok: true };
     },
   });
 
   assert.equal(await loaded.context.YTX.cache.load('abcdefghijk'), null);
   assert.deepEqual(loaded.messages.map(message => message.type), [
-    'CACHE_MIGRATE_RECORD', 'CACHE_MIGRATE_RECORD', 'CACHE_LOAD',
+    'CACHE_EPOCH', 'CACHE_LOAD',
   ]);
-  assert.equal(legacy.stats.deleteCount, 0);
-  assert.deepEqual(legacy.stats.deletedRecordIds, ['abcdefghijk', 'lmnopqrstuv']);
-
-  const migrationOpenCount = legacy.stats.openCount;
   await loaded.context.YTX.cache.save('abcdefghijk', 'summary', { text: 'new' });
-  assert.equal(legacy.stats.openCount, migrationOpenCount, 'daily cache writes must not reopen page-origin IndexedDB');
+  assert.deepEqual(loaded.messages.map(message => message.type), ['CACHE_EPOCH', 'CACHE_LOAD', 'CACHE_SAVE']);
+  assert.equal(loaded.messages.at(-1).epoch, 1);
+  assert.equal(legacy.stats.openCount, 0);
+  assert.equal(legacy.stats.getAllCount, 0);
+  assert.equal(legacy.stats.getCount, 0);
+  assert.equal(legacy.stats.deleteAttempts, 1);
+  assert.equal(legacy.stats.deleteCount, 1);
+  assert.deepEqual(legacy.stats.deletedRecordIds, []);
+  assert.deepEqual(legacy.records(), []);
 });
 
-test('failed legacy acknowledgement preserves the old database but does not block new cache', async () => {
+test('explicit remove reuses whole-database legacy cleanup and never reads a value', async () => {
   const legacy = createLegacyIndexedDB([
     { videoId: 'abcdefghijk', summary: { text: 'one' } },
     { videoId: 'lmnopqrstuv', summary: { text: 'two' } },
   ]);
-  let migrationCount = 0;
   const loaded = loadCore({
     indexedDB: legacy,
     responseFor(message) {
-      if (message.type === 'CACHE_MIGRATE_RECORD') {
-        migrationCount++;
-        return migrationCount === 2 ? { ok: false, error: 'write failed' } : { ok: true };
-      }
-      if (message.type === 'CACHE_LOAD') return { ok: true, record: { videoId: message.videoId } };
+      if (message.type === 'CACHE_EPOCH') return { ok: true, epoch: 1 };
       return { ok: true };
     },
   });
 
-  const record = await loaded.context.YTX.cache.load('abcdefghijk');
-  assert.equal(record.videoId, 'abcdefghijk');
-  assert.equal(legacy.stats.deleteCount, 0);
-  assert.equal(loaded.messages.at(-1).type, 'CACHE_LOAD');
-
   assert.equal(await loaded.context.YTX.cache.remove('abcdefghijk'), true);
-  assert.deepEqual(legacy.stats.deletedRecordIds, ['abcdefghijk']);
+  assert.deepEqual(loaded.messages.map(message => message.type), ['CACHE_EPOCH', 'CACHE_REMOVE']);
+  assert.equal(loaded.messages.at(-1).epoch, 1);
+  assert.equal(legacy.stats.openCount, 0);
+  assert.equal(legacy.stats.getAllCount, 0);
+  assert.equal(legacy.stats.getCount, 0);
+  assert.equal(legacy.stats.deleteAttempts, 1);
+  assert.deepEqual(legacy.stats.deletedRecordIds, []);
+  assert.deepEqual(legacy.records(), []);
 });
 
-test('legacy records updated during migration are retained for the next migration', async () => {
+test('legacy cleanup is idempotent for the content-script lifecycle', async () => {
   const legacy = createLegacyIndexedDB([
     { videoId: 'abcdefghijk', summary: { text: 'old' }, updatedAt: 1 },
     { videoId: 'lmnopqrstuv', summary: { text: 'stable' }, updatedAt: 1 },
   ]);
+  const loaded = loadCore({ indexedDB: legacy });
+
+  assert.equal(await loaded.context.YTX.cache.cleanupLegacy(), true);
+  assert.equal(await loaded.context.YTX.cache.cleanupLegacy(), true);
+  assert.equal(legacy.stats.openCount, 0);
+  assert.equal(legacy.stats.getAllCount, 0);
+  assert.equal(legacy.stats.getCount, 0);
+  assert.equal(legacy.stats.deleteAttempts, 1);
+  assert.equal(legacy.stats.deleteCount, 1);
+  assert.deepEqual(legacy.stats.deletedRecordIds, []);
+  assert.deepEqual(legacy.records(), []);
+});
+
+test('blocked or failed legacy deletion never blocks background cache access', async () => {
+  for (const deleteMode of ['blocked', 'error']) {
+    const legacy = createLegacyIndexedDB([
+      { videoId: 'abcdefghijk', summary: { text: 'old' } },
+    ], { deleteMode });
+    const loaded = loadCore({
+      indexedDB: legacy,
+      responseFor(message) {
+        if (message.type === 'CACHE_EPOCH') return { ok: true, epoch: 1 };
+        if (message.type === 'CACHE_LOAD') return { ok: true, record: null, epoch: 1 };
+        return { ok: true };
+      },
+    });
+
+    assert.equal(await loaded.context.YTX.cache.load('abcdefghijk'), null);
+    assert.deepEqual(loaded.messages.map(message => message.type), ['CACHE_EPOCH', 'CACHE_LOAD']);
+    assert.equal(legacy.stats.deleteAttempts, 1);
+    assert.equal(legacy.stats.openCount, 0);
+    assert.equal(legacy.stats.getAllCount, 0);
+    assert.equal(legacy.stats.getCount, 0);
+  }
+});
+
+test('a content-script lifecycle captures one epoch before load and never adopts a post-clear epoch', async () => {
   const loaded = loadCore({
-    indexedDB: legacy,
+    indexedDB: createLegacyIndexedDB([]),
     responseFor(message) {
-      if (message.type === 'CACHE_MIGRATE_RECORD' && message.record.videoId === 'abcdefghijk') {
-        legacy.replaceRecord({ videoId: 'abcdefghijk', summary: { text: 'new' }, updatedAt: 2 });
+      if (message.type === 'CACHE_EPOCH') return { ok: true, epoch: 7 };
+      if (message.type === 'CACHE_LOAD') return { ok: true, record: null, epoch: 8 };
+      if (message.type === 'CACHE_SAVE') {
+        return message.epoch === 7
+          ? { ok: false, stale: true, epoch: 8, error: '缓存代际已变化' }
+          : { ok: true, epoch: 8 };
       }
-      if (message.type === 'CACHE_LOAD') return { ok: true, record: null };
       return { ok: true };
     },
   });
 
-  await loaded.context.YTX.cache.load('abcdefghijk');
-  assert.deepEqual(legacy.stats.deletedRecordIds, ['lmnopqrstuv']);
-  assert.equal(legacy.records()[0].summary.text, 'new');
+  assert.equal(await loaded.context.YTX.cache.captureEpoch(), 7);
+  assert.equal(await loaded.context.YTX.cache.save('abcdefghijk', 'summary', { text: 'old work' }), false);
+  assert.equal(await loaded.context.YTX.cache.load('abcdefghijk'), null);
+  assert.equal(await loaded.context.YTX.cache.save('abcdefghijk', 'html', { text: 'still old work' }), false);
+  const saves = loaded.messages.filter(message => message.type === 'CACHE_SAVE');
+  assert.deepEqual(saves.map(message => message.epoch), [7, 7]);
 });
 
 test('renderError treats remote-looking text as text, not markup', () => {
@@ -271,4 +328,67 @@ test('generate-all invalidation prevents an old same-video run from starting fea
 
   assert.equal(starts, 0);
   assert.equal(allButton.innerHTML, 'reset-state');
+});
+
+test('timestamp parsing supports long videos and rejects invalid minute/second fields', () => {
+  const loaded = loadCore();
+  const { YTX } = loaded.context;
+
+  assert.equal(YTX.fmtTime(6000), '100:00');
+  assert.equal(YTX.parseTime('100:00'), 6000);
+  assert.equal(YTX.parseTime('1:40:00'), 6000);
+  assert.equal(YTX.safeTime('1:40:00'), '100:00');
+  assert.equal(YTX.safeTime('12:99'), null);
+  assert.equal(YTX.safeTime('1:60:00'), null);
+  assert.equal(YTX.safeTime('not-a-time'), null);
+});
+
+test('subtitle request watchdog rejects a background message channel that never settles', async () => {
+  const loaded = loadCore();
+  loaded.context.YTX.FETCH_TRANSCRIPT_WATCHDOG_MS = 5;
+  loaded.context.YTX.currentVideoId = 'abcdefghijk';
+  loaded.context.YTX.sendToBg = function () { return new Promise(function () {}); };
+  await assert.rejects(loaded.context.YTX.fetchTranscript(), /等待超时/);
+});
+
+test('Gemini transcript mode commits only on success and applies the shared size limit', async () => {
+  const oversized = 'line\n'.repeat(50000);
+  const loaded = loadCore({
+    responseFor(message) {
+      if (message.type === 'TRANSCRIBE_VIDEO') return { started: true, requestId: message.requestId };
+      return { ok: true };
+    },
+  });
+  const { YTX } = loaded.context;
+  loaded.context.document.querySelector = () => null;
+  loaded.context.document.querySelectorAll = () => [];
+  YTX.currentVideoId = 'abcdefghijk';
+  YTX._transcriptGeneration = 1;
+
+  const success = YTX._analyzeVideoWithGemini(1);
+  await new Promise(resolve => setImmediate(resolve));
+  const successRequest = loaded.messages.find(message => message.type === 'TRANSCRIBE_VIDEO');
+  YTX.settleTranscribeDeferred(successRequest.requestId, null, oversized, {});
+  await success;
+  assert.equal(YTX.videoMode, true);
+  assert.equal(YTX.transcriptData.truncated, true);
+  assert.match(YTX.transcriptData.full, /字幕过长，已截断/);
+  assert.ok(YTX.transcriptData.full.length < oversized.length);
+
+  const failed = loadCore({
+    responseFor(message) {
+      if (message.type === 'TRANSCRIBE_VIDEO') return { started: true, requestId: message.requestId };
+      return { ok: true };
+    },
+  });
+  failed.context.document.querySelector = () => null;
+  failed.context.document.querySelectorAll = () => [];
+  failed.context.YTX.currentVideoId = 'abcdefghijk';
+  failed.context.YTX._transcriptGeneration = 1;
+  const failure = failed.context.YTX._analyzeVideoWithGemini(1);
+  await new Promise(resolve => setImmediate(resolve));
+  const failedRequest = failed.messages.find(message => message.type === 'TRANSCRIBE_VIDEO');
+  failed.context.YTX.settleTranscribeDeferred(failedRequest.requestId, new Error('transcription failed'));
+  await assert.rejects(failure, /transcription failed/);
+  assert.equal(failed.context.YTX.videoMode, false);
 });

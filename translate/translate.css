@@ -152,7 +152,7 @@
   padding: 12px 14px;
   border-bottom: 1px solid #f0f0f0;
 }
-.ytx-translate-source-textarea {
+.ytx-translate-source-text {
   display: block;
   width: 100%;
   min-height: 60px;
@@ -165,18 +165,17 @@
   font-size: 13px;
   line-height: 1.6;
   color: #333;
-  resize: vertical;
-  outline: none;
-  transition: border-color 0.15s;
   box-sizing: border-box;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+  -webkit-user-select: text;
 }
-.ytx-translate-source-textarea:focus {
-  border-color: #c4b5fd;
-}
-.ytx-translate-source-textarea::-webkit-scrollbar {
+.ytx-translate-source-text::-webkit-scrollbar {
   width: 3px;
 }
-.ytx-translate-source-textarea::-webkit-scrollbar-thumb {
+.ytx-translate-source-text::-webkit-scrollbar-thumb {
   background: #ddd;
   border-radius: 2px;
 }
@@ -275,6 +274,18 @@
 .ytx-translate-status.done .ytx-translate-status-dot {
   background: #22c55e;
 }
+.ytx-translate-status.incomplete {
+  color: #b45309;
+}
+.ytx-translate-status.incomplete .ytx-translate-status-dot {
+  background: #f59e0b;
+}
+.ytx-translate-status.error {
+  color: #b91c1c;
+}
+.ytx-translate-status.error .ytx-translate-status-dot {
+  background: #ef4444;
+}
 
 /* 译文区域 */
 .ytx-translate-result {
@@ -287,8 +298,10 @@
   word-wrap: break-word;
   white-space: normal;
   min-height: 20px;
-  user-select: text;
-  -webkit-user-select: text;
+  /* 模型输出仅通过扩展复制按钮写入剪贴板，避免宿主页面从原生 copy 事件
+     或 document selection 读取 closed-shadow 内的新内容。 */
+  user-select: none;
+  -webkit-user-select: none;
 }
 .ytx-translate-result-text div {
   margin: 1px 0;
@@ -421,6 +434,16 @@
 .ytx-translate-result-text.ytx-translate-error {
   color: #ef4444;
 }
+.ytx-translate-incomplete-warning {
+  margin: 0 0 8px;
+  padding: 7px 9px;
+  border: 1px solid #fcd34d;
+  border-radius: 6px;
+  background: #fffbeb;
+  color: #92400e;
+  font-size: 12px;
+  line-height: 1.45;
+}
 
 /* ── 暗色模式 ─────────────────────────────────────────── */
 html[dark] #ytx-translate-popup,
@@ -476,18 +499,14 @@ html[dark] .ytx-translate-source,
 [dark] .ytx-translate-source {
   border-bottom-color: #333;
 }
-html[dark] .ytx-translate-source-textarea,
-[dark] .ytx-translate-source-textarea {
+html[dark] .ytx-translate-source-text,
+[dark] .ytx-translate-source-text {
   background: #2a2a2a;
   border-color: #383838;
   color: #ddd;
 }
-html[dark] .ytx-translate-source-textarea:focus,
-[dark] .ytx-translate-source-textarea:focus {
-  border-color: #7c3aed;
-}
-html[dark] .ytx-translate-source-textarea::-webkit-scrollbar-thumb,
-[dark] .ytx-translate-source-textarea::-webkit-scrollbar-thumb {
+html[dark] .ytx-translate-source-text::-webkit-scrollbar-thumb,
+[dark] .ytx-translate-source-text::-webkit-scrollbar-thumb {
   background: #555;
 }
 html[dark] .ytx-translate-divider,
@@ -517,6 +536,12 @@ html[dark] .ytx-dict-ex,
 [dark] .ytx-dict-ex { color: #aaa; }
 html[dark] .ytx-dict-label,
 [dark] .ytx-dict-label { color: #777; }
+html[dark] .ytx-translate-incomplete-warning,
+[dark] .ytx-translate-incomplete-warning {
+  background: #422006;
+  border-color: #92400e;
+  color: #fde68a;
+}
 html[dark] .ytx-translate-action-btn,
 [dark] .ytx-translate-action-btn {
   color: #777;
@@ -577,9 +602,8 @@ html[dark] #ytx-translate-icon:hover,
   .ytx-translate-lang-select:hover { border-color: #555; }
   .ytx-translate-lang-select:focus { border-color: #7c3aed; }
   .ytx-translate-source { border-bottom-color: #333; }
-  .ytx-translate-source-textarea { background: #2a2a2a; border-color: #383838; color: #ddd; }
-  .ytx-translate-source-textarea:focus { border-color: #7c3aed; }
-  .ytx-translate-source-textarea::-webkit-scrollbar-thumb { background: #555; }
+  .ytx-translate-source-text { background: #2a2a2a; border-color: #383838; color: #ddd; }
+  .ytx-translate-source-text::-webkit-scrollbar-thumb { background: #555; }
   .ytx-translate-divider { border-bottom-color: #333; }
   .ytx-translate-result-text { color: #e5e5e5; }
   .ytx-translate-result-text code { background: #2d1b69; color: #c4b5fd; }
@@ -588,6 +612,7 @@ html[dark] #ytx-translate-icon:hover,
   .ytx-dict-ctx { background: #2a2040; border-left-color: #7c3aed; color: #ddd; }
   .ytx-dict-ex { color: #aaa; }
   .ytx-dict-label { color: #777; }
+  .ytx-translate-incomplete-warning { background: #422006; border-color: #92400e; color: #fde68a; }
   .ytx-translate-action-btn { color: #777; }
   .ytx-translate-action-btn:hover { background: #333; color: #e5e5e5; }
   .ytx-translate-submit { background: #6d28d9; }

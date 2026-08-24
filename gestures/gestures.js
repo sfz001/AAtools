@@ -2,202 +2,338 @@
 // ← 后退   → 前进   ↓ 滚到底   ↑ 滚到顶   ↓→ 关闭   ←↑ 恢复   ↑↓ 强制刷新
 (function () {
   'use strict';
-  if (window.top !== window) return; // 只在顶层窗口启用，跳过 iframe
+  if (window.top !== window) return;
 
-  const MIN_SEGMENT = 30; // 单段最小位移（像素）
-  const MIN_GESTURE = 8;  // 累计移动超过此值才视为手势（屏蔽误触）
+  const MIN_SEGMENT = 30;
+  const MIN_GESTURE = 30;
+  const platform = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || '';
+  const isMac = /Mac|iPhone|iPod|iPad/i.test(platform);
+  const lifecycle = new AbortController();
+  const captureOptions = { capture: true, signal: lifecycle.signal };
 
-  // contextmenu 抑制策略，由 gestureKeepMenu 设置切换：
-  // - keepMenu=false（默认，触控板友好）：右键直接进手势模式，contextmenu 始终抑制
-  //   适合 Mac 触控板"左下角=右键"配置，按住 + 滑动即触发手势
-  //   · macOS 上 Shift+右键 作为逃生口：放行让原生菜单弹出
-  // - keepMenu=true（保留菜单）：
-  //   · Windows/Linux：contextmenu 在 mouseup 之后触发 → 短按弹菜单、拖动触发手势
-  //   · macOS：contextmenu 在 mousedown 时立即触发 → 普通右键弹菜单、Shift+右键 进手势
-  // Mac 上的总规则：Shift 翻转 keepMenu 的行为（XOR）— Shift 状态和 keepMenu 一致即弹菜单
-  const isMac = /Mac|iPhone|iPod|iPad/i.test(navigator.platform || '');
-
-  let enabled = true; // 总开关，默认启用，由 storage 决定
-  let keepMenu = false; // 是否保留原生右键菜单（默认 false：右键直接走手势）
+  // 设置读取成功前 fail closed；默认保留原生右键菜单。
+  let enabled = false;
+  let keepMenu = true;
+  let disposed = false;
   let tracking = false;
-  let lastPoint = null;
+  let lastRawPoint = null;
+  let segmentAnchor = null;
+  let wheelAccumX = 0;
+  let wheelAccumY = 0;
   let directions = [];
   let totalMoved = 0;
   let suppressContext = false;
+  let suppressTimer = null;
+  let feedbackTimer = null;
+  let actionGeneration = 0;
   let indicator = null;
 
-  // ── 代际接管：扩展重载后 background 会重注入本脚本 ──────
-  // 新实例广播接管事件（DOM 事件跨 isolated world 传播），旧实例收到后
-  // 自我卸载：移除浮层、mousedown 经 destroyed 短路（其余 handler 依赖 tracking）。
-  let destroyed = false;
-  const GEN_EVENT = 'aatools-takeover-gestures';
-  try { document.dispatchEvent(new Event(GEN_EVENT)); } catch (_) {}
-  document.addEventListener(GEN_EVENT, () => {
-    destroyed = true;
-    tracking = false;
-    if (indicator && indicator.parentNode) indicator.parentNode.removeChild(indicator);
-    indicator = null;
-  });
-
-  // 启动时读取设置；监听变化实时响应（无需刷新页面）
-  try {
-    chrome.storage.sync.get(['enableGestures', 'gestureKeepMenu'], (data) => {
-      enabled = data.enableGestures !== false;
-      keepMenu = !!data.gestureKeepMenu;
-    });
-    chrome.storage.onChanged.addListener((changes, area) => {
-      if (area !== 'sync') return;
-      if (changes.enableGestures) {
-        enabled = changes.enableGestures.newValue !== false;
-        if (!enabled) { tracking = false; hideIndicator(); }
+  function sendGestureRequest(type) {
+    return Promise.resolve(chrome.runtime.sendMessage({ type: type })).then((response) => {
+      if (!response || response.ok !== true) {
+        throw new Error(response && typeof response.error === 'string'
+          ? response.error
+          : '浏览器未能完成手势操作');
       }
-      if (changes.gestureKeepMenu) {
-        keepMenu = !!changes.gestureKeepMenu.newValue;
-      }
+      return response;
     });
-  } catch (_) {}
+  }
 
   const GESTURES = {
     'L':  { label: '← 后退',          run: () => history.back() },
     'R':  { label: '→ 前进',          run: () => history.forward() },
     'U':  { label: '↑ 滚动到顶部',     run: () => window.scrollTo({ top: 0, behavior: 'auto' }) },
     'D':  { label: '↓ 滚动到底部',     run: () => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'auto' }) },
-    'DR': { label: '↓→ 关闭标签页',    run: () => chrome.runtime.sendMessage({ type: 'GESTURE_CLOSE_TAB' }) },
-    'LU': { label: '←↑ 恢复关闭页',    run: () => chrome.runtime.sendMessage({ type: 'GESTURE_REOPEN_TAB' }) },
-    'UD': { label: '↑↓ 强制刷新',      run: () => chrome.runtime.sendMessage({ type: 'GESTURE_RELOAD_HARD' }) },
+    'DR': { label: '↓→ 关闭标签页',    run: () => sendGestureRequest('GESTURE_CLOSE_TAB') },
+    'LU': { label: '←↑ 恢复关闭页',    run: () => sendGestureRequest('GESTURE_REOPEN_TAB') },
+    'UD': { label: '↑↓ 强制刷新',      run: () => sendGestureRequest('GESTURE_RELOAD_HARD') },
   };
+
+  function isAAToolsUiEvent(e) {
+    let path = [];
+    try { path = typeof e.composedPath === 'function' ? e.composedPath() : []; } catch (_) {}
+    if (!path.length && e.target) path = [e.target];
+    return path.some((node) => {
+      if (!node || node.nodeType !== 1) return false;
+      if (node.id === 'ytx-panel-host') return true;
+      try {
+        return (node.tagName === 'DIV' &&
+          node.getAttribute('data-aatools-ui') === 'translate') ||
+          node.hasAttribute('data-aatools-gesture-indicator');
+      } catch (_) {
+        return false;
+      }
+    });
+  }
 
   function dirOf(dx, dy) {
     return Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'R' : 'L') : (dy > 0 ? 'D' : 'U');
   }
 
+  function clearSuppressTimer() {
+    if (suppressTimer) clearTimeout(suppressTimer);
+    suppressTimer = null;
+  }
+
+  function releaseContextSoon() {
+    clearSuppressTimer();
+    suppressTimer = setTimeout(() => {
+      suppressTimer = null;
+      suppressContext = false;
+    }, 250);
+  }
+
   function ensureIndicator() {
-    if (indicator) return indicator;
-    indicator = document.createElement('div');
-    indicator.style.cssText = [
-      'position:fixed', 'left:50%', 'top:50%', 'transform:translate(-50%,-50%)',
-      'background:rgba(20,20,20,0.82)', 'color:#fff',
-      'padding:10px 18px', 'border-radius:10px',
-      'font:14px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif',
-      'z-index:2147483647', 'pointer-events:none', 'user-select:none',
-      'box-shadow:0 6px 20px rgba(0,0,0,0.3)', 'display:none',
-    ].join(';');
-    (document.body || document.documentElement).appendChild(indicator);
+    if (!indicator) {
+      indicator = document.createElement('div');
+      indicator.setAttribute('data-aatools-gesture-indicator', '');
+      indicator.style.cssText = [
+        'position:fixed', 'left:50%', 'top:50%', 'transform:translate(-50%,-50%)',
+        'background:rgba(20,20,20,0.82)', 'color:#fff',
+        'padding:10px 18px', 'border-radius:10px',
+        'font:14px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif',
+        'z-index:2147483647', 'pointer-events:none', 'user-select:none',
+        'box-shadow:0 6px 20px rgba(0,0,0,0.3)', 'display:none',
+      ].join(';');
+    }
+    if (!indicator.isConnected) (document.body || document.documentElement).appendChild(indicator);
     return indicator;
   }
 
   function showIndicator(text, matched) {
     const el = ensureIndicator();
     el.textContent = text;
+    el.style.background = 'rgba(20,20,20,0.82)';
     el.style.opacity = matched ? '1' : '0.7';
     el.style.display = 'block';
+  }
+
+  function showActionError(error, generation) {
+    if (disposed || tracking || generation !== actionGeneration) return;
+    if (feedbackTimer) clearTimeout(feedbackTimer);
+    const message = String(error && error.message ? error.message : error || '操作失败').slice(0, 200);
+    const el = ensureIndicator();
+    el.textContent = '操作失败：' + message;
+    el.style.background = 'rgba(153,27,27,0.94)';
+    el.style.opacity = '1';
+    el.style.display = 'block';
+    feedbackTimer = setTimeout(() => {
+      feedbackTimer = null;
+      if (!tracking && generation === actionGeneration) hideIndicator();
+    }, 1800);
   }
 
   function hideIndicator() {
     if (indicator) indicator.style.display = 'none';
   }
 
-  document.addEventListener('mousedown', function (e) {
-    if (destroyed) return;
-    if (!enabled) return;
-    if (!e.isTrusted) return;
-    if (e.button !== 2) return;
-    // Mac 上 Shift 与 keepMenu 不一致时让菜单弹出（不进 tracking）：
-    //   keepMenu=true  + 普通右键   → 弹菜单（默认保留菜单行为）
-    //   keepMenu=false + Shift+右键 → 弹菜单（手势模式下的逃生口）
-    // 非 Mac：keepMenu=true 时由 mouseup 决定；keepMenu=false 时一律进手势
-    // 显式清 suppressContext，防止上一次未拖动的 mouseup 残留的 true 把这次菜单吞掉
-    if (isMac && keepMenu !== e.shiftKey) { suppressContext = false; return; }
-    tracking = true;
-    lastPoint = { x: e.clientX, y: e.clientY };
+  function resetTracking(options) {
+    const opts = options || {};
+    tracking = false;
+    lastRawPoint = null;
+    segmentAnchor = null;
+    wheelAccumX = 0;
+    wheelAccumY = 0;
     directions = [];
     totalMoved = 0;
-    // 抑制 contextmenu：keepMenu=false 一律抑制；keepMenu=true 时仅 Mac mousedown 立即抑制（Win/Linux 等 mouseup 决定）
-    suppressContext = !keepMenu || isMac;
-  }, true);
-
-  document.addEventListener('mousemove', function (e) {
-    if (!tracking) return;
-    if (!e.isTrusted) return;
-    const dx = e.clientX - lastPoint.x;
-    const dy = e.clientY - lastPoint.y;
-    const dist = Math.hypot(dx, dy);
-    totalMoved += dist;
-    if (Math.abs(dx) < MIN_SEGMENT && Math.abs(dy) < MIN_SEGMENT) return;
-
-    const d = dirOf(dx, dy);
-    if (directions[directions.length - 1] !== d) directions.push(d);
-    lastPoint = { x: e.clientX, y: e.clientY };
-
-    if (totalMoved < MIN_GESTURE) return;
-    const key = directions.join('');
-    const g = GESTURES[key];
-    showIndicator(g ? g.label : '手势 ' + (key.split('').map(c => ({L:'←',R:'→',U:'↑',D:'↓'}[c])).join('')), !!g);
-  }, true);
-
-  // macOS 触摸板按住右键 + 另一根手指滑动 → 系统发 wheel 事件而非 mousemove
-  // tracking 期间把 wheel 也算成手势位移；deltaX/deltaY 取反以匹配手指物理方向（macOS 自然滚动）
-  document.addEventListener('wheel', function (e) {
-    if (!tracking) return;
-    if (!e.isTrusted) return;
-    const dx = -e.deltaX;
-    const dy = -e.deltaY;
-    const dist = Math.hypot(dx, dy);
-    if (dist < 1) return;
-    totalMoved += dist;
-    if (Math.abs(dx) < MIN_SEGMENT && Math.abs(dy) < MIN_SEGMENT) return;
-
-    const d = dirOf(dx, dy);
-    if (directions[directions.length - 1] !== d) directions.push(d);
-
-    if (totalMoved < MIN_GESTURE) return;
-    const key = directions.join('');
-    const g = GESTURES[key];
-    showIndicator(g ? g.label : '手势 ' + (key.split('').map(c => ({L:'←',R:'→',U:'↑',D:'↓'}[c])).join('')), !!g);
-
-    // 阻止页面同时滚动（用户在做手势，不是在浏览内容）
-    e.preventDefault();
-  }, { passive: false, capture: true });
-
-  document.addEventListener('mouseup', function (e) {
-    if (!tracking || e.button !== 2) return;
-    if (!e.isTrusted) return;
-    tracking = false;
     hideIndicator();
+    if (opts.releaseContext) {
+      suppressContext = false;
+      clearSuppressTimer();
+    }
+  }
 
-    if (totalMoved < MIN_GESTURE) {
-      // 短按（无拖动）：keepMenu=true 时希望菜单弹出
-      //   · Win/Linux：suppressContext=false（mousedown 时未抑制）→ 菜单正常弹
-      //   · Mac：mousedown 时已 suppressContext=true → 菜单已被吞，无法补救（这是 keepMenu+Mac 模式 Shift 短按的代价，可以接受）
-      // keepMenu=false 时：suppressContext=true，菜单本就不该弹
+  function addDirection(direction) {
+    if (directions[directions.length - 1] !== direction) directions.push(direction);
+    const key = directions.join('');
+    const gesture = GESTURES[key];
+    showIndicator(
+      gesture ? gesture.label : '手势 ' + key.split('').map(c => ({ L: '←', R: '→', U: '↑', D: '↓' }[c])).join(''),
+      !!gesture
+    );
+    // 只有形成真实方向段后，保留菜单模式才开始抑制 contextmenu。
+    suppressContext = true;
+  }
+
+  function beginTracking(e) {
+    if (disposed || !enabled || !e.isTrusted || e.button !== 2 || isAAToolsUiEvent(e)) return;
+
+    // Mac：Shift 翻转“保留菜单”行为。
+    if (isMac && keepMenu !== e.shiftKey) {
+      suppressContext = false;
+      clearSuppressTimer();
       return;
     }
 
-    // 有手势：始终抑制 contextmenu（Mac 上 mousedown 时已抑制，这里 idempotent）
-    suppressContext = true;
-    setTimeout(() => { suppressContext = false; }, 200);
+    clearSuppressTimer();
+    actionGeneration++;
+    if (feedbackTimer) clearTimeout(feedbackTimer);
+    feedbackTimer = null;
+    tracking = true;
+    lastRawPoint = { x: e.clientX, y: e.clientY };
+    segmentAnchor = { x: e.clientX, y: e.clientY };
+    wheelAccumX = 0;
+    wheelAccumY = 0;
+    directions = [];
+    totalMoved = 0;
+    suppressContext = !keepMenu || isMac;
+  }
+
+  function trackMouse(e) {
+    if (!tracking || disposed || !e.isTrusted) return;
+    // mouseup 丢在窗口外时，下一次移动可据 buttons 自愈。
+    if ((e.buttons & 2) === 0) {
+      resetTracking({ releaseContext: keepMenu });
+      return;
+    }
+
+    const rawDx = e.clientX - lastRawPoint.x;
+    const rawDy = e.clientY - lastRawPoint.y;
+    totalMoved += Math.hypot(rawDx, rawDy);
+    lastRawPoint = { x: e.clientX, y: e.clientY };
+
+    const segmentDx = e.clientX - segmentAnchor.x;
+    const segmentDy = e.clientY - segmentAnchor.y;
+    if (Math.abs(segmentDx) < MIN_SEGMENT && Math.abs(segmentDy) < MIN_SEGMENT) return;
+
+    addDirection(dirOf(segmentDx, segmentDy));
+    segmentAnchor = { x: e.clientX, y: e.clientY };
+  }
+
+  function trackWheel(e) {
+    if (!tracking || disposed || !enabled || !e.isTrusted) return;
+
+    e.preventDefault();
+    const dx = -e.deltaX;
+    const dy = -e.deltaY;
+    const distance = Math.hypot(dx, dy);
+    if (distance < 0.01) return;
+
+    totalMoved += distance;
+    wheelAccumX += dx;
+    wheelAccumY += dy;
+    if (Math.abs(wheelAccumX) < MIN_SEGMENT && Math.abs(wheelAccumY) < MIN_SEGMENT) return;
+
+    addDirection(dirOf(wheelAccumX, wheelAccumY));
+    wheelAccumX = 0;
+    wheelAccumY = 0;
+  }
+
+  function finishTracking(e) {
+    if (!tracking || disposed || e.button !== 2 || !e.isTrusted) return;
 
     const key = directions.join('');
-    const g = GESTURES[key];
-    if (g) {
-      try { g.run(); } catch (_) {}
-    }
-  }, true);
+    const gesture = GESTURES[key];
+    const validGesture = enabled && totalMoved >= MIN_GESTURE && directions.length > 0 && !!gesture;
 
-  document.addEventListener('contextmenu', function (e) {
-    if (destroyed) return;
-    // Mac 上 Shift 与 keepMenu 不一致时直接放行原生菜单（手势模式的 Shift 逃生口 + 保留菜单模式的默认行为）
-    // 直接读 e.shiftKey，不依赖 mousedown 提前设状态——某些情况下 contextmenu 事件顺序可能在 mousedown 前
+    tracking = false;
+    hideIndicator();
+    lastRawPoint = null;
+    segmentAnchor = null;
+    wheelAccumX = 0;
+    wheelAccumY = 0;
+    directions = [];
+    totalMoved = 0;
+
+    if (!validGesture) {
+      // 空方向、过短或未匹配序列都不吞保留模式的菜单。
+      if (keepMenu) {
+        suppressContext = false;
+        clearSuppressTimer();
+      } else {
+        suppressContext = true;
+        releaseContextSoon();
+      }
+      return;
+    }
+
+    suppressContext = true;
+    releaseContextSoon();
+    const generation = actionGeneration;
+    try {
+      const result = gesture.run();
+      if (result && typeof result.catch === 'function') {
+        result.catch((error) => showActionError(error, generation));
+      }
+    } catch (error) {
+      showActionError(error, generation);
+    }
+  }
+
+  function handleContextMenu(e) {
+    if (disposed || !enabled || !e.isTrusted || isAAToolsUiEvent(e)) return;
     if (isMac && keepMenu !== e.shiftKey) return;
     if (suppressContext) {
       e.preventDefault();
       e.stopPropagation();
     }
-  }, true);
+  }
 
-  // 拖出窗口或切窗口时复位
-  window.addEventListener('blur', function () {
-    tracking = false;
-    hideIndicator();
-  });
+  function handleStorageChanged(changes, area) {
+    if (disposed || area !== 'sync') return;
+    if (changes.enableGestures) {
+      enabled = changes.enableGestures.newValue !== false;
+      if (!enabled) resetTracking({ releaseContext: true });
+    }
+    if (changes.gestureKeepMenu) {
+      keepMenu = changes.gestureKeepMenu.newValue !== false;
+      if (keepMenu && !tracking) {
+        suppressContext = false;
+        clearSuppressTimer();
+      }
+    }
+  }
+
+  function loadSettings() {
+    if (disposed) return;
+    enabled = false;
+    try {
+      chrome.storage.sync.get(['enableGestures', 'gestureKeepMenu'], (data) => {
+        if (disposed) return;
+        let runtimeError;
+        try { runtimeError = chrome.runtime.lastError; } catch (_) { return; }
+        if (runtimeError || !data) return;
+        keepMenu = data.gestureKeepMenu !== false;
+        enabled = data.enableGestures !== false;
+        if (!enabled) resetTracking({ releaseContext: true });
+      });
+    } catch (_) {
+      enabled = false;
+    }
+  }
+
+  function dispose() {
+    if (disposed) return;
+    disposed = true;
+    enabled = false;
+    resetTracking({ releaseContext: true });
+    if (feedbackTimer) clearTimeout(feedbackTimer);
+    feedbackTimer = null;
+    lifecycle.abort();
+    try { chrome.storage.onChanged.removeListener(handleStorageChanged); } catch (_) {}
+    if (indicator && indicator.parentNode) indicator.parentNode.removeChild(indicator);
+    indicator = null;
+  }
+
+  document.addEventListener('mousedown', beginTracking, captureOptions);
+  window.addEventListener('mousemove', trackMouse, captureOptions);
+  window.addEventListener('mouseup', finishTracking, captureOptions);
+  document.addEventListener('wheel', trackWheel, { passive: false, capture: true, signal: lifecycle.signal });
+  document.addEventListener('contextmenu', handleContextMenu, captureOptions);
+  window.addEventListener('blur', () => resetTracking({ releaseContext: keepMenu }), { signal: lifecycle.signal });
+  window.addEventListener('pointercancel', () => resetTracking({ releaseContext: keepMenu }), captureOptions);
+  document.addEventListener('mouseleave', () => resetTracking({ releaseContext: keepMenu }), captureOptions);
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) resetTracking({ releaseContext: keepMenu });
+  }, { signal: lifecycle.signal });
+  window.addEventListener('pagehide', (e) => {
+    resetTracking({ releaseContext: true });
+    if (!e.persisted) dispose();
+  }, { signal: lifecycle.signal });
+  window.addEventListener('pageshow', (e) => {
+    if (e.persisted) loadSettings();
+  }, { signal: lifecycle.signal });
+
+  try { chrome.storage.onChanged.addListener(handleStorageChanged); } catch (_) {}
+  loadSettings();
 })();

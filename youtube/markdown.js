@@ -7,6 +7,7 @@ YTX.escapeHtml = function (text) {
 };
 
 YTX.renderMarkdown = function (text) {
+  text = YTX.limitMarkdownForRender(text);
   var lines = text.split('\n');
   var out = [];
   var i = 0;
@@ -20,8 +21,9 @@ YTX.renderMarkdown = function (text) {
     // `行内代码`
     s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
     // 时间戳 [MM:SS] 或 [H:MM:SS]
-    s = s.replace(/\[(\d{1,2}:\d{2}(?::\d{2})?)\]/g, function (match, time) {
+    s = s.replace(/\[(\d+(?::\d{2}){1,2})\]/g, function (match, time) {
       var secs = YTX.timeToSeconds(time);
+      if (!isFinite(secs)) return match;
       return '<span class="ytx-timestamp" data-time="' + secs + '">[' + time + ']</span>';
     });
     return s;
