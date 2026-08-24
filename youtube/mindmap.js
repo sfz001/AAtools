@@ -11,45 +11,6 @@
   var DEPTH_TEXT_COLORS = ['#ffffff', '#5b21b6', '#6d28d9', '#7c3aed'];
   var DEPTH_BORDER_COLORS = ['#7c3aed', '#c4b5fd', '#ddd6fe', '#e9d5ff'];
 
-  // 模型和历史缓存都属于不可信结构：规范化时仅保留业务字段，
-  // 同时限制深度/节点数，避免渲染递归崩溃和把 _x/_visibleChildren 等元数据写回缓存。
-  YTX.normalizeMindmapData = function (root) {
-    var count = 0;
-
-    function visit(node, depth) {
-      if (!node || typeof node !== 'object' || Array.isArray(node)) {
-        throw new Error('节点必须是 JSON 对象');
-      }
-      if (depth >= 4) throw new Error('导图层级超过 4 层');
-      count++;
-      if (count > 500) throw new Error('导图节点过多');
-
-      var rawLabel = typeof node.label === 'string' ? node.label.slice(0, 1000) : '';
-      var label = rawLabel
-        .replace(/[\u0000-\u001f\u007f-\u009f]+/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-      if (!label) throw new Error('导图节点缺少 label');
-      if (label.length > 120) label = label.slice(0, 120);
-
-      var children = node.children == null ? [] : node.children;
-      if (!Array.isArray(children)) throw new Error('children 必须是数组');
-      if (children.length > 40) throw new Error('单个节点的子节点过多');
-
-      return {
-        label: label,
-        time: YTX.safeTime(typeof node.time === 'string' ? node.time : '') || '',
-        children: children.map(function (child) { return visit(child, depth + 1); }),
-      };
-    }
-
-    return visit(root, 0);
-  };
-
-  function getTimeBadgeWidth(time) {
-    return time ? Math.max(40, time.length * 7 + 12) : 0;
-  }
-
   function assignNodeIds(node, path) {
     path = path || '0';
     node._id = path;
@@ -65,7 +26,7 @@
       charWidth += label.charCodeAt(i) > 0x7f ? 14 : 8;
     }
     var w = charWidth + 28;
-    if (node.time) w += getTimeBadgeWidth(node.time) + 4;
+    if (node.time) w += 44;
     return Math.max(90, w);
   }
 
@@ -155,13 +116,13 @@
 
     var textX = node._x + 14;
     var textY = node._y + node._height / 2;
-    var maxTextW = node._width - 28 - (node.time ? getTimeBadgeWidth(node.time) + 4 : 0);
+    var maxTextW = node._width - 28 - (node.time ? 44 : 0);
     html += '<text x="' + textX + '" y="' + textY + '" fill="' + textColor + '" font-size="' + fontSize + '" font-weight="' + (d === 0 ? 600 : 500) + '" text-anchor="start" dominant-baseline="central" font-family="-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,sans-serif"><tspan textLength="' + Math.max(0, maxTextW) + '" lengthAdjust="spacing">' + YTX.escapeHtml(node.label || '') + '</tspan></text>';
 
     // Timestamp badge
     var safeT = YTX.safeTime(node.time);
     if (safeT) {
-      var badgeW = getTimeBadgeWidth(safeT);
+      var badgeW = 40;
       var badgeX = node._x + node._width - badgeW - 6;
       var badgeY = node._y + node._height / 2;
       var secs = YTX.timeToSeconds(safeT);
@@ -212,14 +173,12 @@
       this._activityVersion = (this._activityVersion || 0) + 1;
       this.data = null;
       this.rawText = '';
-      this._completionWarning = '';
       this.isGenerating = false;
       if (this.requestId) YTX.cancelRequest(this.requestId);
       this.requestId = null;
       this.transform = { x: 0, y: 0, scale: 1 };
       this.collapsed = new Set();
       this._fitted = false;
-      this.cleanupZoomPan();
       // alignTop 不重置，保留用户设置
       if (this._deferred) { this._deferred.reject(new Error('视频已切换')); this._deferred = null; }
     },
@@ -234,10 +193,7 @@
 
     bindEvents: function (panel) {
       var self = this;
-      panel.querySelector('#ytx-generate-mindmap').addEventListener('click', function (e) {
-        if (!YTX.isTrustedEvent(e)) return;
-        self.start().catch(function () {});
-      });
+      panel.querySelector('#ytx-generate-mindmap').addEventListener('click', function () { self.start().catch(function () {}); });
     },
 
     start: function () {
@@ -247,10 +203,8 @@
       this.isGenerating = true;
       this.rawText = '';
       this.data = null;
-      this._completionWarning = '';
       this.collapsed = new Set();
       this.transform = { x: 0, y: 0, scale: 1 };
-      this.cleanupZoomPan();
 
       if (this._deferred) this._deferred.reject(new Error('已被新请求覆盖'));
       this._deferred = YTX.createDeferred();
@@ -287,7 +241,7 @@
           if (self.requestId) YTX.cancelRequest(self.requestId);
           requestId = YTX.makeRequestId();
           self.requestId = requestId;
-          await YTX.startStreamRequest(Object.assign({
+          await YTX.sendToBg(Object.assign({
             type: 'GENERATE_MINDMAP',
             prompt: settings.promptMindmap || YTX.prompts.MINDMAP,
             provider: settings.provider,
@@ -314,52 +268,29 @@
     },
 
     onChunk: function (text) {
-      var nextText = YTX.appendCappedText(this.rawText, text);
-      if (nextText === null) {
-        if (this.requestId) YTX.cancelRequest(this.requestId);
-        this.onError('AI 输出过长，已超过安全上限并取消生成');
-        return;
-      }
-      this.rawText = nextText;
+      this.rawText += text;
     },
 
-    onDone: function (completion) {
+    onDone: function () {
       this.requestId = null;
-      var parseFailure = null;
-      var incompleteWarning = YTX.streamCompletionWarning(completion);
-      this._completionWarning = incompleteWarning;
       try {
-        var raw = YTX.extractJSON(this.rawText, 'object');
-        if (!raw) {
+        this.data = YTX.extractJSON(this.rawText, 'object');
+        if (!this.data) {
           throw new Error('AI 返回的内容不包含有效 JSON，请重新生成');
         }
-        this.data = YTX.normalizeMindmapData(raw);
         this.render();
       } catch (err) {
-        parseFailure = err;
-        this.data = null;
-        this.cleanupZoomPan();
         YTX.parseError(YTX.panel.querySelector('#ytx-content-mindmap'), '导图', err);
       }
       YTX.panel.querySelector('#ytx-generate-mindmap').disabled = false;
-      if (this.data && !incompleteWarning) YTX.btnRefresh(YTX.panel.querySelector('#ytx-generate-mindmap'));
-      else YTX.btnPrimary(YTX.panel.querySelector('#ytx-generate-mindmap'));
+      YTX.btnRefresh(YTX.panel.querySelector('#ytx-generate-mindmap'));
       this.isGenerating = false;
-      if (this.data && !incompleteWarning) {
-        YTX.cache.save(YTX.currentVideoId, 'mindmap', { data: YTX.normalizeMindmapData(this.data) });
-      }
-      if (this._deferred) {
-        if (parseFailure) this._deferred.reject(parseFailure);
-        else if (incompleteWarning) this._deferred.reject(new Error(incompleteWarning));
-        else this._deferred.resolve();
-        this._deferred = null;
-      }
+      if (this.data) YTX.cache.save(YTX.currentVideoId, 'mindmap', { data: this.data });
+      if (this._deferred) { this._deferred.resolve(); this._deferred = null; }
     },
 
     onError: function (error) {
       this.requestId = null;
-      this._completionWarning = '';
-      this.cleanupZoomPan();
       YTX.renderError(YTX.panel.querySelector('#ytx-content-mindmap'), error);
       YTX.panel.querySelector('#ytx-generate-mindmap').disabled = false;
       YTX.btnPrimary(YTX.panel.querySelector('#ytx-generate-mindmap'));
@@ -428,12 +359,10 @@
       this.setupZoomPan(contentEl);
       this.setupToolbar(contentEl);
       this.setupInteractions(contentEl);
-      if (this._completionWarning) YTX.prependOutputWarning(contentEl, this._completionWarning);
     },
 
     setupZoomPan: function (container) {
       var self = this;
-      this.cleanupZoomPan();
       var viewport = container.querySelector('.ytx-mindmap-viewport');
       var svg = container.querySelector('.ytx-mindmap-svg');
       var canvas = container.querySelector('.ytx-mm-canvas');
@@ -442,9 +371,7 @@
       var isPanning = false;
       var startX, startY, startTx, startTy;
 
-      function onPointerDown(e) {
-        if (!YTX.isTrustedEvent(e)) return;
-        if (e.button !== undefined && e.button !== 0) return;
+      viewport.addEventListener('mousedown', function (e) {
         if (e.target.closest('.ytx-mm-toggle, .ytx-mm-timestamp, .ytx-mm-node')) return;
         isPanning = true;
         startX = e.clientX;
@@ -452,41 +379,23 @@
         startTx = self.transform.x;
         startTy = self.transform.y;
         viewport.style.cursor = 'grabbing';
-        try { viewport.setPointerCapture(e.pointerId); } catch (_) {}
         e.preventDefault();
-      }
+      });
 
-      function onPointerMove(e) {
-        if (!YTX.isTrustedEvent(e)) return;
+      document.addEventListener('mousemove', function (e) {
         if (!isPanning) return;
         self.transform.x = startTx + (e.clientX - startX);
         self.transform.y = startTy + (e.clientY - startY);
         canvas.setAttribute('transform', 'translate(' + self.transform.x + ',' + self.transform.y + ') scale(' + self.transform.scale + ')');
-      }
+      });
 
-      function onPointerUp(e) {
-        if (!YTX.isTrustedEvent(e)) return;
+      document.addEventListener('mouseup', function () {
         if (!isPanning) return;
         isPanning = false;
-        try {
-          if (viewport.hasPointerCapture(e.pointerId)) viewport.releasePointerCapture(e.pointerId);
-        } catch (_) {}
         viewport.style.cursor = 'grab';
-      }
-
-      viewport.addEventListener('pointerdown', onPointerDown);
-      viewport.addEventListener('pointermove', onPointerMove);
-      viewport.addEventListener('pointerup', onPointerUp);
-      viewport.addEventListener('pointercancel', onPointerUp);
-      this._panHandlers = {
-        down: onPointerDown,
-        move: onPointerMove,
-        up: onPointerUp,
-        viewport: viewport,
-      };
+      });
 
       viewport.addEventListener('wheel', function (e) {
-        if (!YTX.isTrustedEvent(e)) return;
         e.preventDefault();
         var rect = viewport.getBoundingClientRect();
         var mouseX = e.clientX - rect.left;
@@ -504,24 +413,10 @@
       }, { passive: false });
     },
 
-    cleanupZoomPan: function () {
-      if (!this._panHandlers) return;
-      var viewport = this._panHandlers.viewport;
-      if (viewport) {
-        viewport.removeEventListener('pointerdown', this._panHandlers.down);
-        viewport.removeEventListener('pointermove', this._panHandlers.move);
-        viewport.removeEventListener('pointerup', this._panHandlers.up);
-        viewport.removeEventListener('pointercancel', this._panHandlers.up);
-        viewport.style.cursor = '';
-      }
-      this._panHandlers = null;
-    },
-
     setupToolbar: function (container) {
       var self = this;
       container.querySelectorAll('.ytx-mm-zoom-btn').forEach(function (btn) {
-        btn.addEventListener('click', function (e) {
-          if (!YTX.isTrustedEvent(e)) return;
+        btn.addEventListener('click', function () {
           var action = btn.dataset.action;
           var canvas = container.querySelector('.ytx-mm-canvas');
           if (!canvas) return;
@@ -547,8 +442,7 @@
 
       // 导出按钮
       container.querySelectorAll('.ytx-mm-tool-btn').forEach(function (btn) {
-        btn.addEventListener('click', function (e) {
-          if (!YTX.isTrustedEvent(e)) return;
+        btn.addEventListener('click', function () {
           var action = btn.dataset.action;
           if (action === 'open-tab') self.openInNewTab();
           else if (action === 'export-svg') self.exportSvg();
@@ -562,7 +456,6 @@
       // Toggle collapse/expand
       container.querySelectorAll('.ytx-mm-toggle').forEach(function (toggle) {
         toggle.addEventListener('click', function (e) {
-          if (!YTX.isTrustedEvent(e)) return;
           e.stopPropagation();
           var id = toggle.dataset.id;
           if (self.collapsed.has(id)) {
@@ -577,11 +470,10 @@
       // Timestamp click → jump video
       container.querySelectorAll('.ytx-mm-timestamp').forEach(function (ts) {
         ts.addEventListener('click', function (e) {
-          if (!YTX.isTrustedEvent(e)) return;
           e.stopPropagation();
           var time = parseInt(ts.dataset.time, 10);
           if (isNaN(time)) return;
-          var video = YTX.getVideoElement();
+          var video = document.querySelector('video');
           if (video) { video.currentTime = time; video.play(); }
         });
       });
@@ -630,17 +522,14 @@
 
       var blob = new Blob([html], { type: 'text/html' });
       var url = URL.createObjectURL(blob);
-      var opened = window.open(url, '_blank', 'noopener,noreferrer');
-      if (opened) {
-        try { opened.opener = null; } catch (_) {}
-      }
+      window.open(url, '_blank');
       setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
     },
 
     exportObsidian: function () {
       if (!this.data) return;
       var title = YTX.Export.getVideoTitle() + ' - 导图';
-      var md = YTX.Export.mindmapToMarkdown(this.data, 0);
+      var md = YTX.Export.mindmapToMarkdown(this.data, 0, { noTime: true });
       YTX.Export.downloadObsidian(md, title);
       var btn = YTX.panel.querySelector('.ytx-mm-tool-btn[data-action="export-obsidian"]');
       if (btn) YTX.Export.flashButton(btn, '已导出', 1500);

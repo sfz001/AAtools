@@ -15,7 +15,6 @@ YTX.features.summary = {
   reset: function () {
     this._activityVersion = (this._activityVersion || 0) + 1;
     this.text = '';
-    this._newlineCount = 0;
     this.isGenerating = false;
     if (this._renderTimer) { clearTimeout(this._renderTimer); this._renderTimer = null; }
     if (this.requestId) YTX.cancelRequest(this.requestId);
@@ -34,14 +33,8 @@ YTX.features.summary = {
 
   bindEvents: function (panel) {
     var self = this;
-    panel.querySelector('#ytx-summarize').addEventListener('click', function (e) {
-      if (!YTX.isTrustedEvent(e)) return;
-      self.start().catch(function () {});
-    });
-    panel.querySelector('#ytx-generate-all').addEventListener('click', function (e) {
-      if (!YTX.isTrustedEvent(e)) return;
-      YTX.generateAll();
-    });
+    panel.querySelector('#ytx-summarize').addEventListener('click', function () { self.start().catch(function () {}); });
+    panel.querySelector('#ytx-generate-all').addEventListener('click', function () { YTX.generateAll(); });
   },
 
   start: function () {
@@ -50,7 +43,6 @@ YTX.features.summary = {
     this._activityVersion = (this._activityVersion || 0) + 1;
     this.isGenerating = true;
     this.text = '';
-    this._newlineCount = 0;
 
     // 旧 deferred 让位（理论上 isGenerating 已挡住，但安全起见）
     if (this._deferred) this._deferred.reject(new Error('已被新请求覆盖'));
@@ -89,7 +81,7 @@ YTX.features.summary = {
         if (self.requestId) YTX.cancelRequest(self.requestId);
         requestId = YTX.makeRequestId();
         self.requestId = requestId;
-        await YTX.startStreamRequest(Object.assign({
+        await YTX.sendToBg(Object.assign({
           type: 'SUMMARIZE',
           prompt: settings.prompt || YTX.prompts.DEFAULT,
           provider: settings.provider,
@@ -118,18 +110,11 @@ YTX.features.summary = {
 
   onChunk: function (text) {
     var self = this;
-    var appended = YTX.appendCappedMarkdown(this.text, text, this._newlineCount);
-    if (appended === null) {
-      if (this.requestId) YTX.cancelRequest(this.requestId);
-      this.onError('AI 输出过长或行数过多，已超过安全上限并取消生成');
-      return;
-    }
     var contentEl = YTX.panel.querySelector('#ytx-content');
     if (this.text === '' || contentEl.querySelector('.ytx-loading')) {
       contentEl.innerHTML = '';
     }
-    this.text = appended.text;
-    this._newlineCount = appended.newlines;
+    this.text += text;
     // 节流渲染：最多每 80ms 刷新一次，保留滚动位置
     if (!this._renderTimer) {
       this._renderTimer = setTimeout(function () {
@@ -142,26 +127,17 @@ YTX.features.summary = {
     }
   },
 
-  onDone: function (completion) {
+  onDone: function () {
     this.requestId = null;
-    var incompleteWarning = YTX.streamCompletionWarning(completion);
     // 清除节流计时器，立即渲染最终结果
     if (this._renderTimer) { clearTimeout(this._renderTimer); this._renderTimer = null; }
     this.renderFinal();
-    if (incompleteWarning) {
-      YTX.prependOutputWarning(YTX.panel.querySelector('#ytx-content'), incompleteWarning);
-    }
 
     YTX.panel.querySelector('#ytx-summarize').disabled = false;
-    if (incompleteWarning) YTX.btnPrimary(YTX.panel.querySelector('#ytx-summarize'));
-    else YTX.btnRefresh(YTX.panel.querySelector('#ytx-summarize'));
+    YTX.btnRefresh(YTX.panel.querySelector('#ytx-summarize'));
     this.isGenerating = false;
-    if (!incompleteWarning) YTX.cache.save(YTX.currentVideoId, 'summary', { text: this.text });
-    if (this._deferred) {
-      if (incompleteWarning) this._deferred.reject(new Error(incompleteWarning));
-      else this._deferred.resolve();
-      this._deferred = null;
-    }
+    YTX.cache.save(YTX.currentVideoId, 'summary', { text: this.text });
+    if (this._deferred) { this._deferred.resolve(); this._deferred = null; }
   },
 
   renderFinal: function () {
@@ -177,8 +153,7 @@ YTX.features.summary = {
       YTX.renderMarkdown(self.text);
     contentEl.scrollTop = scrollTop;
     contentEl.querySelectorAll('.ytx-mm-tool-btn').forEach(function (btn) {
-      btn.addEventListener('click', function (e) {
-        if (!YTX.isTrustedEvent(e)) return;
+      btn.addEventListener('click', function () {
         var action = btn.dataset.action;
         if (action === 'download-md') self.downloadMd();
         else if (action === 'export-obsidian') self.exportObsidian();
@@ -202,7 +177,6 @@ YTX.features.summary = {
 
   onError: function (error) {
     this.requestId = null;
-    if (this._renderTimer) { clearTimeout(this._renderTimer); this._renderTimer = null; }
     YTX.renderError(YTX.panel.querySelector('#ytx-content'), error);
     YTX.panel.querySelector('#ytx-summarize').disabled = false;
     YTX.btnPrimary(YTX.panel.querySelector('#ytx-summarize'));

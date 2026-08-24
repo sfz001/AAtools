@@ -157,25 +157,6 @@ html[dark] #ytx-resizer.ytx-resizer-active .ytx-resizer-dot,
   display: flex;
   flex-direction: column;
   height: calc(100vh - 120px);
-  -webkit-user-select: none;
-  user-select: none;
-}
-#ytx-panel.ytx-panel-shorts {
-  position: fixed;
-  top: 72px;
-  right: 16px;
-  z-index: 2200;
-  width: min(440px, calc(100vw - 32px));
-  height: calc(100vh - 104px);
-  margin: 0;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
-}
-#ytx-panel.ytx-panel-shorts.ytx-panel-collapsed {
-  position: fixed;
-  top: 72px;
-  right: 16px;
-  z-index: 2200;
-  margin: 0;
 }
 
 #ytx-panel * { box-sizing: border-box; }
@@ -538,16 +519,29 @@ html[dark] #ytx-resizer.ytx-resizer-active .ytx-resizer-dot,
   font-size: 12px;
 }
 .ytx-chat-input-wrap {
+  display: flex;
+  gap: 8px;
   padding: 10px 16px;
   border-top: 1px solid #f0f0f0;
   flex-shrink: 0;
 }
-#ytx-chat-input-frame {
-  display: block;
-  width: 100%;
-  height: 76px;
-  border: 0;
-  background: transparent;
+#ytx-chat-input {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 20px;
+  font-size: 13px;
+  outline: none;
+  background: #fff;
+  color: #1a1a1a;
+  transition: border-color 0.2s;
+}
+#ytx-chat-input:focus {
+  border-color: #7c3aed;
+}
+.ytx-chat-input-wrap .ytx-btn {
+  border-radius: 20px;
+  padding: 8px 16px;
 }
 
 /* 思维导图 */
@@ -623,7 +617,6 @@ html[dark] #ytx-resizer.ytx-resizer-active .ytx-resizer-dot,
   overflow: hidden;
   cursor: grab;
   position: relative;
-  touch-action: none;
 }
 .ytx-mindmap-viewport:active {
   cursor: grabbing;
@@ -957,6 +950,14 @@ html[dark] #ytx-resizer.ytx-resizer-active .ytx-resizer-dot,
 }
 [dark] .ytx-chat-input-wrap {
   border-color: #333;
+}
+[dark] #ytx-chat-input {
+  background: #2a2a2a;
+  border-color: #444;
+  color: #d4d4d4;
+}
+[dark] #ytx-chat-input:focus {
+  border-color: #a78bfa;
 }
 [dark] .ytx-chat-messages .ytx-empty {
   color: #6b7280;
