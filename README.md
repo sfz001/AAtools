@@ -2,7 +2,7 @@
 
 自用 Chrome 扩展（Manifest V3）— AI 驱动的 **YouTube 视频助手** & **全网划词翻译** & **小红书体验增强** & **鼠标手势**。
 
-原生 HTML/CSS/JS，零依赖，无构建步骤。支持 Claude / OpenAI / Gemini / MiniMax / DeepSeek / Kimi 六家 API。
+原生 HTML/CSS/JS，零依赖，无构建步骤。支持 Claude / OpenAI / ChatGPT 订阅（Codex OAuth）/ Gemini / MiniMax / DeepSeek / Kimi / Sub2API 中转网关八种接入方式。
 
 ## 安装
 
@@ -32,10 +32,10 @@ git clone https://github.com/sfz001/AAtools.git
 |--------|----------|----------|
 | Claude | Fable 5 | [Anthropic Console](https://console.anthropic.com/settings/keys) |
 | OpenAI | GPT-5.6 | [OpenAI Platform](https://platform.openai.com/api-keys) |
-| Gemini | Gemini 3.6 Flash | [AI Studio](https://aistudio.google.com/apikey) |
-| MiniMax | MiniMax-M2.5 | [MiniMax Platform](https://platform.minimax.io/user-center/basic-information/interface-key) |
+| Gemini | Gemini 3.7 Flash | [AI Studio](https://aistudio.google.com/apikey) |
+| MiniMax | MiniMax-M3 | [MiniMax Platform](https://platform.minimax.io/console/access) |
 | DeepSeek | DeepSeek V4 Flash | [DeepSeek Platform](https://platform.deepseek.com/api_keys) |
-| Kimi | Kimi K2.6 | [Kimi 开放平台](https://platform.kimi.com/console/api-keys) |
+| Kimi | Kimi K3 | [Kimi 开放平台](https://platform.kimi.com/console/api-keys) |
 
 > 建议同时配置 Gemini Key：当视频无字幕时，扩展会自动调用 Gemini 视频模式转录内容。
 

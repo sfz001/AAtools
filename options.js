@@ -8,9 +8,12 @@ const PROVIDERS = {
     keyField: 'claudeKey',
     placeholder: 'sk-ant-api03-...',
     helpUrl: 'https://console.anthropic.com/settings/keys',
+    // 预置约定：每个系列只留最新一代（Opus 只留 Opus 5，不留 4.8/4.6），老版本可用「从官网获取最新列表」补进来
     models: [
-      { value: 'claude-fable-5', label: 'Fable 5 — 推荐' },
-      { value: 'claude-opus-4-8', label: 'Opus 4.8 — 最强' },
+      { value: 'claude-fable-5', label: 'Fable 5 — 最强（思考恒开）' },
+      { value: 'claude-opus-5', label: 'Opus 5 — 均衡（Fable 半价、更快）' },
+      { value: 'claude-sonnet-5', label: 'Sonnet 5 — 快速低价' },
+      { value: 'claude-haiku-4-5', label: 'Haiku 4.5 — 最快最省' },
     ]
   },
   openai: {
@@ -20,9 +23,9 @@ const PROVIDERS = {
     helpUrl: 'https://platform.openai.com/api-keys',
     models: [
       // gpt-5.6 本身只是 gpt-5.6-sol 的别名，/v1/models 列表里只有带后缀的真名
-      { value: 'gpt-5.6-sol', label: 'GPT-5.6 Sol — 推荐（最强）' },
+      { value: 'gpt-5.6-sol', label: 'GPT-5.6 Sol — 最强' },
       { value: 'gpt-5.6-terra', label: 'GPT-5.6 Terra — 均衡' },
-      { value: 'gpt-5.6-luna', label: 'GPT-5.6 Luna — 快速低价' },
+      { value: 'gpt-5.6-luna', label: 'GPT-5.6 Luna — 最快最省' },
     ]
   },
   chatgpt: {
@@ -32,9 +35,9 @@ const PROVIDERS = {
     placeholder: '',
     helpUrl: 'https://developers.openai.com/codex/cli/',
     models: [
-      { value: 'gpt-5.6-sol', label: 'GPT-5.6 Sol — 推荐（最强）' },
+      { value: 'gpt-5.6-sol', label: 'GPT-5.6 Sol — 最强' },
       { value: 'gpt-5.6-terra', label: 'GPT-5.6 Terra — 均衡' },
-      { value: 'gpt-5.6-luna', label: 'GPT-5.6 Luna — 快速' },
+      { value: 'gpt-5.6-luna', label: 'GPT-5.6 Luna — 最快最省' },
     ]
   },
   gemini: {
@@ -43,19 +46,19 @@ const PROVIDERS = {
     placeholder: 'AIza...',
     helpUrl: 'https://aistudio.google.com/apikey',
     models: [
-      { value: 'gemini-3.6-flash', label: 'Gemini 3.6 Flash — 推荐' },
+      { value: 'gemini-3.7-flash', label: 'Gemini 3.7 Flash — 推荐' },
+      { value: 'gemini-3.5-flash-lite', label: 'Gemini 3.5 Flash-Lite — 最快最省' },
+      { value: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro — 最强（预览版，无免费额度）' },
     ]
   },
   minimax: {
     label: 'MiniMax API Key',
     keyField: 'minimaxKey',
     placeholder: 'eyJ...',
-    helpUrl: 'https://platform.minimax.io/user-center/basic-information/interface-key',
+    helpUrl: 'https://platform.minimax.io/console/access',
     models: [
-      { value: 'MiniMax-M2.5', label: 'MiniMax-M2.5 — 推荐' },
-      { value: 'MiniMax-M2.5-highspeed', label: 'MiniMax-M2.5 高速 — 更快' },
-      { value: 'MiniMax-M2.1', label: 'MiniMax-M2.1' },
-      { value: 'MiniMax-M2', label: 'MiniMax-M2' },
+      // M3 暂无 highspeed 版；M2.7-highspeed 思考关不掉（首字反而更慢），不列
+      { value: 'MiniMax-M3', label: 'MiniMax-M3 — 1M 上下文' },
     ]
   },
   deepseek: {
@@ -74,9 +77,9 @@ const PROVIDERS = {
     placeholder: 'sk-...',
     helpUrl: 'https://platform.kimi.com/console/api-keys',
     models: [
-      // kimi-k2.5 与 moonshot-v1 系列已停止向新注册用户开放，2026-08-31 全平台下线，故不预置
-      { value: 'kimi-k2.6', label: 'Kimi K2.6 — 推荐（思考可关，最省）' },
-      { value: 'kimi-k3', label: 'Kimi K3 — 最强（1M 上下文，思考恒开）' },
+      // 主线只留最新一代 K3（思考恒开，background 已把 reasoning_effort 压到 low、预算抬到 16000），K2.6 不再预置；
+      // kimi-k2.7-code 是编码专用线，不适合总结/翻译；kimi-k2.5 / moonshot-v1 2026-08-31 全平台下线、旧 K2 线已停服（RETIRED_MODELS 拦截）
+      { value: 'kimi-k3', label: 'Kimi K3 — 1M 上下文' },
     ]
   },
   sub2api: {
@@ -84,10 +87,16 @@ const PROVIDERS = {
     keyField: 'sub2apiKey',
     placeholder: 'sk-...',
     helpUrl: 'https://github.com/Wei-Shaw/sub2api',
+    // sub2api 没有在线拉取，下拉框是唯一的选模型入口：按三种路由格式列各系列最新一代
     models: [
       { value: 'claude-fable-5', label: 'Claude Fable 5（走 /v1/messages）' },
-      { value: 'claude-opus-4-8', label: 'Claude Opus 4.8（走 /v1/messages）' },
-      { value: 'gpt-5.6', label: 'GPT-5.6（走 /v1/responses）' },
+      { value: 'claude-opus-5', label: 'Claude Opus 5（走 /v1/messages）' },
+      { value: 'claude-sonnet-5', label: 'Claude Sonnet 5（走 /v1/messages）' },
+      // 用真名而非 gpt-5.6 别名：Codex OAuth 账号背后的网关按 codex 模型 slug 找模型，别名不一定被识别
+      { value: 'gpt-5.6-sol', label: 'GPT-5.6 Sol（走 /v1/responses）' },
+      { value: 'gpt-5.6-terra', label: 'GPT-5.6 Terra（走 /v1/responses）' },
+      { value: 'gpt-5.6-luna', label: 'GPT-5.6 Luna（走 /v1/responses）' },
+      // codeassist 老通道不供给 gemini-3.x，网关槽位固定 2.5 Flash
       { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash（走 /v1beta/...）' },
     ]
   }
@@ -530,12 +539,18 @@ document.addEventListener('DOMContentLoaded', () => {
 // 缓存已拉取的模型列表（从 storage.local 加载）
 let fetchedModelsCache = {};
 
-// Claude 2.x / 3.x / instant 全系列已退役（API 返回 404）。
-// 旧缓存的拉取列表里可能还留着，渲染前过滤；存量选中值命中时视为未选择，
-// 让 UI 落到推荐默认值（与 background.js sanitizeModel 的回退行为一致）
-const RETIRED_CLAUDE = /^claude-(2[.-]|instant|3-)/;
-// deepseek-chat / deepseek-reasoner 旧模型名已于 2026-07-24 退役（与 background.js 同款过滤）
-const RETIRED_DEEPSEEK = /^deepseek-(chat|reasoner)$/;
+// 已退役模型（与 background.js RETIRED_MODELS 同款正则）。旧缓存的拉取列表里可能还留着，渲染前过滤；
+// 存量选中值命中时视为未选择，让 UI 落到推荐默认值（与 background.js sanitizeModel 的回退行为一致）
+const RETIRED_MODELS = {
+  // Claude 2.x / 3.x / instant 全系列，Opus 4 / Sonnet 4（2026-06-15 退役）、Opus 4.1（2026-08-05 退役）
+  claude: /^claude-(2[.-]|instant|3-|(opus|sonnet)-4-[01](-|$)|(opus|sonnet)-4-\d{8}$)/,
+  // deepseek-chat / deepseek-reasoner 旧模型名 2026-07-24 退役
+  deepseek: /^deepseek-(chat|reasoner)$/,
+  // 旧 K2 线 kimi-k2-*（2026-05-25）、kimi-latest（2026-01-28）；kimi-k2.5 与 moonshot-v1 线 2026-08-31 全平台下线
+  kimi: /^(moonshot-v1-|kimi-k2-|kimi-k2\.5(-|$)|kimi-latest$)/,
+  // Codex（ChatGPT 登录）通道 2026-08-31 下线 gpt-5.4 / gpt-5.4-mini
+  chatgpt: /^gpt-5\.4(-mini)?$/,
+};
 
 function switchProvider(id) {
   if (!Object.prototype.hasOwnProperty.call(PROVIDERS, id)) id = 'claude';
@@ -556,16 +571,13 @@ function switchProvider(id) {
   $('#chatgptAuthField').style.display = (id === 'chatgpt') ? '' : 'none';
   $('#apiKeyField').style.display = cfg.keyField ? '' : 'none';
 
-  // 预置与拉取列表合并；claude / deepseek 旧缓存里可能有已退役模型，过滤掉
+  // 预置与拉取列表合并；旧缓存里可能有已退役模型，过滤掉
   let models = mergeModels(cfg.models, fetchedModelsCache[id]);
   let selected = modelCache[id];
-  if (id === 'claude') {
-    models = models.filter(m => !RETIRED_CLAUDE.test(m.value));
-    if (RETIRED_CLAUDE.test(selected)) selected = '';
-  }
-  if (id === 'deepseek') {
-    models = models.filter(m => !RETIRED_DEEPSEEK.test(m.value));
-    if (RETIRED_DEEPSEEK.test(selected)) selected = '';
+  const retired = RETIRED_MODELS[id];
+  if (retired) {
+    models = models.filter(m => !retired.test(m.value));
+    if (retired.test(selected)) selected = '';
   }
   populateModelSelect(models, selected);
 }
@@ -632,7 +644,10 @@ async function fetchLatestModels() {
       showStatus('当前服务商不支持获取模型列表', 'error');
       return;
     }
-    const models = await fetcher(key);
+    const fetched = await fetcher(key);
+    // 拉取结果先剔除已退役模型，避免缓存里长期留着会 404 的名字
+    const retired = RETIRED_MODELS[currentProvider];
+    const models = retired ? (fetched || []).filter(m => !retired.test(m.value)) : fetched;
     if (!models || models.length === 0) {
       showStatus('未获取到可用模型', 'error');
       return;
@@ -795,12 +810,8 @@ const MODEL_FETCHERS = {
     const models = (data.data || [])
       .filter(m => m.id)
       .map(m => ({ value: m.id, label: m.id }))
-      // kimi-* 新模型线整体排在 legacy moonshot-*（2026-08-31 下线）之前，组内再按名称降序。
-      // 单纯全局降序会因 'm' > 'k' 把 moonshot-* 顶到最前，与意图正好相反。
-      .sort((a, b) => {
-        const rank = m => (m.startsWith('kimi-') ? 0 : 1);
-        return rank(a.value) - rank(b.value) || b.value.localeCompare(a.value);
-      });
+      // 按名称降序让新模型线靠前（k3 > k2.7 > k2.6）；已退役的 moonshot-v1-* 等由 fetchLatestModels 统一剔除
+      .sort((a, b) => b.value.localeCompare(a.value));
     return models;
   },
 

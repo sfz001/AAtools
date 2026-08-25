@@ -1169,16 +1169,25 @@ ${context ? '📌 该词在语境中的含义：一句话解释' : '搭配: 词�
 }
 
 // ── 校验 model 是否属于当前 provider，不匹配则清空让默认值生效 ──
-// 值为前缀字符串，或前缀数组（kimi 同时有 kimi-* 与旧的 moonshot-v1-* 两条模型线）
-const MODEL_PREFIX = { claude: 'claude-', openai: 'gpt-', gemini: 'gemini-', deepseek: 'deepseek-', kimi: ['kimi-', 'moonshot-'], chatgpt: 'gpt-' };
-// Claude 2.x / 3.x 全系列已退役（2026-04 起 API 返回 404），存量配置命中时清空回退默认模型
-const RETIRED_CLAUDE = /^claude-(2[.-]|instant|3-)/;
-// deepseek-chat / deepseek-reasoner 旧模型名已于 2026-07-24 退役，命中时清空回退默认模型
-const RETIRED_DEEPSEEK = /^deepseek-(chat|reasoner)$/;
+// 值为前缀字符串，或前缀数组（预留有多条模型线的 provider）
+const MODEL_PREFIX = { claude: 'claude-', openai: 'gpt-', gemini: 'gemini-', deepseek: 'deepseek-', kimi: 'kimi-', chatgpt: 'gpt-' };
+// 已退役模型（API 直接 404）：存量配置命中时清空、回退默认模型。options.js 有同款正则用于设置页过滤
+const RETIRED_MODELS = {
+  // Claude 2.x / 3.x / instant 全系列；Opus 4 / Sonnet 4（2026-06-15 退役）、Opus 4.1（2026-08-05 退役），
+  // 别名（claude-opus-4-0 / -4-1 / claude-sonnet-4-0）与带日期真名（claude-opus-4-20250514 等）都拦
+  claude: /^claude-(2[.-]|instant|3-|(opus|sonnet)-4-[01](-|$)|(opus|sonnet)-4-\d{8}$)/,
+  // deepseek-chat / deepseek-reasoner 旧模型名 2026-07-24 退役
+  deepseek: /^deepseek-(chat|reasoner)$/,
+  // 旧 K2 线 kimi-k2-*（2026-05-25 停服）、kimi-latest（2026-01-28 停服）；
+  // kimi-k2.5 与整条 moonshot-v1 线已对新用户关闭、2026-08-31 全平台下线
+  kimi: /^(moonshot-v1-|kimi-k2-|kimi-k2\.5(-|$)|kimi-latest$)/,
+  // Codex（ChatGPT 登录）通道 2026-08-31 下线 gpt-5.4 / gpt-5.4-mini（官方替代 gpt-5.6-terra / -luna）
+  chatgpt: /^gpt-5\.4(-mini)?$/,
+};
 function sanitizeModel(provider, model) {
   if (!model) return '';
-  if (provider === 'claude' && RETIRED_CLAUDE.test(model)) return '';
-  if (provider === 'deepseek' && RETIRED_DEEPSEEK.test(model)) return '';
+  const retired = RETIRED_MODELS[provider];
+  if (retired && retired.test(model)) return '';
   if (!(provider in MODEL_PREFIX)) {
     // 无前缀校验的 provider（如 minimax / sub2api）；sub2api 额外做模型名归一化
     return isSub2(provider) ? normalizeSub2ApiModel(model) : model;
@@ -1198,15 +1207,39 @@ function normalizeSub2ApiModel(model) {
 // 新模型的 thinking 默认值差异：
 // - claude-sonnet-5*：不传 thinking 时默认开启 adaptive thinking，思考 token 计入 max_tokens，
 //   对流式摘要/翻译场景徒增延迟与费用 → 显式关闭
-// - claude-fable-5 / claude-mythos-5：thinking 恒开且显式 disabled 会 400 → 不传 thinking，
-//   同时放大 max_tokens 给思考留余量，避免正文被截断
-function buildClaudeBody(model, maxTokens, messages, systemPrompt) {
+// - claude-fable-5 / claude-mythos-5：thinking 恒开且显式 disabled 会 400
+// - claude-opus-5：默认 adaptive thinking；显式 disabled 虽被接受（effort ≤ high），但官方明确
+//   会偶发把 <thinking> 标签泄漏进正文，推荐做法是保持 thinking 开着、用 effort 压低深度
+//   → 这三条线都不传 thinking，把 max_tokens 放大到至少 16000 给思考留余量（思考与正文共用预算，
+//   否则划词翻译的 2048 会被思考吃光、正文为空），并按场景传 output_config.effort
+//   （effort 为空时沿用模型默认 high）
+// - Opus 4.x / Haiku：不传 thinking 即不思考，无需处理
+function buildClaudeBody(model, maxTokens, messages, systemPrompt, effort) {
   const body = { model, max_tokens: maxTokens, stream: true, messages };
   if (systemPrompt) body.system = systemPrompt;
-  if (/^claude-(fable|mythos)/.test(model)) {
+  if (/^claude-(fable|mythos|opus-5)/.test(model)) {
     body.max_tokens = Math.max(maxTokens, 16000);
+    if (effort) body.output_config = { effort };
   } else if (/^claude-sonnet-5/.test(model)) {
     body.thinking = { type: 'disabled' };
+  }
+  return body;
+}
+
+// ── Gemini generateContent 请求体组装（direct + sub2api 共用）──
+// Gemini 3.x 默认开思考（Flash 默认 medium、Pro 默认 high），思考 token 按输出计费；
+// 划词翻译传 thinkingLevel 'low' 压到最低档（3.x 全系列都接受 'low'）。
+// Flash-Lite 默认已是 'minimal'，传 'low' 反而会抬高 → 跳过；2.5 及更早只认 thinkingBudget → 不传。
+// 3.7 起 temperature / top_p / top_k 已废弃，这里从不发采样参数
+function buildGeminiBody(model, maxTokens, messages, systemPrompt, effort) {
+  const contents = messages.map(m => ({
+    role: m.role === 'assistant' ? 'model' : 'user',
+    parts: [{ text: m.content }],
+  }));
+  const body = { contents, generationConfig: { maxOutputTokens: maxTokens } };
+  if (systemPrompt) body.systemInstruction = { parts: [{ text: systemPrompt }] };
+  if (effort === 'low' && /^gemini-3/.test(model) && !/flash-lite/.test(model)) {
+    body.generationConfig.thinkingConfig = { thinkingLevel: 'low' };
   }
   return body;
 }
@@ -1279,8 +1312,9 @@ async function handleTranscribeVideo(message, tabId, navigationEpoch = currentNa
   if (!key) return { error: '请先在扩展设置中填入 Gemini API Key' };
   if (navigationEpoch !== currentNavigationEpoch(tabId)) return { error: '页面已导航，请求已取消', cancelled: true };
 
-  // 视频转录强制使用 flash-lite-latest
-  const model = 'gemini-flash-lite-latest';
+  // 视频转录固定用 Gemini 3.5 Flash-Lite：GA、最便宜、默认 thinking minimal、支持 YouTube URL 视频输入。
+  // 不用 gemini-flash-lite-latest 这类漂移别名——官方会随新版本热切换（可能切到预览版、限速更严），转录链路要可预期
+  const model = 'gemini-3.5-flash-lite';
   const requestContext = createActiveRequest({
     tabId,
     requestId,
@@ -1472,7 +1506,7 @@ function classifyApiError(status, body, provider) {
 // sub2api 网关与 ChatGPT 订阅后端共用。请求严格对齐 codex CLI 实际发出的格式 —
 // 部分中转网关会按 codex 指纹做请求过滤，偏离会被拒掉返回 503（"上游错误暂无数据"，
 // 意为没真转发上游）。
-function buildResponsesApiBody(model, messages, systemPrompt) {
+function buildResponsesApiBody(model, messages, systemPrompt, effort) {
   const input = messages.map(m => ({
     type: 'message',
     role: m.role,
@@ -1486,8 +1520,9 @@ function buildResponsesApiBody(model, messages, systemPrompt) {
     input,
     stream: true,
     store: false,
-    // codex 用 'high'/'xhigh' 等标准/扩展值；'minimal' 部分网关不识别
-    reasoning: { effort: 'medium', summary: 'auto' },
+    // codex 用 'low'/'medium'/'high'/'xhigh' 等标准/扩展值；'minimal'/'none' 部分网关不识别，
+    // gpt-5.6 也已不再接受 'minimal'。effort 为空时沿用模型默认 'medium'
+    reasoning: { effort: effort || 'medium', summary: 'auto' },
     // codex 默认会带这个让上游回传加密推理内容
     include: ['reasoning.encrypted_content'],
     tools: [],
@@ -1506,8 +1541,13 @@ async function callProvider(provider, opts) {
   const model = sanitizeModel(provider, opts.model);
 
   // 计算实际使用的模型 ID
-  const DEFAULT_MODEL = { claude: 'claude-fable-5', openai: 'gpt-5.6-sol', gemini: 'gemini-3.6-flash', minimax: 'MiniMax-M2.5', deepseek: 'deepseek-v4-flash', kimi: 'kimi-k2.6', sub2api: 'claude-fable-5', chatgpt: 'gpt-5.6-sol' };
+  const DEFAULT_MODEL = { claude: 'claude-fable-5', openai: 'gpt-5.6-sol', gemini: 'gemini-3.7-flash', minimax: 'MiniMax-M3', deepseek: 'deepseek-v4-flash', kimi: 'kimi-k3', sub2api: 'claude-fable-5', chatgpt: 'gpt-5.6-sol' };
   const actualModel = model || DEFAULT_MODEL[provider] || DEFAULT_MODEL.claude;
+
+  // 思考深度按场景分档：划词翻译短小且延迟敏感，思考模型上把 effort 压到最低档
+  // （Claude output_config.effort / OpenAI reasoning(_effort) / Gemini 3.x thinkingLevel）；
+  // 总结/笔记/导图/问答沿用各模型默认档位，不牺牲长文质量
+  const effort = PREFIX === 'TRANSLATE' ? 'low' : null;
 
   // 局部 send：自动给所有发往 content script 的消息附 requestId
   const send = (msg) => safeSend(tabId, Object.assign({ requestId }, msg));
@@ -1557,7 +1597,8 @@ async function callProvider(provider, opts) {
         ? [{ role: 'system', content: systemPrompt }, ...messages]
         : messages;
       const endpoint = {
-        minimax: 'https://api.minimax.io/v1/text/chatcompletion_v2',
+        // MiniMax 走 OpenAI 兼容端点（旧 /v1/text/chatcompletion_v2 文档已下线，且没有 M3 的思考开关）
+        minimax: 'https://api.minimax.io/v1/chat/completions',
         deepseek: 'https://api.deepseek.com/chat/completions',
         kimi: 'https://api.moonshot.cn/v1/chat/completions',
         openai: 'https://api.openai.com/v1/chat/completions',
@@ -1567,7 +1608,7 @@ async function callProvider(provider, opts) {
         messages: apiMessages,
         stream: true,
       };
-      // DeepSeek 只认 max_tokens；OpenAI / Kimi 已废弃 max_tokens 改用 max_completion_tokens
+      // DeepSeek 只认 max_tokens；OpenAI / Kimi / MiniMax 已废弃 max_tokens 改用 max_completion_tokens
       if (provider === 'deepseek') {
         body.max_tokens = maxTokens;
         // V4 模型（v4-flash/v4-pro）默认开启 thinking（effort=high），思考 token 计费且计入
@@ -1576,20 +1617,30 @@ async function callProvider(provider, opts) {
         body.thinking = { type: 'disabled' };
       } else {
         body.max_completion_tokens = maxTokens;
-        // Kimi 的思考按模型分档，同样只保留正文：
-        // - k3 恒开不可关，但 reasoning_effort 默认 'max' → 压到 'low'
-        // - k2.5 / k2.6 支持显式关闭
-        // - k2.7-code 恒开且无 effort 档位，不传任何思考参数
-        if (provider === 'kimi') {
+        // 各家思考模型的处理原则相同：只保留正文。思考关不掉的模型 reasoning 与正文共用同一份
+        // max_completion_tokens 预算（官方建议 >= 16000），沿用调用方的 2048/4096/8096 会让思考
+        // 吃光额度、正文被截断甚至为空 —— 与 buildClaudeBody 对 claude-fable/mythos 放大预算是
+        // 同一个问题、同一种解法。
+        if (provider === 'openai') {
+          // gpt-5.x 默认 reasoning_effort=medium，划词翻译压到 low；gpt-4.x 老模型不认该参数，不传
+          if (effort && /^gpt-5/.test(actualModel)) body.reasoning_effort = effort;
+        } else if (provider === 'kimi') {
+          // - k3 恒开不可关，但 reasoning_effort 默认 'max' → 压到 'low'
+          // - k2.6 支持显式关闭（k2.5 已退役，sanitizeModel 拦截）
+          // - k2.7-code 恒开且无 effort 档位，不传任何思考参数
           if (/^kimi-k3/.test(actualModel)) body.reasoning_effort = 'low';
-          else if (/^kimi-k2\.[56]/.test(actualModel)) body.thinking = { type: 'disabled' };
-          // 思考关不掉的两条线：reasoning_content 与正文共用同一份 max_completion_tokens 预算
-          // （官方明确 max_tokens/max_completion_tokens 含义相同，建议 >= 16000）。
-          // 沿用调用方的 2048/4096/8096 会让思考吃光额度、正文被截断甚至为空 —— 与
-          // buildClaudeBody 对 claude-fable/mythos 放大预算是同一个问题、同一种解法。
+          else if (/^kimi-k2\.6/.test(actualModel)) body.thinking = { type: 'disabled' };
           if (/^kimi-(k3|k2\.7-code)/.test(actualModel)) {
             body.max_completion_tokens = Math.max(maxTokens, 16000);
           }
+        } else if (provider === 'minimax') {
+          // - M3 默认 adaptive thinking，可显式关闭
+          // - M2.x 思考恒开关不掉（disabled 会被接受但无效），且默认以 <think> 标签内联在 content 里
+          //   → reasoning_split 让思考单独走 reasoning_content / reasoning_details（解析只取 content，
+          //   自然丢弃），再放大预算
+          body.reasoning_split = true;
+          if (/^minimax-m3/i.test(actualModel)) body.thinking = { type: 'disabled' };
+          else body.max_completion_tokens = Math.max(maxTokens, 16000);
         }
       }
       response = await fetch(endpoint, {
@@ -1602,15 +1653,9 @@ async function callProvider(provider, opts) {
         signal: requestContext.signal,
       });
     } else if (provider === 'gemini') {
-      const modelId = actualModel;
-      const contents = messages.map(m => ({
-        role: m.role === 'assistant' ? 'model' : 'user',
-        parts: [{ text: m.content }],
-      }));
-      const body = { contents, generationConfig: { maxOutputTokens: maxTokens } };
-      if (systemPrompt) body.systemInstruction = { parts: [{ text: systemPrompt }] };
+      const body = buildGeminiBody(actualModel, maxTokens, messages, systemPrompt, effort);
       response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:streamGenerateContent?alt=sse&key=${key}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/${actualModel}:streamGenerateContent?alt=sse&key=${key}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1627,7 +1672,7 @@ async function callProvider(provider, opts) {
         streamEmitter.error(auth.error);
         return;
       }
-      const body = buildResponsesApiBody(actualModel, messages, systemPrompt);
+      const body = buildResponsesApiBody(actualModel, messages, systemPrompt, effort);
       response = await fetch('https://chatgpt.com/backend-api/codex/responses', {
         method: 'POST',
         headers: {
@@ -1647,12 +1692,7 @@ async function callProvider(provider, opts) {
       // sub2api 中转：按模型前缀分别走 Anthropic / Gemini / OpenAI 格式
       const trimmedBase = sub2Gateway.baseUrl;
       if (sub2apiFmt === 'gemini') {
-        const contents = messages.map(m => ({
-          role: m.role === 'assistant' ? 'model' : 'user',
-          parts: [{ text: m.content }],
-        }));
-        const body = { contents, generationConfig: { maxOutputTokens: maxTokens } };
-        if (systemPrompt) body.systemInstruction = { parts: [{ text: systemPrompt }] };
+        const body = buildGeminiBody(actualModel, maxTokens, messages, systemPrompt, effort);
         // 三种 Gemini 鉴权方式都附上，兼容不同网关：?key= + Authorization Bearer + x-goog-api-key
         response = await fetch(
           `${trimmedBase}/v1beta/models/${actualModel}:streamGenerateContent?alt=sse&key=${encodeURIComponent(key)}`,
@@ -1669,7 +1709,7 @@ async function callProvider(provider, opts) {
         );
       } else if (sub2apiFmt === 'openai') {
         // OpenAI /v1/responses（Responses API；codex wire_api="responses" 路径）
-        const body = buildResponsesApiBody(actualModel, messages, systemPrompt);
+        const body = buildResponsesApiBody(actualModel, messages, systemPrompt, effort);
         response = await fetch(`${trimmedBase}/v1/responses`, {
           method: 'POST',
           headers: {
@@ -1685,7 +1725,7 @@ async function callProvider(provider, opts) {
         });
       } else {
         // Anthropic /v1/messages 格式
-        const body = buildClaudeBody(actualModel, maxTokens, messages, systemPrompt);
+        const body = buildClaudeBody(actualModel, maxTokens, messages, systemPrompt, effort);
         // 同时附 x-api-key 与 Authorization: Bearer，兼容不同网关实现
         response = await fetch(`${trimmedBase}/v1/messages`, {
           method: 'POST',
@@ -1702,7 +1742,7 @@ async function callProvider(provider, opts) {
       }
     } else {
       // Claude (默认)
-      const body = buildClaudeBody(actualModel, maxTokens, messages, systemPrompt);
+      const body = buildClaudeBody(actualModel, maxTokens, messages, systemPrompt, effort);
       response = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
