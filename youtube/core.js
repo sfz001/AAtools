@@ -304,9 +304,10 @@ YTX._analyzeVideoWithGemini = async function (expectedGeneration) {
   var videoUrl = YTX.getVideoUrl();
 
   // 不在 content script 读 Gemini key —— 缺 key 时由 background 在 TRANSCRIBE 响应里回错
-  YTX.videoMode = true;
-  YTX.showVideoModeBanner();
-
+  // videoMode 与横幅推迟到转录成功且通过 videoId/代际校验之后再置位：
+  // 入口置位时若转录失败（如未配 Gemini Key），失败路径不会复位，
+  // 同一视频后续用普通字幕重试成功时会被以 videoMode:true 写进缓存，
+  // 之后每次进入该视频都对真实字幕误显示 Gemini 横幅。
   if (YTX.panel) {
     var body = YTX.panel.querySelector('#ytx-transcript-body');
     if (body) body.innerHTML = '<div class="ytx-warning" style="padding:8px 12px;font-size:12px;color:#7c3aed;background:#ede9fe;border-radius:6px">正在通过 Gemini 视频模式转录字幕，长视频会自动分段处理，请耐心等待...</div>';
@@ -384,6 +385,9 @@ YTX._analyzeVideoWithGemini = async function (expectedGeneration) {
   if (YTX._transcribeTimer) { clearInterval(YTX._transcribeTimer); YTX._transcribeTimer = null; }
   var alreadyRendered = YTX.panel && YTX.panel.querySelector('#ytx-seg-container');
   YTX.transcriptData = { full: result };
+  // 确认拿到视频模式转录结果之后才置位，缓存写入的 videoMode 才与内容一致
+  YTX.videoMode = true;
+  YTX.showVideoModeBanner();
   if (alreadyRendered) {
     // 更新状态栏为完成
     var status = YTX.panel.querySelector('#ytx-seg-status');
@@ -480,6 +484,8 @@ YTX.ensureTranscript = function () {
       try {
         var data = await YTX.fetchTranscript();
         if (YTX.currentVideoId !== startVideoId || YTX._transcriptGeneration !== transcriptGeneration) return;
+        // 普通字幕成功：显式复位，覆盖此前失败的视频模式尝试残留的标志
+        YTX.videoMode = false;
         YTX.transcriptData = data;
         YTX.renderTranscript(); // defined in panel.js
       } catch (err) {

@@ -356,8 +356,8 @@
    ],
    "description": "core.js:294-295 在 `_analyzeVideoWithGemini` 入口就置 `YTX.videoMode = true` 并显示「已通过 Gemini 视频模式获取内容」横幅，而失败路径（345-362 的 catch/finally）只渲染错误、不复位该标志与横幅；唯一复位点是 panel.js:57 的 resetTranscriptState()，仅在切视频/离开视频页/清缓存时触发。因此当 FETCH_TRANSCRIPT 暂时失败且用户未配 Gemini Key 时，同一视频再次点击生成、字幕正常获取成功后，core.js:474-479 会以 `videoMode: YTX.videoMode`（仍为 true）写入缓存，panel.js:126-129 此后每次进入该视频都对真实字幕显示 Gemini 横幅。影响仅为误导性提示与缓存标志错误——videoMode 无其他消费者，renderTranscript 按 segments 分支渲染，功能不受影响。",
    "fix": "把 core.js:294-295 的置位与横幅移到转录成功且通过 videoId/generation 校验之后（365-372 附近），入口只保留“正在转录”提示；并在 ensureTranscript 的字幕成功分支（462-464）显式 `YTX.videoMode = false`。",
-   "fixed": false,
-   "fixed_note": ""
+   "fixed": true,
+   "fixed_note": "videoMode 与横幅推迟到 Gemini 转录成功且通过 videoId/代际校验之后再置位，普通字幕成功分支显式复位 videoMode=false"
   },
   {
    "rank": 22,
