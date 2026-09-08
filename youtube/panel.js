@@ -853,10 +853,13 @@
 
     // 模型信息（调试用，显示在面板底部）
     if (message.type && message.type.endsWith('_MODEL')) {
-      // 与 _CHUNK/_DONE/_ERROR 同样的 requestId 过滤：避免旧请求的模型名更新当前 badge
+      // 与 _CHUNK/_DONE/_ERROR 同样的 requestId 过滤：避免旧请求的模型名更新当前 badge。
+      // prefixMap 之外的前缀一律丢弃——划词翻译（TRANSLATE）运行在 <all_urls>，
+      // background 对每个请求都会向 sender tab 发 ${PREFIX}_MODEL，否则在观看页
+      // 翻译一次就会改写面板底部的徽章。
       var modelPrefix = message.type.slice(0, -('_MODEL'.length));
       var modelFeature = prefixMap[modelPrefix];
-      if (modelFeature && message.requestId && message.requestId !== modelFeature.requestId) return;
+      if (!modelFeature || message.requestId !== modelFeature.requestId) return;
 
       var badge = YTX.panel.querySelector('#ytx-model-badge');
       if (!badge) {

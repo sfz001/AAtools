@@ -404,8 +404,8 @@
    ],
    "description": "panel.js:840-853 的 `_MODEL` 分支只在 `modelFeature = prefixMap[modelPrefix]` 存在时才做 requestId 校验（844 行），prefixMap（8-14）仅含 SUMMARY/HTML/MINDMAP/CHAT，其他前缀直接落到 846-853 行创建/覆盖 `#ytx-model-badge`。background.js 对每个请求都向 sender tab 发 `${PREFIX}_MODEL`（1589），划词翻译 PREFIX 为 'TRANSLATE'（1096），translate.js 又运行在 `<all_urls>`，因此在 YouTube 观看页翻译一次就会改写面板底部徽章，过期/已取消的翻译请求同样不受过滤。CLAUDE.md:201「`_MODEL` 消息也走同一过滤」对 prefixMap 之外的前缀不成立；因翻译与 YouTube 功能读取相同的 provider/model 字段，显示内容一致，无数据或安全后果。",
    "fix": "把 844 行守卫改为对未知前缀直接丢弃：`if (!modelFeature || message.requestId !== modelFeature.requestId) return;`；若不改代码，则应修正 CLAUDE.md:201 的表述为“仅对 prefixMap 内的前缀过滤”。",
-   "fixed": false,
-   "fixed_note": ""
+   "fixed": true,
+   "fixed_note": "panel.js 的 _MODEL 路由改为对 prefixMap 之外的前缀直接丢弃，并要求 requestId 严格相等，与 _CHUNK/_DONE/_ERROR 一致；划词翻译不再改写 YouTube 面板徽章"
   },
   {
    "rank": 25,
