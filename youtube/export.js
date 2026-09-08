@@ -164,8 +164,8 @@ YTX.Export = {
       "object-src 'none'; " +
       "script-src 'none'; " +
       "base-uri 'none'; " +
-      "form-action 'none'; " +
-      "navigate-to 'none';"
+      // navigate-to 已从 CSP3 规范移除，Chrome 稳定版从未实现，留着只会误导
+      "form-action 'none';"
     );
     head.insertBefore(meta, head.firstChild);
 

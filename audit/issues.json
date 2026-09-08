@@ -468,8 +468,8 @@
    ],
    "description": "html-notes.js:140-141 用 `sandbox=\"allow-same-origin\"` + srcdoc 渲染 AI 生成的笔记，但沙箱只禁止导航其它浏览上下文、不禁止 iframe 自导航；150-165 的点击处理仅对匹配 `MM:SS` 的时间戳 preventDefault，对 `<a>` 完全不拦截。export.js:143-147 的 sanitizeHtml 只剥离 javascript:/data:/vbscript: 链接，http(s) href 原样保留，而唯一针对导航的 `navigate-to 'none'`（export.js:168）已从 CSP3 规范移除、Chrome 稳定版从未启用，等于没有防线。字幕含注入文本让模型输出外链（或模型自然引用视频提到的网址）时，用户在面板内点击就会把笔记 iframe 替换为第三方页面。影响有限：沙箱标志延续到新文档（无脚本/表单/弹窗），工具栏按钮仍基于 self.text 导出；CLAUDE.md:181「不会向任何外部域发请求」对被动加载成立、对用户点击导航不成立。",
    "fix": "在 html-notes.js:150 的 iframe 点击监听最前面加：`var a = e.target.closest && e.target.closest('a[href]'); if (a) { e.preventDefault(); var h = a.getAttribute('href') || ''; if (/^https?:/i.test(h)) window.open(h, '_blank', 'noopener,noreferrer'); return; }`；可顺带删掉 export.js:168 无效的 `navigate-to 'none';`。",
-   "fixed": false,
-   "fixed_note": ""
+   "fixed": true,
+   "fixed_note": "html-notes.js 的 iframe 点击监听最前面拦截 a[href]：站内锚点走 scrollIntoView，http(s) 外链改用 window.open(..., 'noopener,noreferrer') 另开标签页，iframe 不再被导航；同时删掉 export.js 里 Chrome 从未实现的 navigate-to 指令"
   },
   {
    "rank": 29,

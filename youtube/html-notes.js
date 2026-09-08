@@ -150,6 +150,23 @@ YTX.features.html = {
         if (!doc) return;
         // 给 iframe 内所有包含时间戳格式的元素添加点击监听
         doc.addEventListener('click', function (e) {
+          // 链接一律不在 iframe 内导航：sandbox 只禁止导航其它浏览上下文，
+          // 不禁止 iframe 自导航，CSP 的 navigate-to 又已从规范移除、Chrome
+          // 从未实现。放任的话，模型输出的外链一点就把笔记换成第三方页面。
+          var link = e.target && e.target.closest && e.target.closest('a[href]');
+          if (link) {
+            e.preventDefault();
+            var href = link.getAttribute('href') || '';
+            // 站内锚点交给 iframe 自己滚动；仅 http(s) 外链另开标签页
+            if (/^#/.test(href)) {
+              var target = null;
+              try { target = doc.querySelector('[id="' + href.slice(1) + '"]'); } catch (_) {}
+              if (target && target.scrollIntoView) target.scrollIntoView();
+              return;
+            }
+            if (/^https?:/i.test(href)) window.open(href, '_blank', 'noopener,noreferrer');
+            return;
+          }
           var el = e.target;
           // 向上查找，最多 3 层
           for (var i = 0; i < 3 && el && el !== doc.body; i++) {
