@@ -24,6 +24,9 @@
   let directions = [];
   let totalMoved = 0;
   let suppressContext = false;
+  // 抑制标志的复位定时器：必须共用一个句柄，否则上一次右键排的定时器会在
+  // 新一次右键刚设置好标志之后把它清掉，导致该抑制的菜单漏出来
+  let suppressTimer = null;
   let indicator = null;
 
   // ── 代际接管：扩展重载后 background 会重注入本脚本 ──────
@@ -49,7 +52,9 @@
       if (area !== 'sync') return;
       if (changes.enableGestures) {
         enabled = changes.enableGestures.newValue !== false;
-        if (!enabled) { tracking = false; hideIndicator(); }
+        // 关闭时必须一并清掉 suppressContext：否则残留的 true 会让 contextmenu
+        // 监听继续吞掉原生右键菜单，直到页面刷新
+        if (!enabled) { tracking = false; suppressContext = false; hideIndicator(); }
       }
       if (changes.gestureKeepMenu) {
         keepMenu = !!changes.gestureKeepMenu.newValue;
@@ -170,12 +175,19 @@
       //   · Win/Linux：suppressContext=false（mousedown 时未抑制）→ 菜单正常弹
       //   · Mac：mousedown 时已 suppressContext=true → 菜单已被吞，无法补救（这是 keepMenu+Mac 模式 Shift 短按的代价，可以接受）
       // keepMenu=false 时：suppressContext=true，菜单本就不该弹
+      // 但标志必须限时复位：本次 contextmenu 之后若不清掉，后续由 Ctrl+click、
+      // Shift+F10、菜单键等非 mousedown 途径唤起的右键菜单会被残留状态误吞。
+      if (suppressContext) {
+        clearTimeout(suppressTimer);
+        suppressTimer = setTimeout(function () { suppressContext = false; }, 200);
+      }
       return;
     }
 
     // 有手势：始终抑制 contextmenu（Mac 上 mousedown 时已抑制，这里 idempotent）
     suppressContext = true;
-    setTimeout(() => { suppressContext = false; }, 200);
+    clearTimeout(suppressTimer);
+    suppressTimer = setTimeout(() => { suppressContext = false; }, 200);
 
     const key = directions.join('');
     const g = GESTURES[key];
@@ -186,6 +198,8 @@
 
   document.addEventListener('contextmenu', function (e) {
     if (destroyed) return;
+    // 手势总开关关闭后原生菜单必须完全不受影响，不能靠残留标志继续抑制
+    if (!enabled) return;
     // Mac 上 Shift 与 keepMenu 不一致时直接放行原生菜单（手势模式的 Shift 逃生口 + 保留菜单模式的默认行为）
     // 直接读 e.shiftKey，不依赖 mousedown 提前设状态——某些情况下 contextmenu 事件顺序可能在 mousedown 前
     if (isMac && keepMenu !== e.shiftKey) return;
