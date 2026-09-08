@@ -229,7 +229,9 @@ function assertCachePayloadSize(value) {
 
 function openCacheDatabase() {
   if (cacheDatabasePromise) return cacheDatabasePromise;
-  cacheDatabasePromise = new Promise((resolve, reject) => {
+  // 存入局部变量以便回调里比较：只有当前这份句柄才有资格清空缓存的 promise，
+  // 否则可能把后来重建的连接一并作废
+  const promise = new Promise((resolve, reject) => {
     const request = indexedDB.open(CACHE_DB_NAME, CACHE_DB_VERSION);
     request.onupgradeneeded = () => {
       const db = request.result;
@@ -241,24 +243,38 @@ function openCacheDatabase() {
       const db = request.result;
       db.onversionchange = () => {
         db.close();
-        cacheDatabasePromise = null;
+        if (cacheDatabasePromise === promise) cacheDatabasePromise = null;
+      };
+      // 连接被浏览器强制关闭（存储压力、后端异常）时也要作废句柄，
+      // 否则之后每次 CACHE_* 都拿着死连接失败，直到 Service Worker 重启
+      db.onclose = () => {
+        if (cacheDatabasePromise === promise) cacheDatabasePromise = null;
       };
       resolve(db);
     };
     request.onerror = () => {
-      cacheDatabasePromise = null;
+      if (cacheDatabasePromise === promise) cacheDatabasePromise = null;
       reject(request.error || new Error('扩展缓存打开失败'));
     };
   });
+  cacheDatabasePromise = promise;
   return cacheDatabasePromise;
 }
 
 async function withCacheStore(mode, work) {
-  const db = await openCacheDatabase();
+  let db = await openCacheDatabase();
   return new Promise((resolve, reject) => {
     let settled = false;
     let result;
-    const tx = db.transaction(CACHE_STORE_NAME, mode);
+    let tx;
+    try {
+      tx = db.transaction(CACHE_STORE_NAME, mode);
+    } catch (error) {
+      // 句柄已失效（InvalidStateError）：作废后交给调用方下次重开
+      if (cacheDatabasePromise) cacheDatabasePromise = null;
+      reject(error);
+      return;
+    }
     const store = tx.objectStore(CACHE_STORE_NAME);
 
     const fail = (error) => {

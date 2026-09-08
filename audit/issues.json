@@ -326,8 +326,8 @@
    ],
    "description": "background.js:230-254 的 openCacheDatabase 把已打开的 IDBDatabase 记忆在 cacheDatabasePromise 中，只在 onversionchange（241-245）和 open onerror（247-250）时置空，全文件没有任何 `db.onclose`。若连接被浏览器强制关闭（IndexedDB 后端 I/O 错误/损坏、配额驱逐、手动 Force close），withCacheStore（256-260）对死句柄调用 db.transaction 会抛 InvalidStateError，经 handleCacheMessage（383）与 onMessage catch（454-459）回 `{ok:false}`，但该路径不重置 cacheDatabasePromise，后续所有 CACHE_LOAD/SAVE/REMOVE 持续失败（core.js:690-728 静默降级为 save→false、load→null），直到 Service Worker 被终止；keepalive 按活动流式请求引用计数，活跃使用期间死句柄可存活数分钟。触发条件罕见，影响仅为缓存静默失效。",
    "fix": "在 request.onsuccess（约 240 行）给 db 加 `db.onclose = () => { if (cacheDatabasePromise === promise) cacheDatabasePromise = null; }`（把 new Promise 存入局部变量以便比较）；可选地在 withCacheStore 里 try/catch 住 db.transaction，捕获 InvalidStateError 时置空并重试一次。",
-   "fixed": false,
-   "fixed_note": ""
+   "fixed": true,
+   "fixed_note": "给缓存 IDBDatabase 加 onclose 作废句柄；openCacheDatabase 把 promise 存入局部变量，只有当前句柄才有资格清空；withCacheStore 用 try/catch 包住 db.transaction，捕获 InvalidStateError 时作废句柄。"
   },
   {
    "rank": 20,
