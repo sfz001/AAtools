@@ -310,10 +310,10 @@ YTX._analyzeVideoWithGemini = async function (expectedGeneration) {
   // 之后每次进入该视频都对真实字幕误显示 Gemini 横幅。
   if (YTX.panel) {
     var body = YTX.panel.querySelector('#ytx-transcript-body');
-    if (body) body.innerHTML = '<div class="ytx-warning" style="padding:8px 12px;font-size:12px;color:#7c3aed;background:#ede9fe;border-radius:6px">正在通过 Gemini 视频模式转录字幕，长视频会自动分段处理，请耐心等待...</div>';
+    if (body) body.innerHTML = '<div class="ytx-warning" style="padding:8px 12px;font-size:12px;color:#7c3aed;background:#ede9fe;border-radius:6px">正在通过 Gemini 视频模式转录字幕，长视频耗时较久，请耐心等待...</div>';
   }
 
-  // 获取视频时长（秒），用于判断是否需要分段转录
+  // 获取视频时长（秒），仅用于 background 端日志
   var videoDuration = 0;
   try {
     var videoEl = document.querySelector('video');
@@ -330,9 +330,9 @@ YTX._analyzeVideoWithGemini = async function (expectedGeneration) {
   YTX._transcribeVideoId = startVideoId;
   YTX._transcribeRequestId = transcribeRequestId;
 
-  var result;
+  var response;
   try {
-    result = await new Promise(function (resolve, reject) {
+    response = await new Promise(function (resolve, reject) {
       try {
         chrome.runtime.sendMessage({
           type: 'TRANSCRIBE_VIDEO',
@@ -347,7 +347,7 @@ YTX._analyzeVideoWithGemini = async function (expectedGeneration) {
             reject(channelError);
             return;
           }
-          if (resp && resp.text) resolve(resp.text);
+          if (resp && resp.text) resolve(resp);
           else reject(new Error((resp && resp.error) || '视频分析失败'));
         });
       } catch (e) {
@@ -384,16 +384,22 @@ YTX._analyzeVideoWithGemini = async function (expectedGeneration) {
   // 只更新 transcriptData（供总结等功能使用），不重新渲染
   if (YTX._transcribeTimer) { clearInterval(YTX._transcribeTimer); YTX._transcribeTimer = null; }
   var alreadyRendered = YTX.panel && YTX.panel.querySelector('#ytx-seg-container');
-  YTX.transcriptData = { full: result };
+  YTX.transcriptData = { full: response.text };
   // 确认拿到视频模式转录结果之后才置位，缓存写入的 videoMode 才与内容一致
   YTX.videoMode = true;
   YTX.showVideoModeBanner();
   if (alreadyRendered) {
-    // 更新状态栏为完成
+    // 更新状态栏为完成。撞 maxOutputTokens 上限时 background 回 warning，
+    // 文本是截断的——不区分的话这里会显示绿色「转录完成」，用户看不出字幕不完整
     var status = YTX.panel.querySelector('#ytx-seg-status');
     if (status) {
-      status.textContent = '转录完成';
-      status.style.color = '#15803d';
+      if (response.warning) {
+        status.textContent = '转录已截断（超出模型单次输出上限，字幕不完整）';
+        status.style.color = '#b45309';
+      } else {
+        status.textContent = '转录完成';
+        status.style.color = '#15803d';
+      }
     }
   } else {
     YTX.renderTranscript();

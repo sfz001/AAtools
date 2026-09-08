@@ -1402,13 +1402,13 @@ async function handleTranscribeVideo(message, tabId, navigationEpoch = currentNa
 
 // ── 视频转录：单次请求 + 流式输出 ──────────────────────────
 async function _fallbackVideoTranscribe(key, model, videoUrl, videoDuration, tabId, videoId, requestId, requestContext) {
+  // 单次请求 + 流式输出，不分段；videoDuration 只用于日志
   const durationSec = videoDuration || 0;
   console.log('[AAtools] 视频转录开始, 时长:', durationSec ? Math.ceil(durationSec / 60) + '分钟' : '未知');
 
   if (tabId) {
     chrome.tabs.sendMessage(tabId, {
       type: 'TRANSCRIBE_PROGRESS', index: 0, total: 1,
-      startSec: 0, endSec: durationSec,
       videoId, requestId,
     }).catch(() => {});
   }
@@ -1438,14 +1438,13 @@ OUTPUT: Plain text only, no Markdown.`;
   if (tabId) {
     chrome.tabs.sendMessage(tabId, {
       type: 'TRANSCRIBE_SEGMENT', index: 0, total: 1,
-      startSec: 0, endSec: durationSec,
       text: res.text,
       videoId, requestId,
     }).catch(() => {});
   }
 
   console.log('[AAtools] 转录完成，长度:', res.text.length);
-  return { text: res.text };
+  return { text: res.text, warning: res.warning || null };
 }
 
 // 调用 Gemini streamGenerateContent 流式转录，带重试
@@ -1504,7 +1503,7 @@ async function _callGeminiTranscribe(key, model, videoUrl, prompt, tabId, videoI
     requestContext.endAttempt();
     if (streamResult.error) return { error: streamResult.error };
     if (streamResult.warning) console.warn('[AAtools] 视频转录不完整:', streamResult.warning);
-    return { text: fullText };
+    return { text: fullText, warning: streamResult.warning || null };
   }
   return { error: lastError || '转录失败，请稍后重试' };
 }

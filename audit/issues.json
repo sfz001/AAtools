@@ -627,8 +627,8 @@
    ],
    "description": "core.js:299 的面板提示条对用户宣称“长视频会自动分段处理”，302 行注释也仍写 videoDuration “用于判断是否需要分段转录”，但 background.js:1340-1386 的 _fallbackVideoTranscribe 已是单次请求 + 流式输出，TRANSCRIBE_PROGRESS（1347）与 TRANSCRIBE_SEGMENT（1377）均硬编码 `index: 0, total: 1`；videoDuration 现在只用于 console.log 和填充 startSec/endSec（1348/1378），而 panel.js 从不读取这两个字段。更进一步，长视频撞 maxOutputTokens 65536 时 consumeSSEStream 走 abnormalFinish + meaningfulText 分支返回 `{error:'', warning}`，_callGeminiTranscribe:1443 只 console.warn，core.js:373-380 仍把状态栏置为绿色“转录完成”，用户看不到字幕被截断的提示。",
    "fix": "把 core.js:299 的文案改为不承诺分段、删除或改写 302 行注释，并清理 background.js:1348/1378 中无人消费的 startSec/endSec；若想顺带修掉静默截断，可让 _callGeminiTranscribe 把 streamResult.warning 随 SEGMENT 回传，panel.js 显示“转录不完整（已截断）”。",
-   "fixed": false,
-   "fixed_note": ""
+   "fixed": true,
+   "fixed_note": "面板提示条不再承诺分段、videoDuration 注释改为仅用于日志；删除无人消费的 startSec/endSec；_callGeminiTranscribe 的 warning 随 TRANSCRIBE_VIDEO 响应回传，撞 maxOutputTokens 时状态栏显示琥珀色「转录已截断」而非绿色「转录完成」"
   },
   {
    "rank": 39,

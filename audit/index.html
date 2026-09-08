@@ -197,11 +197,11 @@ h1 { font-size:30px; font-weight:600; letter-spacing:-.018em; margin:0; text-wra
 
 <section class="stats">
   <div class="stats-in">
-    <div class="stat"><div class="stat-n">6</div><div class="stat-l">待处理</div></div>
+    <div class="stat"><div class="stat-n">5</div><div class="stat-l">待处理</div></div>
     <div class="stat"><div class="stat-n high">0</div><div class="stat-l">严重</div></div>
     <div class="stat"><div class="stat-n med">0</div><div class="stat-l">中等</div></div>
-    <div class="stat"><div class="stat-n low">6</div><div class="stat-l">轻微</div></div>
-    <div class="stat"><div class="stat-n done">37</div><div class="stat-l">已修复</div></div>
+    <div class="stat"><div class="stat-n low">5</div><div class="stat-l">轻微</div></div>
+    <div class="stat"><div class="stat-n done">38</div><div class="stat-l">已修复</div></div>
     <div class="stat"><div class="stat-n">10</div><div class="stat-l">复核驳回</div></div>
     <div class="stat"><div class="stat-n ok">36/36</div><div class="stat-l">现有测试通过</div></div>
   </div>
@@ -218,28 +218,19 @@ h1 { font-size:30px; font-weight:600; letter-spacing:-.018em; margin:0; text-wra
       <div class="chips" id="sevChips">
         <button class="chip" data-filter-sev="high" aria-pressed="false">严重<span class="chip-n">0</span></button>
         <button class="chip" data-filter-sev="med" aria-pressed="false">中等<span class="chip-n">0</span></button>
-        <button class="chip" data-filter-sev="low" aria-pressed="false">轻微<span class="chip-n">6</span></button>
+        <button class="chip" data-filter-sev="low" aria-pressed="false">轻微<span class="chip-n">5</span></button>
       </div>
     </div>
     <div>
       <p class="rail-label">模块</p>
-      <div class="chips" id="modChips"><button class="chip" data-filter-mod="YouTube 助手" aria-pressed="false">YouTube 助手<span class="chip-n">1</span></button><button class="chip" data-filter-mod="清单权限" aria-pressed="false">清单权限<span class="chip-n">1</span></button><button class="chip" data-filter-mod="后台服务" aria-pressed="false">后台服务<span class="chip-n">1</span></button><button class="chip" data-filter-mod="文档" aria-pressed="false">文档<span class="chip-n">3</span></button></div>
+      <div class="chips" id="modChips"><button class="chip" data-filter-mod="清单权限" aria-pressed="false">清单权限<span class="chip-n">1</span></button><button class="chip" data-filter-mod="后台服务" aria-pressed="false">后台服务<span class="chip-n">1</span></button><button class="chip" data-filter-mod="文档" aria-pressed="false">文档<span class="chip-n">3</span></button></div>
     </div>
     <a class="rail-jump" href="#fixed">跳到已修复 &darr;</a>
-    <nav class="nav" id="nav" aria-label="问题索引"><a class="nav-item" href="#issue-38" data-nav="38" data-sev="low" data-mod="YouTube 助手"><span class="nav-dot sev-low"></span><span class="nav-n">38</span><span class="nav-t">视频模式提示文案与注释仍宣称“长视频自动分段”，但转录早已是单次请求，且 startSec/</span></a><a class="nav-item" href="#issue-39" data-nav="39" data-sev="low" data-mod="清单权限"><span class="nav-dot sev-low"></span><span class="nav-n">39</span><span class="nav-t">activeTab 权限冗余：无任何触发入口且能力被必需通配 host 权限完全覆盖，PRI</span></a><a class="nav-item" href="#issue-40" data-nav="40" data-sev="low" data-mod="后台服务"><span class="nav-dot sev-low"></span><span class="nav-n">40</span><span class="nav-t">background.js handleTranslate 字典模式注释写「总长≤30字符」</span></a><a class="nav-item" href="#issue-41" data-nav="41" data-sev="low" data-mod="文档"><span class="nav-dot sev-low"></span><span class="nav-n">41</span><span class="nav-t">CLAUDE.md 的 background 流式/超时/SSE/字幕抓取章节多处描述与代码</span></a><a class="nav-item" href="#issue-42" data-nav="42" data-sev="low" data-mod="文档"><span class="nav-dot sev-low"></span><span class="nav-n">42</span><span class="nav-t">面向用户与开发者的说明陈旧：测试命令、免刷新重注入、Sub2API 权限口径、手势表格四处与</span></a><a class="nav-item" href="#issue-43" data-nav="43" data-sev="low" data-mod="文档"><span class="nav-dot sev-low"></span><span class="nav-n">43</span><span class="nav-t">存储与 prompt 回退的文档描述不准：漏列仍在写入的遗留键 `model`，并把回退位置</span></a></nav>
+    <nav class="nav" id="nav" aria-label="问题索引"><a class="nav-item" href="#issue-39" data-nav="39" data-sev="low" data-mod="清单权限"><span class="nav-dot sev-low"></span><span class="nav-n">39</span><span class="nav-t">activeTab 权限冗余：无任何触发入口且能力被必需通配 host 权限完全覆盖，PRI</span></a><a class="nav-item" href="#issue-40" data-nav="40" data-sev="low" data-mod="后台服务"><span class="nav-dot sev-low"></span><span class="nav-n">40</span><span class="nav-t">background.js handleTranslate 字典模式注释写「总长≤30字符」</span></a><a class="nav-item" href="#issue-41" data-nav="41" data-sev="low" data-mod="文档"><span class="nav-dot sev-low"></span><span class="nav-n">41</span><span class="nav-t">CLAUDE.md 的 background 流式/超时/SSE/字幕抓取章节多处描述与代码</span></a><a class="nav-item" href="#issue-42" data-nav="42" data-sev="low" data-mod="文档"><span class="nav-dot sev-low"></span><span class="nav-n">42</span><span class="nav-t">面向用户与开发者的说明陈旧：测试命令、免刷新重注入、Sub2API 权限口径、手势表格四处与</span></a><a class="nav-item" href="#issue-43" data-nav="43" data-sev="low" data-mod="文档"><span class="nav-dot sev-low"></span><span class="nav-n">43</span><span class="nav-t">存储与 prompt 回退的文档描述不准：漏列仍在写入的遗留键 `model`，并把回退位置</span></a></nav>
   </aside>
 
   <main id="list">
-    <h2 class="sev-head sev-low" id="sev-low"><span class="sev-head-dot"></span>轻微<span class="sev-head-n">6 项</span></h2><article class="issue sev-low" data-sev="low" data-mod="YouTube 助手" id="issue-38">
-<header class="issue-head">
-<span class="rank">#38</span>
-<span class="pill pill-low">轻微</span>
-<span class="mod">YouTube 助手</span>
-</header>
-<h3 class="issue-title">视频模式提示文案与注释仍宣称“长视频自动分段”，但转录早已是单次请求，且 startSec/endSec 为无人消费的死数据</h3>
-<div class="locs"><code class="loc">youtube/core.js:299</code><code class="loc">youtube/core.js:302</code><code class="loc">background.js:1340</code><code class="loc">background.js:1348</code><code class="loc">background.js:1377</code></div>
-<p class="desc">core.js:299 的面板提示条对用户宣称“长视频会自动分段处理”，302 行注释也仍写 videoDuration “用于判断是否需要分段转录”，但 background.js:1340-1386 的 _fallbackVideoTranscribe 已是单次请求 + 流式输出，TRANSCRIBE_PROGRESS（1347）与 TRANSCRIBE_SEGMENT（1377）均硬编码 <code>index: 0, total: 1</code>；videoDuration 现在只用于 console.log 和填充 startSec/endSec（1348/1378），而 panel.js 从不读取这两个字段。更进一步，长视频撞 maxOutputTokens 65536 时 consumeSSEStream 走 abnormalFinish + meaningfulText 分支返回 <code>{error:&#x27;&#x27;, warning}</code>，_callGeminiTranscribe:1443 只 console.warn，core.js:373-380 仍把状态栏置为绿色“转录完成”，用户看不到字幕被截断的提示。</p><div class="fix"><span class="fix-label">建议修复</span><p>把 core.js:299 的文案改为不承诺分段、删除或改写 302 行注释，并清理 background.js:1348/1378 中无人消费的 startSec/endSec；若想顺带修掉静默截断，可让 _callGeminiTranscribe 把 streamResult.warning 随 SEGMENT 回传，panel.js 显示“转录不完整（已截断）”。</p></div>
-</article><article class="issue sev-low" data-sev="low" data-mod="清单权限" id="issue-39">
+    <h2 class="sev-head sev-low" id="sev-low"><span class="sev-head-dot"></span>轻微<span class="sev-head-n">5 项</span></h2><article class="issue sev-low" data-sev="low" data-mod="清单权限" id="issue-39">
 <header class="issue-head">
 <span class="rank">#39</span>
 <span class="pill pill-low">轻微</span>
@@ -286,7 +277,7 @@ h1 { font-size:30px; font-weight:600; letter-spacing:-.018em; margin:0; text-wra
 <p class="desc">(1) CLAUDE.md:303-314 的 <code>chrome.storage.sync</code> 键清单没有列出遗留键 <code>model</code>，但它是活的：options.js:720 每次自动保存都写入，它出现在 STORAGE_KEYS/SETTING_KEYS 中因而随导入导出走，options.js:321-323 在启动时用它为只存过 <code>model</code> 的老配置做迁移回退；真正读模型的两处都不用它，core.js:100 把 &#x27;model&#x27; 放进读取列表属无用读取。(2) CLAUDE.md:298 称「<code>getSettings()</code> 读取时回退到 <code>YTX.prompts.*</code> 默认值」，但 core.js:111-117 是原样 resolve、未设置时返回 undefined，真正的回退在 summary.js:86 / html-notes.js:81 / mindmap.js:246 三个调用点，翻译侧则由 background.js:1135/1155 的真值判断决定；照文档新增 feature 直接透传 <code>settings.promptX</code> 会让 background.js:1052 的 <code>prompt.replace(...)</code> 抛 TypeError。</p><div class="fix"><span class="fix-label">建议修复</span><p>在 sync 键清单补一行 <code>model</code> 并注明“遗留键，仅在 <code>&lt;provider&gt;Model</code> 缺失时作迁移回退，勿删”，顺手去掉 core.js:100 读取列表里无用的 &#x27;model&#x27;；把 CLAUDE.md:298 改为“回退由各 feature 组装消息时 <code>settings.promptX || YTX.prompts.*</code> 完成（summary.js:86 / html-notes.js:81 / mindmap.js:246），翻译侧在 background handleTranslate 的真值判断中”。</p></div>
 </article>
     <p class="empty" id="empty" hidden>没有匹配的问题。</p>
-    <section class="fixed-section" id="fixed"><h2 class="sev-head sev-fixed"><span class="sev-head-dot"></span>已修复<span class="sev-head-n">37 项</span></h2><p class="fixed-note">以下问题已在代码中修复，保留条目以便回溯。</p><article class="issue sev-high is-fixed" data-sev="high" data-mod="设置页" id="issue-1">
+    <section class="fixed-section" id="fixed"><h2 class="sev-head sev-fixed"><span class="sev-head-dot"></span>已修复<span class="sev-head-n">38 项</span></h2><p class="fixed-note">以下问题已在代码中修复，保留条目以便回溯。</p><article class="issue sev-high is-fixed" data-sev="high" data-mod="设置页" id="issue-1">
 <header class="issue-head">
 <span class="rank">#1</span>
 <span class="pill pill-fixed">已修复</span>
@@ -619,6 +610,15 @@ h1 { font-size:30px; font-weight:600; letter-spacing:-.018em; margin:0; text-wra
 <h3 class="issue-title">CACHE_* 缓存代理层未进文档（“消息类型完整列表”漏 6 项），且 CACHE_CLEAR / YTX.cache.clear 无任何调用方</h3>
 <div class="locs"><code class="loc">CLAUDE.md:73</code><code class="loc">CLAUDE.md:320</code><code class="loc">background.js:386</code><code class="loc">youtube/core.js:714</code><code class="loc">background.js:462</code></div>
 <div class="fixnote"><span class="fixnote-label">已改</span><p>CLAUDE.md 消息表补齐 CANCEL_REQUEST 与 4 个 CACHE_* 行（含 sender 限制、videoId 正则、5M 上限、updatedAt/__legacyFeatures 与 cancelled/reason 字段），IndexedDB 段落改写为 background 代理模型；删除无调用方的 YTX.cache.clear、CACHE_CLEAR 分支与 cacheClearRecords</p></div>
+</article><article class="issue sev-low is-fixed" data-sev="low" data-mod="YouTube 助手" id="issue-38">
+<header class="issue-head">
+<span class="rank">#38</span>
+<span class="pill pill-fixed">已修复</span>
+<span class="mod">YouTube 助手</span>
+</header>
+<h3 class="issue-title">视频模式提示文案与注释仍宣称“长视频自动分段”，但转录早已是单次请求，且 startSec/endSec 为无人消费的死数据</h3>
+<div class="locs"><code class="loc">youtube/core.js:299</code><code class="loc">youtube/core.js:302</code><code class="loc">background.js:1340</code><code class="loc">background.js:1348</code><code class="loc">background.js:1377</code></div>
+<div class="fixnote"><span class="fixnote-label">已改</span><p>面板提示条不再承诺分段、videoDuration 注释改为仅用于日志；删除无人消费的 startSec/endSec；_callGeminiTranscribe 的 warning 随 TRANSCRIBE_VIDEO 响应回传，撞 maxOutputTokens 时状态栏显示琥珀色「转录已截断」而非绿色「转录完成」</p></div>
 </article></section>
 
     <section class="refuted">
