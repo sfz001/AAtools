@@ -36,12 +36,12 @@ These API calls are made directly from your browser using your own API keys. AAt
 
 ## Permissions
 
-- **activeTab**: Access the current YouTube page to inject the panel and extract subtitles
 - **storage**: Save your settings and API keys locally
-- **scripting**: Execute a script on YouTube pages to read subtitle content from the DOM
+- **scripting**: Execute a script on YouTube pages to read subtitle content from the DOM, and re-inject content scripts into open tabs after the extension is reloaded
 - **sessions**: Restore the most recently closed tab via the mouse-gesture `←↑`
-- **Host permissions**: Make API calls to the built-in AI services and YouTube as described above
-- **Optional host permissions**: Access only the custom Sub2API gateway domain you explicitly authorize in settings; public gateways must use HTTPS (localhost may use HTTP)
+- **webNavigation**: Detect when a tab navigates away so in-flight AI requests for that page can be cancelled
+- **Host permissions**: Make API calls to the built-in AI services and YouTube as described above. The panel injection and subtitle reading themselves come from the declared content scripts plus these host permissions
+- **Custom gateway**: The Sub2API gateway URL you enter in settings is validated and saved locally; requests go only to that domain. Public gateways must use HTTPS (localhost may use HTTP)
 
 ## Remote Code
 

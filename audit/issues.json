@@ -643,8 +643,8 @@
    ],
    "description": "manifest.json:6 声明的 activeTab 在代码里没有任何触发点：扩展没有 `chrome.action.onClicked`（61 行使用 default_popup）、没有 commands/contextMenus，popup 端 options.js 只调用 storage/runtime/permissions，从不碰 tabs 或 scripting。真正依赖宿主权限的两条路径——background.js:535/558 对 YouTube tabId 的 executeScript，以及 2101-2120 的 reinjectContentScripts——都由 host_permissions 里的 `https://*/*` + `http://*/*` 覆盖（2087-2090 的注释本身即写明「只认 host_permissions」），删除 activeTab 不损失任何能力也不改变安装警告。文档方面 PRIVACY.md:39 把 activeTab 说成“注入面板与提取字幕”的依据是错的（那靠 content_scripts matches + host_permissions）。",
    "fix": "把 manifest.json:6 改为 `\"permissions\": [\"storage\", \"scripting\", \"sessions\"]` 删除 activeTab；同时修正 PRIVACY.md:39，删掉该条目或改写为「面板注入与字幕读取由 content scripts 与宿主权限完成」。",
-   "fixed": false,
-   "fixed_note": ""
+   "fixed": true,
+   "fixed_note": "manifest 删除 activeTab（无触发入口，能力已被必需的通配 host 权限覆盖）；PRIVACY.md 权限清单相应改写，并补上 webNavigation 与 scripting 重注入的真实用途"
   },
   {
    "rank": 40,
