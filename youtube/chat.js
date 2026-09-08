@@ -100,6 +100,9 @@ YTX.features.chat = {
       }, payload));
     } catch (err) {
       if (this.requestId !== requestId) return;
+      // 回滚发请求前推入的这轮 user 消息：不回滚的话下一轮会带着它一起发出，
+      // 变成连续两条 user，模型可能把上次失败的问题一并作答
+      this.rollbackPendingQuestion();
       YTX.cancelRequest(requestId);
       this.requestId = null;
       if (YTX.currentVideoId !== startVideoId) { this.isChatting = false; return; }
@@ -122,6 +125,13 @@ YTX.features.chat = {
     }
   },
 
+  // 这轮请求失败时丢掉尾部那条尚未配对 assistant 回复的 user 消息
+  rollbackPendingQuestion: function () {
+    if (this.messages.length && this.messages[this.messages.length - 1].role === 'user') {
+      this.messages.pop();
+    }
+  },
+
   onDone: function () {
     this.requestId = null;
     this.messages.push({ role: 'assistant', content: this.replyText });
@@ -132,6 +142,8 @@ YTX.features.chat = {
 
   onError: function (error) {
     this.requestId = null;
+    // 同 send() 的 catch：这轮没有 assistant 回复，user 消息必须回滚
+    this.rollbackPendingQuestion();
     var aiBubble = YTX.panel.querySelector('.ytx-chat-ai:last-child');
     if (aiBubble) YTX.renderError(aiBubble, error);
     this.isChatting = false;
