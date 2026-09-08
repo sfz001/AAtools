@@ -1673,6 +1673,12 @@ async function callProvider(provider, opts) {
         if (provider === 'openai') {
           // gpt-5.x 默认 reasoning_effort=medium，划词翻译压到 low；gpt-4.x 老模型不认该参数，不传
           if (effort && /^gpt-5/.test(actualModel)) body.reasoning_effort = effort;
+          // gpt-5.x 的 reasoning token 与正文共用 max_completion_tokens，且思考关不掉，
+          // 沿用调用方的 2048/4096/8096 会被思考吃光导致正文截断或为空
+          // （与 kimi k3 / minimax M2.x / claude fable 是同一问题同一解法）
+          if (/^gpt-5/.test(actualModel)) {
+            body.max_completion_tokens = Math.max(maxTokens, 16000);
+          }
         } else if (provider === 'kimi') {
           // - k3 恒开不可关，但 reasoning_effort 默认 'max' → 压到 'low'
           // - k2.6 支持显式关闭（k2.5 已退役，sanitizeModel 拦截）

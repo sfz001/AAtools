@@ -261,8 +261,8 @@
    ],
    "description": "background.js:1619 对 openai 分支直接 `max_completion_tokens = maxTokens`，1624-1626 只在 TRANSLATE（effort='low'）时给 gpt-5.x 传 `reasoning_effort`，SUMMARY/HTML/MINDMAP（8096）与 CHAT（4096）沿用模型默认 medium 推理且预算不变；而同一函数对 kimi k3/k2.7-code（1633-1635）、MiniMax 非 M3（1643）以及 buildClaudeBody 对 claude-fable/mythos/opus-5（1220-1221）都按 1620-1623 注释所述原则把预算抬到 ≥16000。OpenAI Chat Completions 的 `max_completion_tokens` 明确包含 reasoning token，且 DEFAULT_MODEL.openai 与 options.js 预置全是 gpt-5.6-*、gpt-5.x 又不能关 thinking，长字幕总结/笔记/问答有可能触发 finish_reason=length：analyzeStreamPayload（1939-1942）标 abnormal 后，有正文时仅 console.warn、面板静默拿到截断结果，正文为空时才报错。（gpt-5.6 在 medium 档的实际 reasoning 用量未实测；Responses API 路径不发输出上限，故 gpt 各路径中只有 OpenAI 直连暴露此问题。）",
    "fix": "在 openai 分支对 `/^gpt-5/` 模型统一 `body.max_completion_tokens = Math.max(maxTokens, 16000)`（与 kimi k3 分支同款），保留现有 reasoning_effort 逻辑；在 tests/background.test.js 的 gpt-5.6-sol SUMMARY 用例追加预算断言、gpt-4.1 用例断言维持原值。",
-   "fixed": false,
-   "fixed_note": ""
+   "fixed": true,
+   "fixed_note": "openai 分支对 /^gpt-5/ 把 max_completion_tokens 抬到至少 16000，与 kimi k3 / minimax M2.x / claude fable 同款处理；测试补齐 gpt-5.6 翻译与总结的预算断言，并断言 gpt-4.1 维持原值。"
   },
   {
    "rank": 16,

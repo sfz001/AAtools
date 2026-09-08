@@ -927,12 +927,15 @@ test('translation lowers reasoning effort on gpt-5 / gemini 3 / responses api an
   const gptTranslate = await captureRequest('openai', { model: 'gpt-5.6-sol', PREFIX: 'TRANSLATE' });
   assert.equal(gptTranslate.url, 'https://api.openai.com/v1/chat/completions');
   assert.equal(gptTranslate.body.reasoning_effort, 'low');
-  assert.equal(gptTranslate.body.max_completion_tokens, 2048);
+  // gpt-5.x 思考关不掉且与正文共用预算，预算抬到 16000 防止正文被吃光
+  assert.equal(gptTranslate.body.max_completion_tokens, 16000);
   const gptSummary = await captureRequest('openai', { model: 'gpt-5.6-sol', PREFIX: 'SUMMARY' });
   assert.equal(gptSummary.body.reasoning_effort, undefined);
-  // gpt-4.x 老模型不认 reasoning_effort
+  assert.equal(gptSummary.body.max_completion_tokens, 16000);
+  // gpt-4.x 老模型不认 reasoning_effort，也不需要放大预算
   const gpt41 = await captureRequest('openai', { model: 'gpt-4.1', PREFIX: 'TRANSLATE' });
   assert.equal(gpt41.body.reasoning_effort, undefined);
+  assert.equal(gpt41.body.max_completion_tokens, 2048);
 
   const gemTranslate = await captureRequest('gemini', { model: 'gemini-3.7-flash', PREFIX: 'TRANSLATE', sse: GEMINI_SSE });
   assert.match(gemTranslate.url, /\/models\/gemini-3\.7-flash:streamGenerateContent/);
