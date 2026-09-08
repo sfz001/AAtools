@@ -439,6 +439,24 @@ test('stream emitter sends exactly one terminal message', () => {
   ]);
 });
 
+test('gateway base url normalisation strips sdk path suffixes including a bare /v1', () => {
+  const { context } = loadBackground();
+  const cases = [
+    ['https://gw.example/v1', 'https://gw.example'],
+    ['https://gw.example/v1/', 'https://gw.example'],
+    ['https://gw.example/v1/messages', 'https://gw.example'],
+    ['https://gw.example/v1/responses', 'https://gw.example'],
+    ['https://gw.example/v1/chat/completions', 'https://gw.example'],
+    ['https://gw.example/v1beta', 'https://gw.example'],
+    // 非路径后缀不受影响，/api 前缀网关保持原样
+    ['https://gw.example/api', 'https://gw.example/api'],
+    ['https://gw.example', 'https://gw.example'],
+  ];
+  for (const [input, expected] of cases) {
+    assert.equal(context.validateSub2ApiBase(input).baseUrl, expected, input);
+  }
+});
+
 test('custom gateway validation enforces HTTPS and exact-origin authorization', async () => {
   const loaded = loadBackground();
   const { context } = loaded;

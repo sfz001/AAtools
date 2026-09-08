@@ -1282,7 +1282,11 @@ function normalizeSub2ApiBase(baseUrl) {
     .replace(/\/v1beta$/i, '')        // Gemini SDK 自加
     .replace(/\/v1\/messages$/i, '')  // Anthropic SDK 自加
     .replace(/\/v1\/chat\/completions$/i, '')  // OpenAI Chat SDK 自加
-    .replace(/\/v1\/responses$/i, '');         // OpenAI Responses SDK 自加
+    .replace(/\/v1\/responses$/i, '')          // OpenAI Responses SDK 自加
+    // 兜底剥掉裸 /v1：codex / opencode 的 base_url 约定就写到 /v1 为止。
+    // 必须放在最后，先匹配上面更长的后缀。代码总是自拼 /v1/... 或 /v1beta/...，
+    // 不剥的话会拼成 /v1/v1/messages 全部 404，而 404 文案又在劝用户改模型。
+    .replace(/\/v1$/i, '');
 }
 
 function validateSub2ApiBase(baseUrl) {

@@ -68,7 +68,7 @@
           <button type="button" id="authorizeSub2api" class="btn-link">授权域名</button>
         </div>
         <input type="text" id="sub2apiBaseUrl" placeholder="https://your-sub2api.example.com">
-        <div class="hint">中转网关地址（不含 <code>/v1/messages</code>）。使用前需授权对应域名；仅允许 HTTPS，localhost 可用 HTTP。模型按前缀自动选格式。</div>
+        <div class="hint">中转网关地址，只填到域名即可。粘贴时带上 <code>/v1</code>、<code>/v1beta</code> 或 <code>/v1/messages</code> 等路径后缀会自动剥离。使用前需授权对应域名；仅允许 HTTPS，localhost 可用 HTTP。模型按前缀自动选格式。</div>
       </div>
 
       <div class="field" id="chatgptAuthField" style="display:none">

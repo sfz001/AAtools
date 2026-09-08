@@ -210,8 +210,8 @@
    ],
    "description": "background.js:1257-1264 只剥离 `/v1beta`、`/v1/messages`、`/v1/chat/completions`、`/v1/responses` 四种后缀，没有裸 `/v1`；validateSub2ApiBase（1266-1288）与 options.js 也不做额外处理。而 codex `base_url` / opencode `baseURL` 的约定恰以 `/v1` 结尾（SDK 自行追加路径），用户原样粘入 `https://gw.example.com/v1` 后，callProvider 在 1713/1730/1698 再拼 `/v1/responses`、`/v1/messages`、`/v1beta/models/...`，实际请求变成 `https://gw.example.com/v1/v1/responses`（已用 node 复现），三种格式全部 404；1485-1487 把 404 报成「所选模型不存在或未开通权限，请更换模型」，把用户引向改模型而非改 URL。这与 1255-1256 的代码注释和 CLAUDE.md:152 声称的「容错 codex/opencode 复制的 baseUrl」不符，缓解因素是 placeholder 示例不带 /v1。",
    "fix": "在 background.js:1263 之后追加 `.replace(/\\/v1$/i, '')`（放在最后，先剥 `/v1/responses` 等再兜底剥裸 `/v1`；代码总是自拼 `/v1/...` 或 `/v1beta/...`，剥离安全，`/api` 这类前缀不受影响），同步更新 options.html:71 提示与 CLAUDE.md:152，并在 tests/background.test.js 加一条 `validateSub2ApiBase('https://gateway.example/v1').baseUrl === 'https://gateway.example'`。",
-   "fixed": false,
-   "fixed_note": ""
+   "fixed": true,
+   "fixed_note": "normalizeSub2ApiBase 末尾追加剥离裸 /v1（放在更长后缀之后）；新增 8 组归一化用例；设置页提示文案改为说明各类路径后缀会自动剥离。"
   },
   {
    "rank": 13,
