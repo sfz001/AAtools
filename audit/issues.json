@@ -436,8 +436,8 @@
    ],
    "description": "mindmap.js:318 的 render() 每次都用 innerHTML 重建视口/SVG，随后 359 行调用 setupZoomPan，在 385/392 向 document 注册 mousemove/mouseup 监听，闭包持有本次的 canvas/viewport；整个文件没有任何 removeEventListener，reset()（172-184）与 panel.js 的代际接管清理也都不摘这两个监听。render() 在 onDone、重置缩放、切换对齐、每次折叠/展开节点、panel.js:158 缓存恢复与 panel.js:408 首次可见自适应时都会调用，因此每次操作固定泄漏 2 个 document 监听并滞留一整棵已脱离 DOM 的 SVG，长会话持续累积、切视频也不释放。功能上无误（旧视口已脱离 DOM，旧监听每次只空跑一次早返回），属资源泄漏。",
    "fix": "把两个 document 处理函数存到 `this._panMove` / `this._panUp`，注册前先 removeEventListener 掉旧的，并在 reset() 中一并移除并置 null。",
-   "fixed": false,
-   "fixed_note": ""
+   "fixed": true,
+   "fixed_note": "setupZoomPan 的 document 级 mousemove/mouseup 存到 this._panMove / this._panUp，注册前先摘旧监听，reset() 也一并移除并置 null"
   },
   {
    "rank": 27,

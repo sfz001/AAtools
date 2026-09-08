@@ -184,6 +184,7 @@
       this.transform = { x: 0, y: 0, scale: 1 };
       this.collapsed = new Set();
       this._fitted = false;
+      this.removeDocumentPanListeners();
       // alignTop 不重置，保留用户设置
       if (this._deferred) { this._deferred.reject(new Error('视频已切换')); this._deferred = null; }
     },
@@ -371,6 +372,12 @@
       this.setupInteractions(contentEl);
     },
 
+    // 摘掉上一次 setupZoomPan 注册的 document 级平移监听
+    removeDocumentPanListeners: function () {
+      if (this._panMove) { document.removeEventListener('mousemove', this._panMove); this._panMove = null; }
+      if (this._panUp) { document.removeEventListener('mouseup', this._panUp); this._panUp = null; }
+    },
+
     setupZoomPan: function (container) {
       var self = this;
       var viewport = container.querySelector('.ytx-mindmap-viewport');
@@ -392,18 +399,25 @@
         e.preventDefault();
       });
 
-      document.addEventListener('mousemove', function (e) {
+      // render() 每次都用 innerHTML 重建视口，setupZoomPan 随之重跑；viewport 上的
+      // 监听随旧 DOM 一起消失，但 document 级的两个不会。生成、重置缩放、切换对齐、
+      // 每次折叠/展开、缓存恢复、首次可见自适应都会触发 render()，不摘旧监听就会
+      // 固定泄漏 2 个 document 监听并滞留整棵已脱离 DOM 的 SVG。
+      this.removeDocumentPanListeners();
+
+      this._panMove = function (e) {
         if (!isPanning) return;
         self.transform.x = startTx + (e.clientX - startX);
         self.transform.y = startTy + (e.clientY - startY);
         canvas.setAttribute('transform', 'translate(' + self.transform.x + ',' + self.transform.y + ') scale(' + self.transform.scale + ')');
-      });
-
-      document.addEventListener('mouseup', function () {
+      };
+      this._panUp = function () {
         if (!isPanning) return;
         isPanning = false;
         viewport.style.cursor = 'grab';
-      });
+      };
+      document.addEventListener('mousemove', this._panMove);
+      document.addEventListener('mouseup', this._panUp);
 
       viewport.addEventListener('wheel', function (e) {
         e.preventDefault();
