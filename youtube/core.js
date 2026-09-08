@@ -758,15 +758,6 @@ YTX.cache = {
     }).then(function (legacyRemoved) { return legacyRemoved === true; }).catch(function () { return false; });
   },
 
-  // 清空全部缓存。注意：background 校验 sender 必须是 youtube.com 顶层页面，
-  // 只能从 YouTube 页内 UI 调用；设置页等扩展页面发的消息会被拒。
-  clear: function () {
-    var self = this;
-    return this._migrateLegacy().then(function () {
-      return self._request({ type: 'CACHE_CLEAR' });
-    }).then(function () { return true; }).catch(function () { return false; });
-  },
-
   // 加载某个视频的全部缓存
   load: function (videoId) {
     var self = this;

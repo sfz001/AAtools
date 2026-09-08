@@ -822,7 +822,7 @@ test('extension cache merges legacy data without overwriting newer extension val
   assert.equal(await context.cacheLoadRecord(videoId), null);
 
   await context.cacheSaveFeature(videoId, 'html', { text: '' });
-  await context.cacheClearRecords();
+  await context.cacheRemoveRecord(videoId);
   assert.equal(await context.cacheLoadRecord(videoId), null);
 });
 

@@ -610,8 +610,8 @@
    ],
    "description": "CLAUDE.md:73 的小节自称「消息类型完整列表」，但 75-86 的表格只列 10 种，漏掉 background 实际处理的 CANCEL_REQUEST（background.js:462-474）与 CACHE_LOAD/SAVE/REMOVE/CLEAR/MIGRATE_RECORD（background.js:200、453、384-408），而 content 端确实在发这些消息（core.js:143/674/693/705/717/725、translate.js:169-177）；缓存通道还有未记录的信任边界（isTrustedCacheSender 只放行 www.youtube.com 顶层帧）与新增字段（updatedAt、__legacyFeatures），CLAUDE.md:320-321 仍把 IndexedDB 描述为 content 端直接读写，`{PREFIX}_ERROR` / FETCH_TRANSCRIPT 响应可带 `cancelled:true` / `reason:'navigation'` 也未提及。同一片区域还有一处死代码：`YTX.cache.clear`（core.js:714-718）与 background.js:386-389 的 CACHE_CLEAR 分支全仓库无调用方（面板「清除缓存」走 panel.js:319 的 cache.remove），自 82338f0 引入起就没有入口。",
    "fix": "在消息表补 CANCEL_REQUEST 与 5 个 CACHE_* 行（注明 sender 限制、videoId 正则与 5M 载荷上限），把 IndexedDB 段落改写为“库在扩展 origin、由 background 代理，content 侧 YTX.cache 仅做旧库一次性迁移”，并补一句 `_ERROR` 可携带 cancelled/reason；同时删除 core.js:714-718 的 clear()、background.js:386-389 的分支与 CACHE_MESSAGE_TYPES 中的 'CACHE_CLEAR'（或给它接上真实入口）。",
-   "fixed": false,
-   "fixed_note": ""
+   "fixed": true,
+   "fixed_note": "CLAUDE.md 消息表补齐 CANCEL_REQUEST 与 4 个 CACHE_* 行（含 sender 限制、videoId 正则、5M 上限、updatedAt/__legacyFeatures 与 cancelled/reason 字段），IndexedDB 段落改写为 background 代理模型；删除无调用方的 YTX.cache.clear、CACHE_CLEAR 分支与 cacheClearRecords"
   },
   {
    "rank": 38,

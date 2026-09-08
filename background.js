@@ -197,7 +197,7 @@ const CACHE_DB_VERSION = 1;
 const CACHE_STORE_NAME = 'results';
 const CACHE_FEATURE_KEYS = new Set(['transcript', 'summary', 'html', 'mindmap']);
 const CACHE_LEGACY_FEATURES_FIELD = '__legacyFeatures';
-const CACHE_MESSAGE_TYPES = new Set(['CACHE_LOAD', 'CACHE_SAVE', 'CACHE_REMOVE', 'CACHE_CLEAR', 'CACHE_MIGRATE_RECORD']);
+const CACHE_MESSAGE_TYPES = new Set(['CACHE_LOAD', 'CACHE_SAVE', 'CACHE_REMOVE', 'CACHE_MIGRATE_RECORD']);
 const MAX_CACHE_JSON_CHARS = 5_000_000;
 let cacheDatabasePromise = null;
 
@@ -340,13 +340,6 @@ function cacheRemoveRecord(videoId) {
   });
 }
 
-function cacheClearRecords() {
-  return withCacheStore('readwrite', (store, _setResult, fail) => {
-    const request = store.clear();
-    request.onerror = () => fail(request.error);
-  });
-}
-
 function sanitizeLegacyCacheRecord(input) {
   if (!input || typeof input !== 'object' || !isValidVideoId(input.videoId)) {
     throw new Error('旧缓存记录格式无效');
@@ -399,10 +392,6 @@ function cacheMergeLegacyRecord(input) {
 async function handleCacheMessage(message, sender) {
   if (!isTrustedCacheSender(sender)) return { ok: false, error: '不允许的缓存请求来源' };
 
-  if (message.type === 'CACHE_CLEAR') {
-    await cacheClearRecords();
-    return { ok: true };
-  }
   if (message.type === 'CACHE_MIGRATE_RECORD') {
     await cacheMergeLegacyRecord(message.record);
     return { ok: true };

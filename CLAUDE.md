@@ -84,6 +84,15 @@ YouTube 页面 (content scripts)          Service Worker
 | `GESTURE_CLOSE_TAB` | — | 关闭 sender 所在标签页 |
 | `GESTURE_REOPEN_TAB` | — | `chrome.sessions.restore()` 恢复刚关闭的标签页 |
 | `GESTURE_RELOAD_HARD` | — | `chrome.tabs.reload(tabId, { bypassCache: true })` 强制刷新当前标签页 |
+| `CANCEL_REQUEST` | — | 按 requestId 取消 background 中仍在进行的 fetch / 流读取 |
+| `CACHE_LOAD` | — | 读某个视频的全部缓存，回 `{ ok, record }` |
+| `CACHE_SAVE` | — | 按 `videoId` + `featureKey` 合并写入 |
+| `CACHE_REMOVE` | — | 删除某个视频的缓存记录 |
+| `CACHE_MIGRATE_RECORD` | — | 把页面 origin 旧库的一条记录迁进扩展库（一次性） |
+
+`CACHE_*` 五类消息由 `isTrustedCacheSender()` 把关：只放行 `www.youtube.com` 的**顶层帧**（frameId 0），设置页等扩展页面发的会被拒。`videoId` 必须匹配 `/^[A-Za-z0-9_-]{11}$/`，记录序列化后不得超过 5,000,000 字符，两者都不满足时回 `{ ok:false, error }`——这类失败是永久性的，`_migrateLegacy` 会跳过该条继续迁移其余记录。记录里除各 feature 字段外还有 `updatedAt`（合并时用于判断新旧）与 `__legacyFeatures`（标记哪些字段来自旧库）。
+
+`{PREFIX}_ERROR` 与 `FETCH_TRANSCRIPT` 的响应可带 `cancelled: true` 与 `reason: 'navigation'`：表示请求是被导航/切视频主动取消的，content 侧据此静默退出而不渲染错误。
 
 导出功能（Obsidian / Markdown）完全在 content script 端处理（生成 .md Blob 直接下载），不走 background。
 
@@ -320,7 +329,9 @@ YouTube SPA 切视频时旧异步操作会污染新视频结果。用四层防�
 - `fetchedModels_claude`, `fetchedModels_openai`, `fetchedModels_gemini`, `fetchedModels_deepseek`, `fetchedModels_kimi` — API 拉取的模型列表缓存。渲染时由 `mergeModels()` 与预置列表合并（预置在前、按 value 去重），不能直接替换预置——`/v1/models` 只返回该 key 有权访问的模型真名，权限不足时整代新模型会整批缺席，而该缓存持久化在 storage.local 会一直遮蔽推荐模型
 
 **IndexedDB**（`AAtoolsCache` → `results` store）：
+- 库在**扩展 origin**，由 background 独占读写；content 侧的 `YTX.cache` 只是 `CACHE_*` 消息的封装，本身不开这个库
 - key 为 `videoId`，`cache.save(videoId, featureKey, data)` 合并写入
+- content 侧仍会碰 IndexedDB 的唯一场景是**旧库一次性迁移**：早期版本把缓存写在页面 origin（`youtube.com`）下，`_migrateLegacy()` 逐条经 `CACHE_MIGRATE_RECORD` 搬进扩展库，确认落盘后再条件删除旧记录（内容未变才删）。不调用 `deleteDatabase`——旧版标签页可能长期持有连接，blocked 的删除请求无法取消并会阻塞后续 open
 
 ### 关键约定
 
