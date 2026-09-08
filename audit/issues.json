@@ -529,8 +529,8 @@
    ],
    "description": "gestures.js:177-178 在每次手势 mouseup 时无条件 `setTimeout(() => suppressContext = false, 200)`，没有保存句柄、没有 clearTimeout、也没有代次校验。Windows 且 keepMenu=false 时，若用户在上一次手势松开后 200ms 内再次按下右键（116 行置 true）并按住越过 200ms，过期定时器会把标志翻回 false；若这次是短按，mouseup 在 168-173 直接 return 不再重置，随后 Windows 在 mouseup 后派发的 contextmenu 在 192 行看到 false 而放行，原生菜单弹出，与 gestures.js:11 / CLAUDE.md:264「keepMenu=false 时 contextmenu 始终抑制」的设计不符。后果仅是多弹一次原生菜单；keepMenu=true 与 macOS 不受影响。",
    "fix": "增加 `let suppressTimer = null;`；mousedown 进入 tracking 时先 `clearTimeout(suppressTimer)`；178 行改为 `clearTimeout(suppressTimer); suppressTimer = setTimeout(() => { suppressContext = false; }, 200);`。",
-   "fixed": false,
-   "fixed_note": ""
+   "fixed": true,
+   "fixed_note": "gestures.js 的 suppressContext 复位定时器共用 suppressTimer 句柄（随 #5 一同落地），本次补上 mousedown 进入 tracking 时的 clearTimeout，过期定时器不再翻掉新一次右键刚设好的抑制标志"
   },
   {
    "rank": 33,
@@ -545,8 +545,8 @@
    ],
    "description": "gestures.js:112 在 mousedown 设 `lastPoint`，之后只有 130 行（过了 126 行 MIN_SEGMENT=30 门槛才执行）会更新它；122-125 每次 mousemove 都用同一锚点算 `Math.hypot(dx,dy)` 并 `totalMoved += dist`，于是 30px 内的慢速漂移按 1+2+3+4… 累加而非真实路径长度（wheel 分支 143-147 用的是每次事件增量，两处口径不一致；第 8 行注释表明意图是路径长度）。在 Windows 且 `gestureKeepMenu=true` 时，116 行令 mousedown 不抑制菜单，若右键按下期间指针漂移约 4px 触发 4 次 mousemove，totalMoved=10 ≥ 8，mouseup 走 177 行置 suppressContext=true 而 directions 为空不执行任何手势，随后到来的 contextmenu 被吞掉，用户既无菜单也无动作。影响限于非默认设置 + Win/Linux。",
    "fix": "新增 `prevPoint`（mousedown 时与 lastPoint 一起初始化），mousemove 里改为 `totalMoved += Math.hypot(e.clientX - prevPoint.x, e.clientY - prevPoint.y)` 后立即更新 prevPoint（或直接用 `e.movementX/movementY`），`lastPoint` 继续只作为 MIN_SEGMENT 的分段锚点。",
-   "fixed": false,
-   "fixed_note": ""
+   "fixed": true,
+   "fixed_note": "mousemove 改用 prevPoint 按事件增量累加 totalMoved，路径长度口径与 wheel 分支一致，MIN_GESTURE=8 恢复为真实阈值；lastPoint 仍只作 MIN_SEGMENT 的分段锚点"
   },
   {
    "rank": 34,

@@ -25,7 +25,10 @@
   let enabled = true; // 总开关，默认启用，由 storage 决定
   let keepMenu = false; // 是否保留原生右键菜单（默认 false：右键直接走手势）
   let tracking = false;
+  // lastPoint 只作 MIN_SEGMENT 的分段锚点（过阈值才前移）；
+  // prevPoint 每次 mousemove 都前移，用来累计真实路径长度
   let lastPoint = null;
+  let prevPoint = null;
   let directions = [];
   let totalMoved = 0;
   // wheel 手势的跨事件位移累加器（触控板单个事件 delta 很小，必须累加）
@@ -121,8 +124,14 @@
     // Windows：keepMenu=true 时由 mouseup 决定；keepMenu=false 时一律进手势
     // 显式清 suppressContext，防止上一次未拖动的 mouseup 残留的 true 把这次菜单吞掉
     if (menuOnDown && keepMenu !== e.shiftKey) { suppressContext = false; return; }
+    // 上一次手势排下的 200ms 复位定时器必须在这里取消：否则它会在本次右键
+    // 按住期间把刚设好的 suppressContext 翻回 false，Windows 默认模式下这次
+    // 若是短按，mouseup 直接 return 不再重置，contextmenu 就漏出原生菜单
+    clearTimeout(suppressTimer);
+    suppressTimer = null;
     tracking = true;
     lastPoint = { x: e.clientX, y: e.clientY };
+    prevPoint = { x: e.clientX, y: e.clientY };
     directions = [];
     totalMoved = 0;
     wheelAccX = 0;
@@ -135,10 +144,15 @@
   document.addEventListener('mousemove', function (e) {
     if (!tracking) return;
     if (!e.isTrusted) return;
+    // totalMoved 要的是路径长度：必须按「距上一次事件」累加。按「距分段锚点」
+    // 累加的话，30px 内的慢速漂移会以 1+2+3+4… 叠加，MIN_GESTURE=8 的有效
+    // 阈值被压到 3-4px，指针轻微抖动就被判成手势（Windows + keepMenu=true 时
+    // 会吞掉 contextmenu，用户既无菜单也无动作）。wheel 分支用的正是增量口径。
+    totalMoved += Math.hypot(e.clientX - prevPoint.x, e.clientY - prevPoint.y);
+    prevPoint = { x: e.clientX, y: e.clientY };
+
     const dx = e.clientX - lastPoint.x;
     const dy = e.clientY - lastPoint.y;
-    const dist = Math.hypot(dx, dy);
-    totalMoved += dist;
     if (Math.abs(dx) < MIN_SEGMENT && Math.abs(dy) < MIN_SEGMENT) return;
 
     const d = dirOf(dx, dy);
