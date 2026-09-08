@@ -960,7 +960,8 @@
     if (message.type === 'TRANSCRIBE_SEGMENT') {
       if (message.videoId && message.videoId !== YTX.currentVideoId) return;
       if (message.requestId && message.requestId !== YTX._transcribeRequestId) return;
-      // SEGMENT 是转录的终态消息（text 或 error）。先清理已匹配的 ID，
+      // SEGMENT 是转录成功的终态消息，只带 text；失败一律走 sendResponse，
+      // 由 core.js 转成 reject 后 renderError 渲染。先清理已匹配的 ID，
       // 即使面板 DOM 已被移除，也不会在后续 reset 时误取消已完成任务。
       var terminalRequestId = message.requestId || YTX._transcribeRequestId;
       if (!terminalRequestId || terminalRequestId === YTX._transcribeRequestId) {
@@ -1000,10 +1001,6 @@
       if (message.text) {
         if (!YTX.transcriptData) YTX.transcriptData = { full: '' };
         YTX.transcriptData.full += (YTX.transcriptData.full ? '\n' : '') + message.text;
-      } else if (message.error && container) {
-        container.insertAdjacentHTML('beforeend',
-          '<div style="padding:4px 8px;font-size:11px;color:#b45309;background:#fef3c7;border-radius:4px;margin-bottom:8px">' +
-          '转录失败: ' + YTX.escapeHtml(message.error) + '</div>');
       }
       return;
     }

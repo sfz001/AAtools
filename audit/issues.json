@@ -593,8 +593,8 @@
    ],
    "description": "panel.js:973-977 在 TRANSCRIBE_SEGMENT 消息里处理 `message.error` 并插入“转录失败: …”提示，但全仓库唯一的 SEGMENT 发送点 background.js:1377-1381 硬编码 `error: null`；所有失败路径（1373 的 `if (res.error) return res;`、1446 的 `return { error }`、1329-1335 的 catch）都只经 sendResponse 返回错误，不发 SEGMENT。core.js:337-338 把 `resp.error` 转成 reject，由 350 行 renderError 渲染，因此该分支及其硬编码内联样式是死代码，panel.js:932-933 的注释“SEGMENT 是转录的终态消息（text 或 error）”也与实际不符；git 历史显示该发送点一直是 `error: null`。",
    "fix": "删除 panel.js:973-977 的 `else if (message.error && container)` 分支（保留 `if (message.text)`），并把 932-933 注释改为“SEGMENT 是转录成功的终态消息，失败走 sendResponse 由 core.js renderError 渲染”。",
-   "fixed": false,
-   "fixed_note": ""
+   "fixed": true,
+   "fixed_note": "删除 panel.js TRANSCRIBE_SEGMENT 的死 error 分支及其内联样式，改正上方注释；background 的 SEGMENT 发送点不再带恒为 null 的 error 字段"
   },
   {
    "rank": 37,

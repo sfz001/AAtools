@@ -1450,7 +1450,7 @@ OUTPUT: Plain text only, no Markdown.`;
     chrome.tabs.sendMessage(tabId, {
       type: 'TRANSCRIBE_SEGMENT', index: 0, total: 1,
       startSec: 0, endSec: durationSec,
-      text: res.text, error: null,
+      text: res.text,
       videoId, requestId,
     }).catch(() => {});
   }
