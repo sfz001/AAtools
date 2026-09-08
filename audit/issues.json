@@ -514,8 +514,8 @@
    ],
    "description": "options.js:279-285 与 287-303 的 `storage.local.get` / `storage.sync.get` 回调直接解引用 `local.xxx` / `data.xxx`，未检查 `chrome.runtime.lastError`；Chrome 读取失败时以无参数调用回调并设置 lastError，此时 280/288 行抛 TypeError，switchProvider 与各复选框初始化全部不执行。keyCache/modelCache/sub2apiBaseUrl 在 108-110 初始化为显式空串，autoSave 监听与 storage 回调无关地同步绑定，saveSettings（684-730）也无“已加载”守卫、无条件写入全部字段且写失败对 autoSave 静默。因此加载失败后用户在页面上做任意一次输入/勾选，1.5s 后 `sync.set` 就会把所有服务商的 key 与模型清空；由于 local 与 sync 是两个独立库，279 行那条仅读非关键缓存的 local.get 一旦失败会连带跳过整个 sync.get，而 sync 库正常时后续 set 仍能成功落盘。触发条件（存储后端 IO 错误/损坏）罕见。",
    "fix": "279 行回调里先 `local = (!chrome.runtime.lastError && local) || {}`；287 行回调开头加 `if (chrome.runtime.lastError || !data) { showStatus('读取设置失败…', 'error'); return; }`；再加模块级 `settingsLoaded` 标志，在 sync.get 成功初始化后置 true，并在 saveSettings 开头未加载时直接 return。",
-   "fixed": false,
-   "fixed_note": ""
+   "fixed": true,
+   "fixed_note": "options.js 两处初始 storage.get 回调检查 chrome.runtime.lastError；新增 settingsLoaded 标志，sync.get 成功后才置 true，saveSettings 未加载时直接 return（手动保存给出提示）。新增测试覆盖读取失败时拒绝保存"
   },
   {
    "rank": 32,

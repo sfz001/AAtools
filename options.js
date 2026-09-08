@@ -107,6 +107,10 @@ const $ = (sel) => document.querySelector(sel);
 let currentProvider = 'claude';
 // 导入设置期间为 true：此时内存缓存尚未刷新，任何保存都会覆盖刚导入的值
 let importing = false;
+// 初始 storage 读取成功前为 false：此时 keyCache/modelCache 还是空串占位，
+// 任何自动保存都会把全部 provider 的 key 与模型清空
+// （用 var 而非 let，测试需要能从外部翻转它）
+var settingsLoaded = false;
 let keyCache = { claudeKey: '', openaiKey: '', geminiKey: '', minimaxKey: '', deepseekKey: '', kimiKey: '', sub2apiKey: '' };
 let modelCache = { claude: '', openai: '', gemini: '', minimax: '', deepseek: '', kimi: '', sub2api: '', chatgpt: '' };
 let sub2apiBaseUrl = '';
@@ -279,6 +283,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // 先加载已拉取的模型列表，再加载设置
   chrome.storage.local.get(['fetchedModels_claude', 'fetchedModels_openai', 'fetchedModels_gemini', 'fetchedModels_minimax', 'fetchedModels_deepseek', 'fetchedModels_kimi'], (local) => {
+    // 读失败时 Chrome 以无参数调用回调并设置 lastError；直接解引用会抛
+    // TypeError，连带跳过下面那次真正关键的 sync.get
+    if (chrome.runtime.lastError || !local) local = {};
     if (local.fetchedModels_claude) fetchedModelsCache.claude = local.fetchedModels_claude;
     if (local.fetchedModels_openai) fetchedModelsCache.openai = local.fetchedModels_openai;
     if (local.fetchedModels_gemini) fetchedModelsCache.gemini = local.fetchedModels_gemini;
@@ -287,6 +294,14 @@ document.addEventListener('DOMContentLoaded', () => {
     if (local.fetchedModels_kimi) fetchedModelsCache.kimi = local.fetchedModels_kimi;
 
     chrome.storage.sync.get(STORAGE_KEYS, (data) => {
+      if (chrome.runtime.lastError || !data) {
+        // 设置没读出来就别让自动保存动 storage：内存缓存仍是空串占位，
+        // 用户随便勾一下就会把所有服务商的 key 和模型覆盖成空
+        showStatus('读取设置失败：' + ((chrome.runtime.lastError && chrome.runtime.lastError.message) || '未知错误') +
+          '，请重新打开设置页', 'error');
+        return;
+      }
+      settingsLoaded = true;
       keyCache.claudeKey = data.claudeKey || '';
       keyCache.openaiKey = data.openaiKey || '';
       keyCache.geminiKey = data.geminiKey || '';
@@ -737,6 +752,11 @@ function debounce(fn, ms) {
 function saveSettings(isManual, gatewayProvider, gatewayBaseOverride) {
   // 导入进行中：内存缓存还是导入前的旧值，写回会整体覆盖刚导入的设置
   if (importing) return;
+  // 初始读取失败时缓存仍是空串占位，写回会清空全部 provider 的 key 与模型
+  if (!settingsLoaded) {
+    if (isManual) showStatus('设置尚未加载完成，请重新打开设置页后再保存', 'error');
+    return;
+  }
   const cfg = PROVIDERS[currentProvider];
 
   const oldGatewayBase = gatewayProvider ? getSavedGatewayBase(gatewayProvider) : '';

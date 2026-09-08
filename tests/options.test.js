@@ -86,8 +86,21 @@ test('gateway permission request uses the exact normalized origin including port
   assert.equal(denied, false);
 });
 
+test('saves are refused until the initial storage read succeeds', () => {
+  // 读取失败时 keyCache/modelCache 仍是空串占位，放行保存会把所有服务商的
+  // key 与模型清空
+  const loaded = loadOptions();
+  loaded.context.saveSettings(false);
+  assert.deepEqual(loaded.savedSettings, []);
+
+  loaded.context.settingsLoaded = true;
+  loaded.context.saveSettings(false);
+  assert.equal(loaded.savedSettings.length, 1);
+});
+
 test('automatic saves keep the last authorized gateway instead of persisting an unapproved draft', () => {
   const loaded = loadOptions();
+  loaded.context.settingsLoaded = true;
   loaded.context.setSavedGatewayBase('sub2api', 'https://approved.example');
   loaded.element('#sub2apiBaseUrl').value = 'https://unapproved.example';
 
@@ -97,6 +110,7 @@ test('automatic saves keep the last authorized gateway instead of persisting an 
 
 test('a gateway changed while the permission prompt is open cannot be committed under the old grant', () => {
   const loaded = loadOptions();
+  loaded.context.settingsLoaded = true;
   let permissionCallback;
   let authorization;
   loaded.context.chrome.permissions.request = (_query, callback) => { permissionCallback = callback; };
@@ -114,6 +128,7 @@ test('a gateway changed while the permission prompt is open cannot be committed 
 
   // Path changes under the same authorized origin are safe and use the current captured field value.
   const sameOrigin = loadOptions();
+  sameOrigin.context.settingsLoaded = true;
   sameOrigin.element('#sub2apiBaseUrl').value = 'https://first.example/api';
   let sameOriginAuthorization;
   sameOrigin.context.requestGatewayPermission('sub2api', (_granted, value) => { sameOriginAuthorization = value; });
