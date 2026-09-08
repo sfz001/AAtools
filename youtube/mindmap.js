@@ -14,9 +14,14 @@
   function assignNodeIds(node, path) {
     path = path || '0';
     node._id = path;
-    if (node.children) {
-      node.children.forEach(function (child, i) { assignNodeIds(child, path + '-' + i); });
+    // AI 可能把 children 返回成 "无" / {} 这类真值非数组，或数组里混入 null；
+    // 不校验会在 forEach 上抛 TypeError，整棵树渲染失败
+    if (!Array.isArray(node.children)) {
+      if (node.children) node.children = null;
+      return;
     }
+    node.children = node.children.filter(function (child) { return child && typeof child === 'object'; });
+    node.children.forEach(function (child, i) { assignNodeIds(child, path + '-' + i); });
   }
 
   function measureNodeWidth(node) {
@@ -282,6 +287,9 @@
         }
         this.render();
       } catch (err) {
+        // 渲染失败说明这棵树不可用：清空 data，避免下面把坏树写进缓存
+        // ——恢复时 panel.js 会直接 render() 它，再次抛错且不显示任何提示
+        this.data = null;
         YTX.parseError(YTX.panel.querySelector('#ytx-content-mindmap'), '导图', err);
       }
       YTX.panel.querySelector('#ytx-generate-mindmap').disabled = false;

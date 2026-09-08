@@ -420,8 +420,8 @@
    ],
    "description": "mindmap.js:277 先把 extractJSON 结果赋给 this.data 再在 281 调 render()；若 AI 返回的 children 是真值非数组（\"无\"、{}）或数组含 null，14-20 行 assignNodeIds 的 `node.children.forEach` 会抛 TypeError（全文件无 Array.isArray 校验），catch（282-284）只显示「导图解析失败」，但 this.data 仍非空，288 行照样把坏树写入缓存（background cacheSaveFeature 只校验体积不校验结构）。下次进入该视频时 panel.js:157-158 直接 `m.data = record.mindmap.data; m.render()`，外层 .then 无 catch，render 再次抛错成为未处理 rejection，159 行 btnRefresh 不执行，导图页停留在占位且不显示任何错误；panel.js:404-410 每次切到导图 tab 还会再次静默抛错。用户点一次生成即可覆盖坏缓存。",
    "fix": "在 onDone 的 catch 块里加 `this.data = null;`（或把 288 行的 cache.save 移到 try 内 render() 之后）；panel.js:158 的 `m.render()` 用 try/catch 包住，失败时 `m.data = null` 并提示；可选地让 assignNodeIds 用 `Array.isArray(node.children)` 判断。",
-   "fixed": false,
-   "fixed_note": ""
+   "fixed": true,
+   "fixed_note": "assignNodeIds 用 Array.isArray 校验并过滤非法 children；mindmap.onDone 的 catch 里清空 this.data 阻止坏树写缓存；panel.js 缓存恢复与切到导图 tab 两处 render() 用 try/catch 包住，失败时清 data 并显示解析错误"
   },
   {
    "rank": 26,

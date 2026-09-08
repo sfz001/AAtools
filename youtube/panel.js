@@ -167,8 +167,15 @@
         var m = YTX.features.mindmap;
         if ((m._activityVersion || 0) === activityVersions.mindmap && !m.isGenerating && !m.requestId && !m.data && !m.rawText) {
           m.data = record.mindmap.data;
-          m.render();
-          YTX.btnRefresh(YTX.panel.querySelector('#ytx-generate-mindmap'));
+          // 缓存里可能是历史版本写入的坏树；render() 抛错时清空并提示，
+          // 否则未捕获的 rejection 会让导图页停在占位且不显示任何错误
+          try {
+            m.render();
+            YTX.btnRefresh(YTX.panel.querySelector('#ytx-generate-mindmap'));
+          } catch (err) {
+            m.data = null;
+            YTX.parseError(YTX.panel.querySelector('#ytx-content-mindmap'), '导图', err);
+          }
         }
       }
     });
@@ -420,7 +427,12 @@
       var m = YTX.features.mindmap;
       if (m.data && !m._fitted) {
         m.transform = { x: 0, y: 0, scale: 1 };
-        m.render();
+        try {
+          m.render();
+        } catch (err) {
+          m.data = null;
+          YTX.parseError(YTX.panel.querySelector('#ytx-content-mindmap'), '导图', err);
+        }
         m._fitted = true;
       }
     }
