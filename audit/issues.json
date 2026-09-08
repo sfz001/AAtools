@@ -310,8 +310,8 @@
    ],
    "description": "background.js:636-638 记录了 `originalTrack` 但只用来算 `wasCaptionsOff`；643-644 无条件把字幕轨切到 `tracks.find(t => !t.kind || t.kind === 'asr') || tracks[0]`，而 664-668 的恢复逻辑只在 `wasCaptionsOff` 为 true 时执行。若用户原本已开启字幕且所选轨道与扩展选中的不同（看日文轨而 tracks[0] 是英文轨，或开了自动翻译 `translationLanguage`——裸 `{languageCode}` 的 setOption 会丢掉它），且 `findPotUrl()`（622-628）因 resource-timing 缓冲区已满而未命中，扩展就会把屏幕字幕切成自己选的轨道且永不恢复。CLAUDE.md:213 只描述了“原本没开字幕就关掉”的恢复，tests 也只覆盖单轨场景；影响仅为用户可见的字幕语言被改。",
    "fix": "在 664-668 的恢复块加 else 分支：`modifiedCaptions && !wasCaptionsOff` 且 player 仍为当前视频时 `player.setOption('captions','track', originalTrack)`（直接回传 getOption 得到的原对象以保留 translationLanguage）；或在 642 选轨时优先复用用户当前轨。",
-   "fixed": false,
-   "fixed_note": ""
+   "fixed": true,
+   "fixed_note": "恢复块加 else 分支：原本开着字幕时切回 getOption 拿到的原始轨道对象，保留 translationLanguage；原本关着仍是关闭并卸载模块。"
   },
   {
    "rank": 19,

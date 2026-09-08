@@ -667,11 +667,18 @@ async function fastScrapeTranscriptViaPlayerAPI(videoId) {
         if (potUrl) break;
       }
 
-      // 恢复原始字幕状态：用户原本没开就关掉，避免污染观看体验
-      if (modifiedCaptions && wasCaptionsOff &&
+      // 恢复原始字幕状态，避免污染观看体验：
+      // - 原本关着 → 关掉并卸载模块
+      // - 原本开着 → 切回用户自己那条轨（直接回传 getOption 拿到的原对象，
+      //   保留 translationLanguage 等字段），否则用户的字幕语言会被我们改掉
+      if (modifiedCaptions &&
           document.querySelector('#movie_player') === player && videoState(player) === 'ready') {
-        try { player.setOption('captions', 'track', {}); } catch (e) {}
-        try { player.unloadModule('captions'); } catch (e) {}
+        if (wasCaptionsOff) {
+          try { player.setOption('captions', 'track', {}); } catch (e) {}
+          try { player.unloadModule('captions'); } catch (e) {}
+        } else {
+          try { player.setOption('captions', 'track', originalTrack); } catch (e) {}
+        }
       }
     }
 
