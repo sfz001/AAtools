@@ -98,8 +98,16 @@ YTX.Export = {
   downloadObsidian: function (md, title) {
     var url = YTX.getVideoUrl();
     var date = new Date().toISOString().slice(0, 10);
+    // YAML 双引号标量里反斜杠是转义前导符：只转义引号的话，含 `C:\Users` 的标题
+    // 会因未定义转义序列（\U 要求 8 位十六进制）导致整段 frontmatter 解析失败，
+    // 含 `\alpha` 的标题则被静默篡改（\a 解释为 BEL）。必须先转义反斜杠。
+    // 换行同理会截断标量，一并压成空格。
+    var safeTitle = String(title == null ? '' : title)
+      .replace(/[\r\n\t]+/g, ' ')
+      .replace(/\\/g, '\\\\')
+      .replace(/"/g, '\\"');
     var frontmatter = '---\n' +
-      'title: "' + title.replace(/"/g, '\\"') + '"\n' +
+      'title: "' + safeTitle + '"\n' +
       'source: ' + url + '\n' +
       'date: ' + date + '\n' +
       'tags:\n  - youtube\n  - aatools\n' +

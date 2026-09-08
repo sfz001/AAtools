@@ -482,8 +482,8 @@
    ],
    "description": "export.js:101-102 的 downloadObsidian 拼接 `title: \"...\"` 时仅做 `title.replace(/\"/g, '\\\\\"')`，未转义反斜杠。YAML 双引号标量中 `\\` 是转义前导符，未定义的转义序列属解析错误：标题含 `C:\\Users`（`\\U` 要求 8 位十六进制）或 `\\o/` 时整个 frontmatter 解析失败，Obsidian 显示 Invalid frontmatter，`source`/`date`/`tags` 属性全部丢失；含 `\\alpha` 时虽能解析但 `\\a` 被解释为 BEL 控制字符、标题被静默篡改（已按同一规范实测）。标题来自页面 DOM，`getSafeFilename` 只作用于文件名不作用于 frontmatter；三处调用方都追加了后缀，所以“以 `\\` 结尾吞掉闭合引号”的场景不可达。",
    "fix": "在 export.js:102 先转义反斜杠再转义双引号：`title.replace(/\\\\/g, '\\\\\\\\').replace(/\"/g, '\\\\\"')`；或改用单引号标量 `'...'` 并把 `'` 转成 `''`。",
-   "fixed": false,
-   "fixed_note": ""
+   "fixed": true,
+   "fixed_note": "downloadObsidian 的 title 先转义反斜杠再转义双引号，并把换行/制表符压成空格；含 C:\\\\Users 或 \\\\alpha 的标题不再破坏或篡改 frontmatter"
   },
   {
    "rank": 30,
