@@ -953,22 +953,16 @@ function getChatgptAuth() {
   });
 }
 
-async function ensureChatgptAccessToken(signal) {
-  const auth = await getChatgptAuth();
-  if (!auth || !auth.access_token) {
-    return { error: '尚未配置 ChatGPT 订阅授权，请在扩展设置中粘贴 ~/.codex/auth.json 内容' };
-  }
-  const claims = decodeJwtClaims(auth.access_token);
-  const now = Math.floor(Date.now() / 1000);
-  // 提前 5 分钟视为过期，避免长流式请求中途失效
-  if (claims && claims.exp && claims.exp > now + 300) {
-    return { accessToken: auth.access_token, accountId: chatgptAccountIdOf(auth, claims) };
-  }
-  if (!auth.refresh_token) {
-    return { error: 'ChatGPT 访问令牌已过期且缺少 refresh_token，请重新粘贴 auth.json' };
-  }
+// 刷新单飞：codex 的 refresh_token 是一次性轮换的，并发刷新会让第二个之后的
+// 请求撞上「refresh token 已被使用」，上游的复用检测甚至可能吊销整条令牌链，
+// 逼用户重新 codex login。一键生成会并行发三路请求，必须共用同一次刷新。
+let chatgptRefreshInflight = null;
+
+async function refreshChatgptToken(auth) {
   let resp;
   try {
+    // 刻意不传单个请求的 signal：这次刷新是多路请求共享的，
+    // 任一路被取消都不该把别人的令牌刷新一起中断
     resp = await fetch('https://auth.openai.com/oauth/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -978,7 +972,6 @@ async function ensureChatgptAccessToken(signal) {
         refresh_token: auth.refresh_token,
         scope: 'openid profile email',
       }),
-      signal,
     });
   } catch {
     return { error: 'ChatGPT 令牌刷新失败（网络错误），请检查网络后重试' };
@@ -992,7 +985,15 @@ async function ensureChatgptAccessToken(signal) {
   } catch {
     return { error: 'ChatGPT 令牌刷新响应解析失败，请稍后重试' };
   }
-  const updated = Object.assign({}, auth, {
+  // 写回前重读一次：别的上下文可能已经刷新过并轮换了 refresh_token，
+  // 那份更新更靠后，不能被这次的结果覆盖回旧值
+  const latest = await getChatgptAuth();
+  if (latest && latest.refresh_token && auth.refresh_token &&
+      latest.refresh_token !== auth.refresh_token) {
+    const latestClaims = decodeJwtClaims(latest.access_token);
+    return { accessToken: latest.access_token, accountId: chatgptAccountIdOf(latest, latestClaims) };
+  }
+  const updated = Object.assign({}, latest || auth, {
     access_token: tok.access_token || auth.access_token,
     refresh_token: tok.refresh_token || auth.refresh_token,
     id_token: tok.id_token || auth.id_token,
@@ -1006,6 +1007,28 @@ async function ensureChatgptAccessToken(signal) {
   });
   const newClaims = decodeJwtClaims(updated.access_token);
   return { accessToken: updated.access_token, accountId: chatgptAccountIdOf(updated, newClaims) };
+}
+
+async function ensureChatgptAccessToken() {
+  const auth = await getChatgptAuth();
+  if (!auth || !auth.access_token) {
+    return { error: '尚未配置 ChatGPT 订阅授权，请在扩展设置中粘贴 ~/.codex/auth.json 内容' };
+  }
+  const claims = decodeJwtClaims(auth.access_token);
+  const now = Math.floor(Date.now() / 1000);
+  // 提前 5 分钟视为过期，避免长流式请求中途失效
+  if (claims && claims.exp && claims.exp > now + 300) {
+    return { accessToken: auth.access_token, accountId: chatgptAccountIdOf(auth, claims) };
+  }
+  if (!auth.refresh_token) {
+    return { error: 'ChatGPT 访问令牌已过期且缺少 refresh_token，请重新粘贴 auth.json' };
+  }
+  // 已有刷新在跑就直接复用，绝不并发消耗同一个 refresh_token
+  if (chatgptRefreshInflight) return chatgptRefreshInflight;
+  chatgptRefreshInflight = refreshChatgptToken(auth).finally(() => {
+    chatgptRefreshInflight = null;
+  });
+  return chatgptRefreshInflight;
 }
 
 function missingKeyError(provider) {
@@ -1692,7 +1715,17 @@ async function callProvider(provider, opts) {
     } else if (provider === 'chatgpt') {
       // ChatGPT 订阅（Codex OAuth）：走 chatgpt.com 的 codex Responses 后端，
       // 消耗订阅额度而非按量计费；token 缺失/过期在这里统一处理
-      const auth = await ensureChatgptAccessToken(requestContext.signal);
+      const auth = await ensureChatgptAccessToken();
+      // 刷新是多路共享的，不带本请求的 signal；刷新期间被取消要按取消上报
+      if (requestContext.signal.aborted) {
+        requestContext.endAttempt();
+        const abortCode = requestContext.abortReason?.code;
+        streamEmitter.error(abortMessageFor(requestContext), {
+          cancelled: abortCode === 'cancelled' || abortCode === 'replaced',
+          reason: abortCode,
+        });
+        return;
+      }
       if (auth.error) {
         requestContext.endAttempt();
         streamEmitter.error(auth.error);

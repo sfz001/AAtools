@@ -244,8 +244,8 @@
    ],
    "description": "background.js:941-996 的 ensureChatgptAccessToken 每次调用都独立读 storage.local、判 exp、用同一 refresh_token 发 POST /oauth/token 再写回，全程没有 in-flight promise 也不做写前比对；callProvider 在 chatgpt 分支对每个请求都调它（1669），请求登记表只按 tabId:requestId 键控。core.js:797-808 的 generateAll 用 Promise.all 同时启动 summary/mindmap/html，因此 token 过期或剩余 <5 分钟（闲置后首次点「全部生成」即命中）时三路会携带同一 refresh_token 并发刷新——codex OAuth 轮换 refresh_token（982 行自身即按此处理），可能后到的刷新被拒为 invalid_grant 使两个功能报「请重新运行 codex login」，或三路都成功而最后写入的是已作废的旧凭据，导致下次刷新永久失败需重新粘贴 auth.json。此外 966 行把请求的 AbortSignal 传给刷新 fetch，968-969 的裸 catch 把 AbortError 一律映射为「网络错误」，1670-1673 直接 error 上报且不像 1776-1782 那样附 cancelled/reason，与 tests/background.test.js:562-602 的约定不一致，同时会让已在服务端生效的轮换结果不落盘。",
    "fix": "加模块级 `let chatgptRefreshInflight = null;`，需要刷新时若非空直接复用该 promise，否则把「fetch + 解析 + storage.local.set」封成 promise 并在 finally 置 null；共享刷新不要传单个请求的 signal（改为刷新完成后由调用方检查 signal.aborted），写回前再读一次 storage.local 仅当 refresh_token 未变时才覆盖；1670 的 error 分支按 signal.aborted 补 `cancelled/reason`。",
-   "fixed": false,
-   "fixed_note": ""
+   "fixed": true,
+   "fixed_note": "新增 chatgptRefreshInflight 单飞，并发刷新复用同一 promise；刷新 fetch 不再携带单个请求的 signal；写回前重读 storage，refresh_token 已被别处轮换时不覆盖；调用方在刷新后检查 signal.aborted 并按取消上报。已用并发三路 harness 验证只发出一次刷新。"
   },
   {
    "rank": 15,
