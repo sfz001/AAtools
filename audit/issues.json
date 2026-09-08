@@ -143,8 +143,8 @@
    ],
    "description": "summary.js:119-127 的 onChunk 会安排一个 80ms 一次性 setTimeout，回调（120-126）不检查 isGenerating/requestId 直接 `el.innerHTML = YTX.renderMarkdown(self.text)`；onDone（133）与 reset（19）都 clearTimeout，但 onError（178-185）既不清计时器也不清 this.text。background 的流式 emitter（1796-1813）在中途出错时会先发若干 SUMMARY_CHUNK 再发 SUMMARY_ERROR——各厂商 SSE 内联 error 事件（1925-1928）、Responses 的 response.failed（1953）、无正常结束标记的 EOF（2065）都会走到 streamEmitter.error。因为流式期间 chunk 间隔通常小于 80ms、计时器几乎总在挂起，onError 经 YTX.renderError 渲染出的错误会在 ≤80ms 后被覆盖成截断的总结正文：按钮已恢复 primary、缓存未写入、deferred 已 reject，界面却看不到任何错误指示。仅 summary 有该节流计时器。",
    "fix": "在 summary.js onError 开头加与 onDone 同款一行 `if (this._renderTimer) { clearTimeout(this._renderTimer); this._renderTimer = null; }`（置于 YTX.renderError 之前），并可在 120-126 的计时器回调首行加 `if (!self.isGenerating) return;` 作为加固。",
-   "fixed": false,
-   "fixed_note": ""
+   "fixed": true,
+   "fixed_note": "onError 开头清除 _renderTimer；节流回调首行加 isGenerating 与面板存活检查作为加固。"
   },
   {
    "rank": 9,

@@ -121,7 +121,10 @@ YTX.features.summary = {
     if (!this._renderTimer) {
       this._renderTimer = setTimeout(function () {
         self._renderTimer = null;
+        // 加固：生成已结束（出错或被重置）时不再回写内容
+        if (!self.isGenerating || !YTX.panel) return;
         var el = YTX.panel.querySelector('#ytx-content');
+        if (!el) return;
         var scrollTop = el.scrollTop;
         el.innerHTML = YTX.renderMarkdown(self.text);
         el.scrollTop = scrollTop;
@@ -179,6 +182,9 @@ YTX.features.summary = {
 
   onError: function (error) {
     this.requestId = null;
+    // 先停掉 80ms 节流渲染：挂起的 tick 会在错误渲染之后触发，
+    // 用已收到的部分文本把错误提示覆盖掉
+    if (this._renderTimer) { clearTimeout(this._renderTimer); this._renderTimer = null; }
     YTX.renderError(YTX.panel.querySelector('#ytx-content'), error);
     YTX.panel.querySelector('#ytx-summarize').disabled = false;
     YTX.btnPrimary(YTX.panel.querySelector('#ytx-summarize'));
