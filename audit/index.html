@@ -1,0 +1,741 @@
+<title>AAtools 代码审计</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root {
+  --ground:#faf9fc; --surface:#ffffff; --surface-2:#f3f1f8;
+  --ink:#1d1a26; --ink-2:#4a4458; --muted:#6f6880; --line:#e3dfec; --line-2:#d3cde1;
+  --accent:#7c3aed; --accent-ink:#5b21b6; --accent-soft:#f0ebfe;
+  --high:#bf2f49; --high-bg:#fcedf0; --high-line:#f2ccd4;
+  --med:#a4620b; --med-bg:#fdf4e7; --med-line:#f0dcbc;
+  --low:#3f6f86; --low-bg:#edf3f7; --low-line:#cfdfe8;
+  --done:#5b8c5a; --done-bg:#eef5ee; --done-line:#cfe2ce;
+  --sans:"IBM Plex Sans","PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,sans-serif;
+  --mono:"IBM Plex Mono","SF Mono",Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground:#141221; --surface:#1c1930; --surface-2:#241f3a;
+    --ink:#ece9f5; --ink-2:#c3bcd6; --muted:#918aa8; --line:#2f2947; --line-2:#3b3457;
+    --accent:#a78bfa; --accent-ink:#c4b5fd; --accent-soft:#2a2145;
+    --high:#f2879b; --high-bg:#331d25; --high-line:#4d2a34;
+    --med:#e3ac5f; --med-bg:#302517; --med-line:#4a3922;
+    --low:#8fbcd3; --low-bg:#1b2831; --low-line:#2b3d49;
+    --done:#8fc08d; --done-bg:#1d2a1d; --done-line:#2e422d;
+  }
+}
+:root[data-theme="dark"] {
+  --ground:#141221; --surface:#1c1930; --surface-2:#241f3a;
+  --ink:#ece9f5; --ink-2:#c3bcd6; --muted:#918aa8; --line:#2f2947; --line-2:#3b3457;
+  --accent:#a78bfa; --accent-ink:#c4b5fd; --accent-soft:#2a2145;
+  --high:#f2879b; --high-bg:#331d25; --high-line:#4d2a34;
+  --med:#e3ac5f; --med-bg:#302517; --med-line:#4a3922;
+  --low:#8fbcd3; --low-bg:#1b2831; --low-line:#2b3d49;
+  --done:#8fc08d; --done-bg:#1d2a1d; --done-line:#2e422d;
+}
+*,*::before,*::after { box-sizing:border-box; }
+body { margin:0; background:var(--ground); color:var(--ink); font-family:var(--sans);
+  font-size:15px; line-height:1.62; -webkit-font-smoothing:antialiased; }
+code { font-family:var(--mono); font-size:.86em; }
+a { color:inherit; }
+:focus-visible { outline:2px solid var(--accent); outline-offset:2px; border-radius:3px; }
+@media (prefers-reduced-motion:reduce) { * { transition:none!important; } }
+
+.masthead { border-bottom:1px solid var(--line); background:var(--surface); }
+.masthead-in { max-width:1320px; margin:0 auto; padding:34px 32px 26px;
+  display:flex; flex-wrap:wrap; gap:24px; align-items:flex-end; justify-content:space-between; }
+.brand-eyebrow { font-family:var(--mono); font-size:11px; font-weight:500; letter-spacing:.14em;
+  text-transform:uppercase; color:var(--accent); margin:0 0 8px; }
+h1 { font-size:30px; font-weight:600; letter-spacing:-.018em; margin:0; text-wrap:balance; }
+.subtitle { margin:9px 0 0; color:var(--muted); font-size:14px; max-width:64ch; }
+.theme-btn { font:inherit; font-size:12px; color:var(--muted); background:var(--surface-2);
+  border:1px solid var(--line); border-radius:999px; padding:6px 14px; cursor:pointer; }
+.theme-btn:hover { color:var(--ink); border-color:var(--line-2); }
+
+.stats { max-width:1320px; margin:0 auto; padding:0 32px; }
+.stats-in { display:flex; flex-wrap:wrap; border:1px solid var(--line);
+  border-radius:10px; background:var(--surface); overflow:hidden; margin-top:-1px; }
+.stat { flex:1 1 120px; padding:16px 20px; border-right:1px solid var(--line); }
+.stat:last-child { border-right:0; }
+.stat-n { font-family:var(--mono); font-size:26px; font-weight:600; line-height:1.1;
+  font-variant-numeric:tabular-nums; letter-spacing:-.02em; }
+.stat-l { font-size:12px; color:var(--muted); margin-top:4px; }
+.stat-n.high { color:var(--high); } .stat-n.med { color:var(--med); }
+.stat-n.low { color:var(--low); } .stat-n.ok { color:var(--accent); }
+.stat-n.done { color:var(--done); }
+
+.shell { max-width:1320px; margin:0 auto; padding:28px 32px 90px;
+  display:grid; grid-template-columns:246px minmax(0,1fr); gap:38px; align-items:start; }
+.rail { position:sticky; top:20px; max-height:calc(100vh - 40px);
+  display:flex; flex-direction:column; gap:16px; min-height:0; }
+.rail-label { font-family:var(--mono); font-size:10px; font-weight:500; letter-spacing:.13em;
+  text-transform:uppercase; color:var(--muted); margin:0 0 9px; }
+.rail-jump { font-size:12px; color:var(--muted); text-decoration:none; }
+.rail-jump:hover { color:var(--accent); }
+.search { width:100%; font:inherit; font-size:13px; padding:9px 12px; color:var(--ink);
+  background:var(--surface); border:1px solid var(--line); border-radius:8px; }
+.search::placeholder { color:var(--muted); }
+.chips { display:flex; flex-wrap:wrap; gap:6px; }
+.chip { font:inherit; font-size:12px; display:inline-flex; align-items:center; gap:6px;
+  padding:5px 10px; border-radius:7px; cursor:pointer; color:var(--ink-2);
+  background:var(--surface); border:1px solid var(--line); }
+.chip:hover { border-color:var(--line-2); }
+.chip[aria-pressed="true"] { background:var(--accent-soft); border-color:var(--accent);
+  color:var(--accent-ink); font-weight:500; }
+.chip-n { font-family:var(--mono); font-size:10.5px; color:var(--muted);
+  font-variant-numeric:tabular-nums; }
+.chip[aria-pressed="true"] .chip-n { color:var(--accent-ink); }
+.nav { overflow-y:auto; border-top:1px solid var(--line); padding-top:10px; min-height:0; }
+.nav-item { display:grid; grid-template-columns:7px 22px 1fr; align-items:baseline; gap:8px;
+  padding:5px 4px; border-radius:6px; text-decoration:none; font-size:12.5px; color:var(--ink-2); }
+.nav-item:hover { background:var(--surface-2); color:var(--ink); }
+.nav-dot { width:7px; height:7px; border-radius:2px; align-self:center; }
+.nav-dot.sev-high { background:var(--high); }
+.nav-dot.sev-med { background:var(--med); }
+.nav-dot.sev-low { background:var(--low); }
+.nav-n { font-family:var(--mono); font-size:11px; color:var(--muted);
+  font-variant-numeric:tabular-nums; }
+.nav-t { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+.sev-head { display:flex; align-items:center; gap:11px; margin:38px 0 16px;
+  font-size:14px; font-weight:600; letter-spacing:.04em; scroll-margin-top:20px; }
+.sev-head:first-child { margin-top:0; }
+.sev-head-dot { width:9px; height:9px; border-radius:2px; }
+.sev-head.sev-high { color:var(--high); }
+.sev-head.sev-high .sev-head-dot { background:var(--high); }
+.sev-head.sev-med { color:var(--med); }
+.sev-head.sev-med .sev-head-dot { background:var(--med); }
+.sev-head.sev-low { color:var(--low); }
+.sev-head.sev-low .sev-head-dot { background:var(--low); }
+.sev-head.sev-fixed { color:var(--done); }
+.sev-head.sev-fixed .sev-head-dot { background:var(--done); }
+.sev-head-n { font-family:var(--mono); font-size:11px; font-weight:400; color:var(--muted);
+  font-variant-numeric:tabular-nums; }
+
+.issue { background:var(--surface); border:1px solid var(--line); border-left-width:3px;
+  border-radius:0 9px 9px 0; padding:17px 22px 19px; margin-bottom:11px; scroll-margin-top:20px; }
+.issue.sev-high { border-left-color:var(--high); }
+.issue.sev-med { border-left-color:var(--med); }
+.issue.sev-low { border-left-color:var(--low); }
+.issue-head { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.rank { font-family:var(--mono); font-size:12px; font-weight:600; color:var(--muted);
+  font-variant-numeric:tabular-nums; }
+.pill { font-size:11px; font-weight:600; padding:2px 9px; border-radius:5px;
+  border:1px solid transparent; }
+.pill-high { color:var(--high); background:var(--high-bg); border-color:var(--high-line); }
+.pill-med { color:var(--med); background:var(--med-bg); border-color:var(--med-line); }
+.pill-low { color:var(--low); background:var(--low-bg); border-color:var(--low-line); }
+.pill-fixed { color:var(--done); background:var(--done-bg); border-color:var(--done-line); }
+.mod { font-size:12px; color:var(--muted); }
+.issue-title { font-size:16.5px; font-weight:600; line-height:1.45; letter-spacing:-.008em;
+  margin:11px 0 0; text-wrap:balance; }
+.issue-title code { background:var(--surface-2); padding:1px 5px; border-radius:4px; }
+.locs { display:flex; flex-wrap:wrap; gap:5px; margin:11px 0 0; }
+.loc { font-size:11.5px; color:var(--ink-2); background:var(--surface-2);
+  border:1px solid var(--line); border-radius:5px; padding:2px 7px; white-space:nowrap; }
+.desc { margin:13px 0 0; color:var(--ink-2); font-size:14.2px; max-width:76ch; }
+.desc code { background:var(--surface-2); padding:1px 4px; border-radius:3px; color:var(--ink); }
+.fix { margin:14px 0 0; padding:12px 15px; background:var(--accent-soft); border-radius:7px; }
+.fix-label { display:block; font-family:var(--mono); font-size:10px; font-weight:600;
+  letter-spacing:.12em; text-transform:uppercase; color:var(--accent-ink); margin-bottom:5px; }
+.fix p { margin:0; font-size:13.8px; color:var(--ink-2); max-width:76ch; }
+.fix code { background:var(--surface); padding:1px 5px; border-radius:3px;
+  border:1px solid var(--line); color:var(--ink); }
+
+/* 已修复：删除线 + 置灰 + 置底 */
+.fixed-section { margin-top:54px; padding-top:8px; }
+.fixed-note { margin:-6px 0 16px; font-size:13px; color:var(--muted); }
+.issue.is-fixed { border-left-color:var(--line-2); background:transparent;
+  padding-top:13px; padding-bottom:14px; }
+.issue.is-fixed .issue-title { color:var(--muted); font-weight:500; font-size:15px;
+  text-decoration:line-through; text-decoration-thickness:1px;
+  text-decoration-color:var(--line-2); }
+.issue.is-fixed .rank, .issue.is-fixed .mod { color:var(--line-2); }
+.issue.is-fixed .loc { color:var(--muted); background:transparent; }
+.fixnote { margin:11px 0 0; padding:10px 14px; background:var(--done-bg);
+  border:1px solid var(--done-line); border-radius:7px; }
+.fixnote-label { display:block; font-family:var(--mono); font-size:10px; font-weight:600;
+  letter-spacing:.12em; text-transform:uppercase; color:var(--done); margin-bottom:4px; }
+.fixnote p { margin:0; font-size:13.5px; color:var(--ink-2); max-width:76ch; }
+
+.refuted { margin-top:54px; padding-top:26px; border-top:1px solid var(--line); }
+.refuted h2 { font-size:14px; font-weight:600; margin:0 0 6px; letter-spacing:.04em; }
+.refuted-note { margin:0 0 18px; font-size:13px; color:var(--muted); max-width:70ch; }
+.ref-row { display:grid; grid-template-columns:190px minmax(0,1fr); gap:16px;
+  padding:13px 0; border-top:1px solid var(--line); align-items:start; }
+.ref-row .loc { justify-self:start; }
+.ref-title { margin:0; font-size:13.6px; font-weight:500; color:var(--ink-2); }
+.ref-why { margin:6px 0 0; font-size:13px; color:var(--muted); max-width:80ch; }
+.ref-why-label { font-family:var(--mono); font-size:9.5px; font-weight:600; letter-spacing:.12em;
+  text-transform:uppercase; color:var(--muted); border:1px solid var(--line-2);
+  border-radius:4px; padding:1px 5px; margin-right:8px; }
+
+.empty { padding:40px 0; color:var(--muted); font-size:14px; }
+.foot { max-width:1320px; margin:0 auto; padding:0 32px 40px; color:var(--muted); font-size:12px; }
+.foot code { color:var(--ink-2); }
+
+@media (max-width: 940px) {
+  .shell { grid-template-columns:1fr; gap:22px; padding:22px 20px 70px; }
+  .rail { position:static; max-height:none; }
+  .nav { display:none; }
+  .masthead-in, .stats, .foot { padding-left:20px; padding-right:20px; }
+  .ref-row { grid-template-columns:1fr; gap:7px; }
+}
+</style>
+
+<header class="masthead">
+  <div class="masthead-in">
+    <div>
+      <p class="brand-eyebrow">Chrome 扩展 · 静态审计</p>
+      <h1>AAtools 代码审计</h1>
+      <p class="subtitle">全量通读 11,088 行源码，10 个分镜审查员并行通读，每条发现由独立复核者读码验证后合并。</p>
+    </div>
+    <button class="theme-btn" id="themeBtn" type="button">切换主题</button>
+  </div>
+</header>
+
+<section class="stats">
+  <div class="stats-in">
+    <div class="stat"><div class="stat-n">42</div><div class="stat-l">待处理</div></div>
+    <div class="stat"><div class="stat-n high">0</div><div class="stat-l">严重</div></div>
+    <div class="stat"><div class="stat-n med">15</div><div class="stat-l">中等</div></div>
+    <div class="stat"><div class="stat-n low">27</div><div class="stat-l">轻微</div></div>
+    <div class="stat"><div class="stat-n done">1</div><div class="stat-l">已修复</div></div>
+    <div class="stat"><div class="stat-n">10</div><div class="stat-l">复核驳回</div></div>
+    <div class="stat"><div class="stat-n ok">36/36</div><div class="stat-l">现有测试通过</div></div>
+  </div>
+</section>
+
+<div class="shell">
+  <aside class="rail">
+    <div>
+      <p class="rail-label">检索</p>
+      <input class="search" id="q" type="search" placeholder="搜索标题、文件、正文" autocomplete="off">
+    </div>
+    <div>
+      <p class="rail-label">严重程度</p>
+      <div class="chips" id="sevChips">
+        <button class="chip" data-filter-sev="high" aria-pressed="false">严重<span class="chip-n">0</span></button>
+        <button class="chip" data-filter-sev="med" aria-pressed="false">中等<span class="chip-n">15</span></button>
+        <button class="chip" data-filter-sev="low" aria-pressed="false">轻微<span class="chip-n">27</span></button>
+      </div>
+    </div>
+    <div>
+      <p class="rail-label">模块</p>
+      <div class="chips" id="modChips"><button class="chip" data-filter-mod="后台服务" aria-pressed="false">后台服务<span class="chip-n">10</span></button><button class="chip" data-filter-mod="YouTube 助手" aria-pressed="false">YouTube 助手<span class="chip-n">14</span></button><button class="chip" data-filter-mod="设置页" aria-pressed="false">设置页<span class="chip-n">4</span></button><button class="chip" data-filter-mod="鼠标手势" aria-pressed="false">鼠标手势<span class="chip-n">7</span></button><button class="chip" data-filter-mod="划词翻译" aria-pressed="false">划词翻译<span class="chip-n">2</span></button><button class="chip" data-filter-mod="文档" aria-pressed="false">文档<span class="chip-n">4</span></button><button class="chip" data-filter-mod="清单权限" aria-pressed="false">清单权限<span class="chip-n">1</span></button></div>
+    </div>
+    <a class="rail-jump" href="#fixed">跳到已修复 &darr;</a>
+    <nav class="nav" id="nav" aria-label="问题索引"><a class="nav-item" href="#issue-2" data-nav="2" data-sev="med" data-mod="后台服务"><span class="nav-dot sev-med"></span><span class="nav-n">2</span><span class="nav-t">tabs.onUpdated 的 status:&#x27;loading&#x27; 在同文档导航（pushS</span></a><a class="nav-item" href="#issue-3" data-nav="3" data-sev="med" data-mod="YouTube 助手"><span class="nav-dot sev-med"></span><span class="nav-n">3</span><span class="nav-t">fmtTime 不进位小时，≥100 分钟视频的 AI 时间戳在总结/问答/导图/HTML </span></a><a class="nav-item" href="#issue-4" data-nav="4" data-sev="med" data-mod="设置页"><span class="nav-dot sev-med"></span><span class="nav-n">4</span><span class="nav-t">设置页以 popup 运行但 1.5s 防抖保存无 pagehide 冲刷：改完立刻关弹窗会</span></a><a class="nav-item" href="#issue-5" data-nav="5" data-sev="med" data-mod="鼠标手势"><span class="nav-dot sev-med"></span><span class="nav-n">5</span><span class="nav-t">gestures 的 suppressContext 短按后永不复位、contextmenu</span></a><a class="nav-item" href="#issue-6" data-nav="6" data-sev="med" data-mod="后台服务"><span class="nav-dot sev-med"></span><span class="nav-n">6</span><span class="nav-t">广告播放期间 getPlayerResponse() 返回广告 videoId，DOM 回退</span></a><a class="nav-item" href="#issue-7" data-nav="7" data-sev="med" data-mod="YouTube 助手"><span class="nav-dot sev-med"></span><span class="nav-n">7</span><span class="nav-t">功能触发的字幕获取期间点击「使用视频模式」绕过 busy 守卫，transcriptData</span></a><a class="nav-item" href="#issue-8" data-nav="8" data-sev="med" data-mod="YouTube 助手"><span class="nav-dot sev-med"></span><span class="nav-n">8</span><span class="nav-t">summary.onError 未清除 80ms 节流渲染计时器，挂起的 tick 会用部分</span></a><a class="nav-item" href="#issue-9" data-nav="9" data-sev="med" data-mod="鼠标手势"><span class="nav-dot sev-med"></span><span class="nav-n">9</span><span class="nav-t">wheel 手势路径无累加器：单个 wheel 事件 delta 需 ≥30px 才记方向，</span></a><a class="nav-item" href="#issue-10" data-nav="10" data-sev="med" data-mod="划词翻译"><span class="nav-dot sev-med"></span><span class="nav-n">10</span><span class="nav-t">划词翻译 UI 位于 light DOM 且弹窗内选词只按 class 判定、text/co</span></a><a class="nav-item" href="#issue-11" data-nav="11" data-sev="med" data-mod="设置页"><span class="nav-dot sev-med"></span><span class="nav-n">11</span><span class="nav-t">设置页模型拉取白名单宽于 background 的 MODEL_PREFIX：o 系列 / </span></a><a class="nav-item" href="#issue-12" data-nav="12" data-sev="med" data-mod="后台服务"><span class="nav-dot sev-med"></span><span class="nav-n">12</span><span class="nav-t">normalizeSub2ApiBase 不剥离裸 /v1 后缀，codex/opencod</span></a><a class="nav-item" href="#issue-13" data-nav="13" data-sev="med" data-mod="设置页"><span class="nav-dot sev-med"></span><span class="nav-n">13</span><span class="nav-t">fetchLatestModels 在 await 后重读全局 currentProvide</span></a><a class="nav-item" href="#issue-14" data-nav="14" data-sev="med" data-mod="后台服务"><span class="nav-dot sev-med"></span><span class="nav-n">14</span><span class="nav-t">ChatGPT 令牌刷新与单个请求生命周期耦合：无单飞去重导致并发刷新互相覆盖 refres</span></a><a class="nav-item" href="#issue-15" data-nav="15" data-sev="med" data-mod="后台服务"><span class="nav-dot sev-med"></span><span class="nav-n">15</span><span class="nav-t">OpenAI 直连 gpt-5.x 的 reasoning 与正文共用 max_comple</span></a><a class="nav-item" href="#issue-16" data-nav="16" data-sev="med" data-mod="鼠标手势"><span class="nav-dot sev-med"></span><span class="nav-n">16</span><span class="nav-t">keepMenu=true 在 Linux 上失效：Chromium 非 Windows 平</span></a><a class="nav-item" href="#issue-17" data-nav="17" data-sev="low" data-mod="后台服务"><span class="nav-dot sev-low"></span><span class="nav-n">17</span><span class="nav-t">PROVIDER_TIMEOUTS.firstByteMs=90s 对未压 thinking</span></a><a class="nav-item" href="#issue-18" data-nav="18" data-sev="low" data-mod="后台服务"><span class="nav-dot sev-low"></span><span class="nav-n">18</span><span class="nav-t">快速路径切换用户已开启的字幕轨道后仅在原本关闭字幕时才恢复</span></a><a class="nav-item" href="#issue-19" data-nav="19" data-sev="low" data-mod="后台服务"><span class="nav-dot sev-low"></span><span class="nav-n">19</span><span class="nav-t">缓存 IDBDatabase 句柄缺少 onclose 处理，连接被强制关闭后所有 CACH</span></a><a class="nav-item" href="#issue-20" data-nav="20" data-sev="low" data-mod="后台服务"><span class="nav-dot sev-low"></span><span class="nav-n">20</span><span class="nav-t">handleSummarize 用字符串形式 replace 注入字幕，字幕中的 $` / </span></a><a class="nav-item" href="#issue-21" data-nav="21" data-sev="low" data-mod="YouTube 助手"><span class="nav-dot sev-low"></span><span class="nav-n">21</span><span class="nav-t">Gemini 回退失败后 videoMode/横幅未复位，同视频重试成功的普通字幕被持久化为</span></a><a class="nav-item" href="#issue-22" data-nav="22" data-sev="low" data-mod="YouTube 助手"><span class="nav-dot sev-low"></span><span class="nav-n">22</span><span class="nav-t">旧缓存迁移遇到 background 永久拒绝的记录时无限重放且无法清理，其后的记录永远迁不</span></a><a class="nav-item" href="#issue-23" data-nav="23" data-sev="low" data-mod="YouTube 助手"><span class="nav-dot sev-low"></span><span class="nav-n">23</span><span class="nav-t">waitForContainer 回调不校验 videoId/导航代际：过期轮询器会拆掉新面</span></a><a class="nav-item" href="#issue-24" data-nav="24" data-sev="low" data-mod="YouTube 助手"><span class="nav-dot sev-low"></span><span class="nav-n">24</span><span class="nav-t">panel.js `_MODEL` 路由对 prefixMap 之外的前缀跳过 reques</span></a><a class="nav-item" href="#issue-25" data-nav="25" data-sev="low" data-mod="YouTube 助手"><span class="nav-dot sev-low"></span><span class="nav-n">25</span><span class="nav-t">mindmap.onDone 在 render() 抛错后仍缓存 this.data，坏树被</span></a><a class="nav-item" href="#issue-26" data-nav="26" data-sev="low" data-mod="YouTube 助手"><span class="nav-dot sev-low"></span><span class="nav-n">26</span><span class="nav-t">mindmap setupZoomPan 每次 render() 都新增 document </span></a><a class="nav-item" href="#issue-27" data-nav="27" data-sev="low" data-mod="YouTube 助手"><span class="nav-dot sev-low"></span><span class="nav-n">27</span><span class="nav-t">chat.js 请求失败后已 push 的 user 消息不回滚，后续每轮都会重复发送并产生</span></a><a class="nav-item" href="#issue-28" data-nav="28" data-sev="low" data-mod="YouTube 助手"><span class="nav-dot sev-low"></span><span class="nav-n">28</span><span class="nav-t">HTML 笔记面板 iframe 内的 http(s) 链接会把 iframe 自身导航到外</span></a><a class="nav-item" href="#issue-29" data-nav="29" data-sev="low" data-mod="YouTube 助手"><span class="nav-dot sev-low"></span><span class="nav-n">29</span><span class="nav-t">Obsidian 导出 frontmatter 的 title 只转义双引号不转义反斜杠，含</span></a><a class="nav-item" href="#issue-30" data-nav="30" data-sev="low" data-mod="划词翻译"><span class="nav-dot sev-low"></span><span class="nav-n">30</span><span class="nav-t">同 world 双注入后 translate 新实例因 iframe._ytxTransla</span></a><a class="nav-item" href="#issue-31" data-nav="31" data-sev="low" data-mod="设置页"><span class="nav-dot sev-low"></span><span class="nav-n">31</span><span class="nav-t">设置页初始加载的 storage.get 回调不检查 lastError，读取失败后任意一次</span></a><a class="nav-item" href="#issue-32" data-nav="32" data-sev="low" data-mod="鼠标手势"><span class="nav-dot sev-low"></span><span class="nav-n">32</span><span class="nav-t">上一次手势的 200ms suppressContext 定时器会清掉新一次右键设置的抑制标</span></a><a class="nav-item" href="#issue-33" data-nav="33" data-sev="low" data-mod="鼠标手势"><span class="nav-dot sev-low"></span><span class="nav-n">33</span><span class="nav-t">gestures mousemove 把每次事件到锚点的距离累加进 totalMoved，M</span></a><a class="nav-item" href="#issue-34" data-nav="34" data-sev="low" data-mod="鼠标手势"><span class="nav-dot sev-low"></span><span class="nav-n">34</span><span class="nav-t">wheel 监听未按平台/tracking 门控：Windows/Linux 滚轮方向反转触</span></a><a class="nav-item" href="#issue-35" data-nav="35" data-sev="low" data-mod="鼠标手势"><span class="nav-dot sev-low"></span><span class="nav-n">35</span><span class="nav-t">非 HTML 文档（直接打开的 SVG/XML）上浮层创建抛 TypeError，mouse</span></a><a class="nav-item" href="#issue-36" data-nav="36" data-sev="low" data-mod="YouTube 助手"><span class="nav-dot sev-low"></span><span class="nav-n">36</span><span class="nav-t">panel.js TRANSCRIBE_SEGMENT 的 error 分支不可达：back</span></a><a class="nav-item" href="#issue-37" data-nav="37" data-sev="low" data-mod="文档"><span class="nav-dot sev-low"></span><span class="nav-n">37</span><span class="nav-t">CACHE_* 缓存代理层未进文档（“消息类型完整列表”漏 6 项），且 CACHE_CLE</span></a><a class="nav-item" href="#issue-38" data-nav="38" data-sev="low" data-mod="YouTube 助手"><span class="nav-dot sev-low"></span><span class="nav-n">38</span><span class="nav-t">视频模式提示文案与注释仍宣称“长视频自动分段”，但转录早已是单次请求，且 startSec/</span></a><a class="nav-item" href="#issue-39" data-nav="39" data-sev="low" data-mod="清单权限"><span class="nav-dot sev-low"></span><span class="nav-n">39</span><span class="nav-t">activeTab 权限冗余：无任何触发入口且能力被必需通配 host 权限完全覆盖，PRI</span></a><a class="nav-item" href="#issue-40" data-nav="40" data-sev="low" data-mod="后台服务"><span class="nav-dot sev-low"></span><span class="nav-n">40</span><span class="nav-t">background.js handleTranslate 字典模式注释写「总长≤30字符」</span></a><a class="nav-item" href="#issue-41" data-nav="41" data-sev="low" data-mod="文档"><span class="nav-dot sev-low"></span><span class="nav-n">41</span><span class="nav-t">CLAUDE.md 的 background 流式/超时/SSE/字幕抓取章节多处描述与代码</span></a><a class="nav-item" href="#issue-42" data-nav="42" data-sev="low" data-mod="文档"><span class="nav-dot sev-low"></span><span class="nav-n">42</span><span class="nav-t">面向用户与开发者的说明陈旧：测试命令、免刷新重注入、Sub2API 权限口径、手势表格四处与</span></a><a class="nav-item" href="#issue-43" data-nav="43" data-sev="low" data-mod="文档"><span class="nav-dot sev-low"></span><span class="nav-n">43</span><span class="nav-t">存储与 prompt 回退的文档描述不准：漏列仍在写入的遗留键 `model`，并把回退位置</span></a></nav>
+  </aside>
+
+  <main id="list">
+    <h2 class="sev-head sev-med" id="sev-med"><span class="sev-head-dot"></span>中等<span class="sev-head-n">15 项</span></h2><article class="issue sev-med" data-sev="med" data-mod="后台服务" id="issue-2">
+<header class="issue-head">
+<span class="rank">#2</span>
+<span class="pill pill-med">中等</span>
+<span class="mod">后台服务</span>
+</header>
+<h3 class="issue-title">tabs.onUpdated 的 status:&#x27;loading&#x27; 在同文档导航（pushState/hash）时也触发，误杀在途请求并把字幕失败错误升级为付费 Gemini 转录</h3>
+<div class="locs"><code class="loc">background.js:442</code><code class="loc">background.js:1776</code><code class="loc">youtube/panel.js:983</code><code class="loc">translate/translate.js:805</code><code class="loc">youtube/core.js:462</code></div>
+<p class="desc">background.js:442-445 把任意 <code>changeInfo.status === &#x27;loading&#x27;</code> 当作整页导航，递增 tab epoch 并 abort 该 tab 全部 activeRequests；但 Chromium（tabs_event_router.cc 的 NavigationEntryCommitted 无条件插入 status 键，其自带扩展测试 internalAnchorNavigated 明确期望 <code>a.html#b</code> 产生 <code>{status:&#x27;loading&#x27;}</code>）对 pushState/replaceState/hash 同文档导航同样派发该事件，441 行注释与 tests/background.test.js:553 的假设不成立。后果一：正在流式输出的总结/笔记/导图/问答/翻译/转录被 abort，background.js:1776-1781 发 <code>_ERROR &#x27;页面已导航，请求已取消&#x27;</code>，panel.js:983-999 与 translate.js:805-813 不过滤 cancelled 直接渲染成错误（同视频点描述/评论时间戳改写 <code>&amp;t=</code>、任何用 replaceState 更新 URL 的站点翻译期间滚动均可触发）。后果二：若同文档导航落在 FETCH_TRANSCRIPT 窗口（DOM 回退常达数十秒），handleFetchTranscript 返回 <code>{error, cancelled:true}</code>，core.js:150-152 一律 throw，core.js:462-468 的 catch 不看 cancelled 标志便调用 <code>_analyzeVideoWithGemini</code>，对本有字幕的视频发起计费转录。</p><div class="fix"><span class="fix-label">建议修复</span><p>不要用 tabs.onUpdated 的 status:&#x27;loading&#x27; 作跨文档导航信号：改为 content script 在 <code>pagehide</code> 里对自己在途的 requestId 发 CANCEL_REQUEST，或改用 <code>chrome.webNavigation.onBeforeNavigate</code>（frameId===0）bump epoch，tab 关闭仍由 onRemoved 兜底；同时让 core.js fetchTranscript 把 <code>result.cancelled</code> 带到抛出的 Error 上，ensureTranscript 的 catch 在 cancelled 时 rethrow 而不回退 Gemini。</p></div>
+</article><article class="issue sev-med" data-sev="med" data-mod="YouTube 助手" id="issue-3">
+<header class="issue-head">
+<span class="rank">#3</span>
+<span class="pill pill-med">中等</span>
+<span class="mod">YouTube 助手</span>
+</header>
+<h3 class="issue-title">fmtTime 不进位小时，≥100 分钟视频的 AI 时间戳在总结/问答/导图/HTML 笔记中全部失去点击跳转</h3>
+<div class="locs"><code class="loc">youtube/core.js:61</code><code class="loc">youtube/core.js:159</code><code class="loc">youtube/markdown.js:23</code><code class="loc">youtube/core.js:78</code><code class="loc">youtube/html-notes.js:155</code><code class="loc">youtube/html-notes.js:170</code></div>
+<p class="desc">core.js:61-65 的 <code>YTX.fmtTime</code> 只做 <code>Math.floor(seconds/60)</code>、分钟不进位为小时，而字幕段 start 是整数秒（background.js:694 / 748-752），因此 core.js:159 喂给模型的字幕行在 100 分钟后变成 <code>[125:30]</code>，prompts.js:7/19/24 又要求模型照抄行首时间点。但所有消费 AI 输出的地方只接受 1-2 位分钟：markdown.js:23 的 <code>/\[(\d{1,2}:\d{2}(?::\d{2})?)\]/</code> 不匹配 → 总结/问答里不生成 <code>.ytx-timestamp</code>，panel.js:466 的委托点击拿不到目标；core.js:78 <code>safeTime</code> 返回 null → mindmap.js:123-124 不渲染时间徽章；html-notes.js:155/170 的 <code>/^(\d{1,2}):(\d{2})$/</code> 同样拒绝。字幕面板（panel.js:429/447 用 <code>\d+</code>）与 Gemini 视频模式（要求 <code>[H:MM:SS]</code>）不受影响，问题局限于最常见的字幕路径；200k 字符上限足以容纳 2 小时视频，长播客/讲座第二个小时起的时间戳静默退化为纯文本且无任何报错。</p><div class="fix"><span class="fix-label">建议修复</span><p>让 core.js:61 的 fmtTime 在 <code>seconds &gt;= 3600</code> 时输出 <code>H:MM:SS</code>（<code>h + &#x27;:&#x27; + pad2(m%60) + &#x27;:&#x27; + pad2(s)</code>），其余保持 <code>M:SS</code>——<code>timeToSeconds</code>、markdown.js:23 的可选第三段、<code>safeTime</code> 的 <code>(:\d{2}){1,2}</code> 均已接受三段格式；同时把 html-notes.js:155/170 的正则放宽为 <code>/^(?:(\d{1,2}):)?(\d{1,2}):(\d{2})$/</code> 并在秒数计算里加上小时，否则 60-99 分钟视频的笔记点击会因改成 <code>1:05:30</code> 而回退。</p></div>
+</article><article class="issue sev-med" data-sev="med" data-mod="设置页" id="issue-4">
+<header class="issue-head">
+<span class="rank">#4</span>
+<span class="pill pill-med">中等</span>
+<span class="mod">设置页</span>
+</header>
+<h3 class="issue-title">设置页以 popup 运行但 1.5s 防抖保存无 pagehide 冲刷：改完立刻关弹窗会丢掉刚做的修改</h3>
+<div class="locs"><code class="loc">options.js:532</code><code class="loc">options.js:533</code><code class="loc">options.js:675</code><code class="loc">options.js:488</code><code class="loc">manifest.json:61</code></div>
+<p class="desc">manifest.json:61 把 options.html 配成 <code>action.default_popup</code>（无 options_page/options_ui），弹窗失焦即销毁文档，挂起的 setTimeout 随之丢弃。options.js:532-536 把所有 input/select/textarea 的 input/change 都接到 <code>debounce(() =&gt; saveSettings(false), 1500)</code>，675-681 的 debounce 只有 clearTimeout/setTimeout，整个 options.js/options.html 没有 pagehide/visibilitychange/beforeunload 冲刷；功能开关等 checkbox 也没有直接落盘（唯一写入点是 saveSettings 的 732 行 <code>chrome.storage.sync.set</code>）。因此用户切换「鼠标手势」开关或粘贴 Key 后 1.5 秒内点击弹窗外部，修改被静默丢弃，再次打开仍是旧值；options.js:488 的 chatgptAuth 粘贴（600ms 防抖）同理。缓解因素是 options.html:170 有手动「保存设置」按钮，且既有配置不会被破坏。</p><div class="fix"><span class="fix-label">建议修复</span><p>让 debounce 返回的函数带 <code>flush()</code>（有挂起 timer 时 clearTimeout 并立即执行 fn），并注册 <code>visibilitychange</code>（hidden 时）与 <code>pagehide</code> 调用 <code>autoSave.flush()</code>——<code>chrome.storage.sync.set</code> 的 IPC 在文档销毁前已发出，回调不执行也能落盘；更简单的补充是 checkbox/select 的 change 直接 <code>saveSettings(false)</code>，只对文本框保留防抖。</p></div>
+</article><article class="issue sev-med" data-sev="med" data-mod="鼠标手势" id="issue-5">
+<header class="issue-head">
+<span class="rank">#5</span>
+<span class="pill pill-med">中等</span>
+<span class="mod">鼠标手势</span>
+</header>
+<h3 class="issue-title">gestures 的 suppressContext 短按后永不复位、contextmenu 无 enabled 守卫：Mac Ctrl+click / 键盘菜单被吞，关闭手势开关后原生右键菜单持续失效</h3>
+<div class="locs"><code class="loc">gestures/gestures.js:116</code><code class="loc">gestures/gestures.js:168</code><code class="loc">gestures/gestures.js:187</code><code class="loc">gestures/gestures.js:102</code><code class="loc">gestures/gestures.js:50</code></div>
+<p class="desc">默认 keepMenu=false 时，任何进入 tracking 的右键 mousedown 在 gestures.js:116 置 <code>suppressContext = true</code>，而短按 mouseup 分支（168-173）直接 return 不复位，唯一的 200ms 定时清除（178）只在 ≥8px 拖动后执行，blur/takeover/onChanged 都不重置。contextmenu 监听（187-196）既不区分事件来源按键也不检查 <code>enabled</code>，于是：(a) Mac 上 Ctrl+click 的 mousedown 是 button=0（104 行提前 return 不碰标志），随后的 contextmenu 被残留的 true 吞掉，表现为「新页面能弹、做过一次普通短按右键后就再也弹不出」，Win/Linux 的 Shift+F10 / Menu 键同理；(b) 做过一次短按右键后在设置页关闭 <code>enableGestures</code>，mousedown 虽在 102 行 return，但 contextmenu 仍用残留标志吞掉菜单直到刷新页面，与 CLAUDE.md:290「关闭后原生右键菜单完全不受影响」、:292「无需刷新即可生效」矛盾（Win/Linux 无逃生口）。</p><div class="fix"><span class="fix-label">建议修复</span><p>在短按分支（168-173）return 前也安排一次性清除 <code>if (suppressContext) setTimeout(() =&gt; { suppressContext = false; }, 200);</code>；在 contextmenu 监听首行加 <code>if (!enabled) return;</code>；并在 onChanged 的关闭分支（50-53）补 <code>suppressContext = false;</code>。</p></div>
+</article><article class="issue sev-med" data-sev="med" data-mod="后台服务" id="issue-6">
+<header class="issue-head">
+<span class="rank">#6</span>
+<span class="pill pill-med">中等</span>
+<span class="mod">后台服务</span>
+</header>
+<h3 class="issue-title">广告播放期间 getPlayerResponse() 返回广告 videoId，DOM 回退路径的 player 校验导致字幕获取 13 秒后失败并误升级为付费 Gemini 转录</h3>
+<div class="locs"><code class="loc">background.js:730</code><code class="loc">background.js:725</code><code class="loc">background.js:787</code><code class="loc">background.js:612</code><code class="loc">youtube/core.js:462</code></div>
+<p class="desc">background.js:717-734 的 DOM 路径 videoState() 要求 <code>#movie_player.getPlayerResponse().videoDetails.videoId</code>（725）与 <code>ytd-watch-flexy[video-id]</code> 全部等于请求的 videoId（730）；而 YouTube 播放器的 <code>getPlayerResponse(t)</code> 走 <code>app.lW({playerType:t})</code>，不传参返回“当前呈现的播放器”，客户端广告期间即广告播放器（与 <code>getVideoData().video_id</code> 返回广告 ID 同一条路径）。于是广告播放时快速路径先等 5 秒失败（606/612），DOM 路径再等 8 秒返回“当前视频页面尚未加载完成”（787-789），handleFetchTranscript 原样返回错误（569），core.js:152 抛错后 ensureTranscript 的 catch（462-468）无条件调用 <code>_analyzeVideoWithGemini</code>，对本有字幕的视频发起付费且耗时数分钟的转录（无 Key 时报“请先填入 Gemini API Key”）。82338f0c 之前 DOM 路径没有任何 player 校验，广告期间可正常抓字幕，属该提交引入的回归；触发需非 Premium 用户在剩余 ≥13 秒的客户端广告期间点击生成，服务端拼接广告不受影响。</p><div class="fix"><span class="fix-label">建议修复</span><p>在 DOM 路径 videoState()（background.js:717-734）中去掉 <code>getPlayerResponse()</code> 的 videoId 参与判定，仅保留 URL <code>?v=</code> 与 <code>ytd-watch-flexy[video-id]</code>（已足以覆盖 SPA 切视频判定），或仅在 <code>player.classList.contains(&#x27;ad-showing&#x27;)</code> 为假时才把 player 不匹配视为 pending；快速路径可用 <code>player.getPlayerResponse(1)</code> 或在 ad-showing 时立即回退 DOM，并同步调整 tests/background.test.js:701。</p></div>
+</article><article class="issue sev-med" data-sev="med" data-mod="YouTube 助手" id="issue-7">
+<header class="issue-head">
+<span class="rank">#7</span>
+<span class="pill pill-med">中等</span>
+<span class="mod">YouTube 助手</span>
+</header>
+<h3 class="issue-title">功能触发的字幕获取期间点击「使用视频模式」绕过 busy 守卫，transcriptData 被置空后功能抛 TypeError 并回显原始 JS 错误</h3>
+<div class="locs"><code class="loc">youtube/core.js:447</code><code class="loc">youtube/core.js:390</code><code class="loc">youtube/core.js:407</code><code class="loc">youtube/core.js:273</code><code class="loc">youtube/panel.js:231</code></div>
+<p class="desc">core.js:447-492 的 <code>ensureTranscript</code> 从不设置 <code>YTX.isFetchingTranscript</code>（全仓唯一置 true 处是 397 行的 <code>switchToVideoMode</code>，回退前的 ab2f4d1 版本是有的），而 switchToVideoMode 的 busy 守卫（390）只看该标志、不看在途的 <code>_transcriptPromise</code>；面板头部的「使用视频模式」按钮（panel.js:231）在功能获取字幕期间始终可点。用户点「总结」后在 DOM 回退等待中点该按钮，switchToVideoMode 通过守卫，抬升 <code>_transcriptGeneration</code>、把 <code>YTX.transcriptData</code> 置 null（407）并替换 <code>_transcriptPromise</code>；旧 fetch 完成后因代际不匹配 return，promise resolve undefined，summary.js:72-79（html-notes/mindmap/chat 同）只复查 videoId 与 deferred 便调用 <code>getContentPayload()</code>，core.js:273 对 null 取 <code>.full</code> 抛 TypeError，经 renderError 原样显示 &quot;Cannot read properties of null (reading &#x27;full&#x27;)&quot;，且 summary.js:99 还把刚被禁用的按钮重新启用。</p><div class="fix"><span class="fix-label">建议修复</span><p>把 core.js:390 的守卫扩为 <code>if (YTX.isFetchingTranscript || (YTX._transcriptPromise &amp;&amp; YTX._transcriptVideoId === YTX.currentVideoId)) return Promise.reject(new Error(&#x27;字幕正在获取中，请稍候&#x27;));</code>（或恢复 ensureTranscript 自行置位/复位 isFetchingTranscript）；并在各 feature <code>await YTX.ensureTranscript()</code> 之后加 <code>if (!YTX.transcriptData) { if (YTX._transcriptPromise) await YTX._transcriptPromise; if (!YTX.transcriptData) return bailSilently(); }</code>。</p></div>
+</article><article class="issue sev-med" data-sev="med" data-mod="YouTube 助手" id="issue-8">
+<header class="issue-head">
+<span class="rank">#8</span>
+<span class="pill pill-med">中等</span>
+<span class="mod">YouTube 助手</span>
+</header>
+<h3 class="issue-title">summary.onError 未清除 80ms 节流渲染计时器，挂起的 tick 会用部分文本覆盖错误提示</h3>
+<div class="locs"><code class="loc">youtube/summary.js:178</code><code class="loc">youtube/summary.js:119</code><code class="loc">youtube/summary.js:133</code><code class="loc">background.js:1796</code></div>
+<p class="desc">summary.js:119-127 的 onChunk 会安排一个 80ms 一次性 setTimeout，回调（120-126）不检查 isGenerating/requestId 直接 <code>el.innerHTML = YTX.renderMarkdown(self.text)</code>；onDone（133）与 reset（19）都 clearTimeout，但 onError（178-185）既不清计时器也不清 this.text。background 的流式 emitter（1796-1813）在中途出错时会先发若干 SUMMARY_CHUNK 再发 SUMMARY_ERROR——各厂商 SSE 内联 error 事件（1925-1928）、Responses 的 response.failed（1953）、无正常结束标记的 EOF（2065）都会走到 streamEmitter.error。因为流式期间 chunk 间隔通常小于 80ms、计时器几乎总在挂起，onError 经 YTX.renderError 渲染出的错误会在 ≤80ms 后被覆盖成截断的总结正文：按钮已恢复 primary、缓存未写入、deferred 已 reject，界面却看不到任何错误指示。仅 summary 有该节流计时器。</p><div class="fix"><span class="fix-label">建议修复</span><p>在 summary.js onError 开头加与 onDone 同款一行 <code>if (this._renderTimer) { clearTimeout(this._renderTimer); this._renderTimer = null; }</code>（置于 YTX.renderError 之前），并可在 120-126 的计时器回调首行加 <code>if (!self.isGenerating) return;</code> 作为加固。</p></div>
+</article><article class="issue sev-med" data-sev="med" data-mod="鼠标手势" id="issue-9">
+<header class="issue-head">
+<span class="rank">#9</span>
+<span class="pill pill-med">中等</span>
+<span class="mod">鼠标手势</span>
+</header>
+<h3 class="issue-title">wheel 手势路径无累加器：单个 wheel 事件 delta 需 ≥30px 才记方向，Mac 触控板中速滑动不触发手势且页面照常滚动</h3>
+<div class="locs"><code class="loc">gestures/gestures.js:148</code><code class="loc">gestures/gestures.js:143</code><code class="loc">gestures/gestures.js:159</code><code class="loc">gestures/gestures.js:119</code></div>
+<p class="desc">gestures.js:119-130 的 mousemove 路径以 <code>lastPoint</code> 为锚点累计位移，小步移动能凑满一段 30px；但 140-160 的 wheel 路径没有任何累加器——143-144 只取当前单个事件的 <code>-deltaX/-deltaY</code>，148 直接与 <code>MIN_SEGMENT = 30</code> 比较，不足即 return，既不推入 <code>directions</code> 也不执行 159 行的 <code>e.preventDefault()</code>。macOS Chrome 触控板 wheel 按帧派发、每事件 delta 为像素级小值，CLAUDE.md:264 文档化的 Mac 主路径（keepMenu=false，按住角落右键 + 另一指滑动）在中速下多数事件低于 30px，结果 <code>directions</code> 保持为空，mouseup 时 key 为 &#x27;&#x27; 不执行任何动作，同时页面在手势期间照常滚动（与 158 行注释矛盾），只有快速甩动才偶尔触发。被整体回滚的 fd22938 曾单独为该 handler 加过 <code>wheelAccumX/Y</code> 累加器，佐证该缺陷。</p><div class="fix"><span class="fix-label">建议修复</span><p>新增 <code>let wheelAccX = 0, wheelAccY = 0;</code>，mousedown 进入 tracking 时清零；wheel handler 先 <code>e.preventDefault()</code>，再累加 dx/dy，用 <code>Math.abs(wheelAccX) &lt; MIN_SEGMENT &amp;&amp; Math.abs(wheelAccY) &lt; MIN_SEGMENT</code> 判段，通过后 <code>dirOf(wheelAccX, wheelAccY)</code> 推方向并把累加器清零。</p></div>
+</article><article class="issue sev-med" data-sev="med" data-mod="划词翻译" id="issue-10">
+<header class="issue-head">
+<span class="rank">#10</span>
+<span class="pill pill-med">中等</span>
+<span class="mod">划词翻译</span>
+</header>
+<h3 class="issue-title">划词翻译 UI 位于 light DOM 且弹窗内选词只按 class 判定、text/context 无长度上限：页面可借真实点击发起任意大小的付费翻译并读回结果</h3>
+<div class="locs"><code class="loc">translate/translate.js:308</code><code class="loc">translate/translate.js:588</code><code class="loc">translate/translate.js:147</code><code class="loc">background.js:1090</code><code class="loc">background.js:1133</code></div>
+<p class="desc">translate.js:147-151 把弹窗与图标直接 append 到 <code>document.documentElement</code>，translate.css 无任何 <code>!important</code>，页面样式/脚本可任意改写这些节点。translate.js:308-309 判定「弹窗内选词」时只看页面可写的 <code>popup.style.display === &#x27;flex&#x27;</code> 加 <code>classList.contains(&#x27;ytx-translate-source-textarea&#x27;)</code>，不校验 <code>popup.contains(capturedActiveEl)</code>、也不与 buildPopup（442/470）创建的真实 textarea 做引用比较，于是页面自建同类名 textarea 获得焦点并选中短词后，310-313 行会自动把该元素整段 value 当语境发出；更简单的路径是用 <code>!important</code> 把 <code>#ytx-translate-icon</code> 撑成全屏透明层，用户下一次真实点击即触发翻译（isTrusted 守卫只挡合成事件，挡不住“事件为真但内容与 UI 被页面控制”）。同时 handleSubmit（584-592）与语境查词路径都没有选区入口那样的 5000 字符上限（对照 83/296 行），background.js handleTranslate（1090-1170）对 text/context 同样无长度校验或频率限制，结果又写进 light DOM 的 <code>.ytx-translate-result-text</code> 供页面读回。实际损失限于盗刷用户额度/把用户 key 当免费模型网关，拿不到 key 也读不到跨源内容。</p><div class="fix"><span class="fix-label">建议修复</span><p>在 buildPopup 里把创建的 textarea 存进闭包变量，308-309 行改为 <code>capturedActiveEl === sourceTextarea &amp;&amp; popup.contains(capturedActiveEl)</code> 的身份判定；提取 <code>MAX_TEXT_CHARS = 5000</code> 用于 handleSubmit 与 context 截断，并在 background.js handleTranslate 对 <code>text</code>/<code>context</code> 做长度校验（超限回 <code>TRANSLATE_ERROR</code> 或 slice）；如需根治 UI 改写可把 icon/popup 挂进 <code>attachShadow({mode:&#x27;closed&#x27;})</code>。</p></div>
+</article><article class="issue sev-med" data-sev="med" data-mod="设置页" id="issue-11">
+<header class="issue-head">
+<span class="rank">#11</span>
+<span class="pill pill-med">中等</span>
+<span class="mod">设置页</span>
+</header>
+<h3 class="issue-title">设置页模型拉取白名单宽于 background 的 MODEL_PREFIX：o 系列 / chatgpt-* / gemma-* 可选中但请求时被静默换成默认模型</h3>
+<div class="locs"><code class="loc">options.js:771</code><code class="loc">options.js:782</code><code class="loc">background.js:1173</code><code class="loc">background.js:1195</code><code class="loc">background.js:1541</code></div>
+<p class="desc">options.js:771 的 OpenAI 拉取过滤器 <code>/^(gpt-|o[1-9]|chatgpt-)/</code> 明确放行 o1/o3/o4-mini/chatgpt-4o-latest，781-787 的 Gemini 拉取只按 <code>supportedGenerationMethods</code> 含 generateContent 过滤，会把 gemma-*-it、learnlm-* 列入下拉框；switchProvider（575-583）、fetchLatestModels（649-663）、autoSave（700）三处都只过滤 RETIRED_MODELS，无任何前缀校验就把选中值写入 storage。但 background.js:1173 的 MODEL_PREFIX 只认 openai <code>gpt-</code>、gemini <code>gemini-</code>，sanitizeModel（1187-1196）前缀不匹配返回 &#x27;&#x27;，callProvider（1541/1545）随即静默改用 DEFAULT_MODEL（gpt-5.6-sol / gemini-3.7-flash），仅面板模型徽章（1589 的 <code>_MODEL</code> 消息）能察觉。用户点「从官网获取最新列表」后选中 o4-mini 或 gemma-3-27b-it 保存，之后每次请求都以默认模型发出并计费，设置页仍显示所选模型；tests/background.test.js:238-252 表明 background 侧的前缀拒绝是有意为之。</p><div class="fix"><span class="fix-label">建议修复</span><p>让设置页只提供 background 会接受的模型：options.js:771 改为 <code>/^gpt-/</code>，options.js:782 追加 <code>m.name.startsWith(&#x27;models/gemini-&#x27;)</code>，并在 switchProvider/fetchLatestModels 渲染 storage.local 缓存列表时同样按前缀过滤、命中不匹配的 selected 置空以完成迁移；若确要支持 o 系列，则应把 background.js:1173 的 <code>MODEL_PREFIX.openai</code> 扩成数组并确认请求参数兼容。</p></div>
+</article><article class="issue sev-med" data-sev="med" data-mod="后台服务" id="issue-12">
+<header class="issue-head">
+<span class="rank">#12</span>
+<span class="pill pill-med">中等</span>
+<span class="mod">后台服务</span>
+</header>
+<h3 class="issue-title">normalizeSub2ApiBase 不剥离裸 /v1 后缀，codex/opencode 约定的 base_url 会拼成 /v1/v1/... 全部 404 且错误文案误导用户改模型</h3>
+<div class="locs"><code class="loc">background.js:1257</code><code class="loc">background.js:1713</code><code class="loc">background.js:1730</code><code class="loc">background.js:1698</code><code class="loc">background.js:1485</code></div>
+<p class="desc">background.js:1257-1264 只剥离 <code>/v1beta</code>、<code>/v1/messages</code>、<code>/v1/chat/completions</code>、<code>/v1/responses</code> 四种后缀，没有裸 <code>/v1</code>；validateSub2ApiBase（1266-1288）与 options.js 也不做额外处理。而 codex <code>base_url</code> / opencode <code>baseURL</code> 的约定恰以 <code>/v1</code> 结尾（SDK 自行追加路径），用户原样粘入 <code>https://gw.example.com/v1</code> 后，callProvider 在 1713/1730/1698 再拼 <code>/v1/responses</code>、<code>/v1/messages</code>、<code>/v1beta/models/...</code>，实际请求变成 <code>https://gw.example.com/v1/v1/responses</code>（已用 node 复现），三种格式全部 404；1485-1487 把 404 报成「所选模型不存在或未开通权限，请更换模型」，把用户引向改模型而非改 URL。这与 1255-1256 的代码注释和 CLAUDE.md:152 声称的「容错 codex/opencode 复制的 baseUrl」不符，缓解因素是 placeholder 示例不带 /v1。</p><div class="fix"><span class="fix-label">建议修复</span><p>在 background.js:1263 之后追加 <code>.replace(/\/v1$/i, &#x27;&#x27;)</code>（放在最后，先剥 <code>/v1/responses</code> 等再兜底剥裸 <code>/v1</code>；代码总是自拼 <code>/v1/...</code> 或 <code>/v1beta/...</code>，剥离安全，<code>/api</code> 这类前缀不受影响），同步更新 options.html:71 提示与 CLAUDE.md:152，并在 tests/background.test.js 加一条 <code>validateSub2ApiBase(&#x27;https://gateway.example/v1&#x27;).baseUrl === &#x27;https://gateway.example&#x27;</code>。</p></div>
+</article><article class="issue sev-med" data-sev="med" data-mod="设置页" id="issue-13">
+<header class="issue-head">
+<span class="rank">#13</span>
+<span class="pill pill-med">中等</span>
+<span class="mod">设置页</span>
+</header>
+<h3 class="issue-title">fetchLatestModels 在 await 后重读全局 currentProvider，拉取期间切换服务商会把 A 家模型列表持久写入 B 家缓存</h3>
+<div class="locs"><code class="loc">options.js:657</code><code class="loc">options.js:642</code><code class="loc">options.js:647</code><code class="loc">options.js:557</code><code class="loc">options.js:279</code></div>
+<p class="desc">options.js:642 按当时的 currentProvider 选 fetcher，但 647 行 <code>await fetcher(key)</code> 返回后 649/657/658-659/663 全部重新读取全局 currentProvider；<code>#providerSelect</code> 的 change 处理器（346-351）没有任何“拉取中”守卫，switchProvider 在 557 行同步改写 currentProvider，拉取期间只禁用了 <code>#fetchModelsBtn</code>（636-637）。于是 Claude 的 /v1/models 在途时切到 OpenAI，返回的 claude-* 列表会写入 <code>fetchedModelsCache.openai</code> 与 <code>storage.local.fetchedModels_openai</code> 并合并渲染到下拉框；由于 279-285 每次打开设置页都回灌该缓存、375-381 还随导出带走，污染持久存在且不会自动失效，只有再次在 OpenAI 下拉取才覆盖。若用户随后选中 claude-* 项，background.js:1187-1197 因前缀不符返回空串并静默回退默认模型。</p><div class="fix"><span class="fix-label">建议修复</span><p>在 fetchLatestModels 开头快照 <code>const provider = currentProvider;</code>，642/649/657/658/663 全部改用该快照；更新下拉框前加 <code>if (provider !== currentProvider) return;</code>（缓存与 storage 仍按快照 provider 写入），可选地在拉取期间一并禁用 <code>#providerSelect</code>。</p></div>
+</article><article class="issue sev-med" data-sev="med" data-mod="后台服务" id="issue-14">
+<header class="issue-head">
+<span class="rank">#14</span>
+<span class="pill pill-med">中等</span>
+<span class="mod">后台服务</span>
+</header>
+<h3 class="issue-title">ChatGPT 令牌刷新与单个请求生命周期耦合：无单飞去重导致并发刷新互相覆盖 refresh_token，且刷新期 abort 被误报为网络错误</h3>
+<div class="locs"><code class="loc">background.js:941</code><code class="loc">background.js:966</code><code class="loc">background.js:1669</code><code class="loc">background.js:985</code><code class="loc">youtube/core.js:797</code></div>
+<p class="desc">background.js:941-996 的 ensureChatgptAccessToken 每次调用都独立读 storage.local、判 exp、用同一 refresh_token 发 POST /oauth/token 再写回，全程没有 in-flight promise 也不做写前比对；callProvider 在 chatgpt 分支对每个请求都调它（1669），请求登记表只按 tabId:requestId 键控。core.js:797-808 的 generateAll 用 Promise.all 同时启动 summary/mindmap/html，因此 token 过期或剩余 &lt;5 分钟（闲置后首次点「全部生成」即命中）时三路会携带同一 refresh_token 并发刷新——codex OAuth 轮换 refresh_token（982 行自身即按此处理），可能后到的刷新被拒为 invalid_grant 使两个功能报「请重新运行 codex login」，或三路都成功而最后写入的是已作废的旧凭据，导致下次刷新永久失败需重新粘贴 auth.json。此外 966 行把请求的 AbortSignal 传给刷新 fetch，968-969 的裸 catch 把 AbortError 一律映射为「网络错误」，1670-1673 直接 error 上报且不像 1776-1782 那样附 cancelled/reason，与 tests/background.test.js:562-602 的约定不一致，同时会让已在服务端生效的轮换结果不落盘。</p><div class="fix"><span class="fix-label">建议修复</span><p>加模块级 <code>let chatgptRefreshInflight = null;</code>，需要刷新时若非空直接复用该 promise，否则把「fetch + 解析 + storage.local.set」封成 promise 并在 finally 置 null；共享刷新不要传单个请求的 signal（改为刷新完成后由调用方检查 signal.aborted），写回前再读一次 storage.local 仅当 refresh_token 未变时才覆盖；1670 的 error 分支按 signal.aborted 补 <code>cancelled/reason</code>。</p></div>
+</article><article class="issue sev-med" data-sev="med" data-mod="后台服务" id="issue-15">
+<header class="issue-head">
+<span class="rank">#15</span>
+<span class="pill pill-med">中等</span>
+<span class="mod">后台服务</span>
+</header>
+<h3 class="issue-title">OpenAI 直连 gpt-5.x 的 reasoning 与正文共用 max_completion_tokens，但该分支未像 Kimi/MiniMax/Claude 那样放大预算</h3>
+<div class="locs"><code class="loc">background.js:1624</code><code class="loc">background.js:1619</code><code class="loc">background.js:1633</code><code class="loc">background.js:1220</code><code class="loc">background.js:1056</code></div>
+<p class="desc">background.js:1619 对 openai 分支直接 <code>max_completion_tokens = maxTokens</code>，1624-1626 只在 TRANSLATE（effort=&#x27;low&#x27;）时给 gpt-5.x 传 <code>reasoning_effort</code>，SUMMARY/HTML/MINDMAP（8096）与 CHAT（4096）沿用模型默认 medium 推理且预算不变；而同一函数对 kimi k3/k2.7-code（1633-1635）、MiniMax 非 M3（1643）以及 buildClaudeBody 对 claude-fable/mythos/opus-5（1220-1221）都按 1620-1623 注释所述原则把预算抬到 ≥16000。OpenAI Chat Completions 的 <code>max_completion_tokens</code> 明确包含 reasoning token，且 DEFAULT_MODEL.openai 与 options.js 预置全是 gpt-5.6-*、gpt-5.x 又不能关 thinking，长字幕总结/笔记/问答有可能触发 finish_reason=length：analyzeStreamPayload（1939-1942）标 abnormal 后，有正文时仅 console.warn、面板静默拿到截断结果，正文为空时才报错。（gpt-5.6 在 medium 档的实际 reasoning 用量未实测；Responses API 路径不发输出上限，故 gpt 各路径中只有 OpenAI 直连暴露此问题。）</p><div class="fix"><span class="fix-label">建议修复</span><p>在 openai 分支对 <code>/^gpt-5/</code> 模型统一 <code>body.max_completion_tokens = Math.max(maxTokens, 16000)</code>（与 kimi k3 分支同款），保留现有 reasoning_effort 逻辑；在 tests/background.test.js 的 gpt-5.6-sol SUMMARY 用例追加预算断言、gpt-4.1 用例断言维持原值。</p></div>
+</article><article class="issue sev-med" data-sev="med" data-mod="鼠标手势" id="issue-16">
+<header class="issue-head">
+<span class="rank">#16</span>
+<span class="pill pill-med">中等</span>
+<span class="mod">鼠标手势</span>
+</header>
+<h3 class="issue-title">keepMenu=true 在 Linux 上失效：Chromium 非 Windows 平台于 mousedown 派发 contextmenu，代码只按 isMac 处理</h3>
+<div class="locs"><code class="loc">gestures/gestures.js:116</code><code class="loc">gestures/gestures.js:18</code><code class="loc">gestures/gestures.js:191</code><code class="loc">options.html:165</code></div>
+<p class="desc">gestures.js:18 只用 <code>isMac</code> 区分「contextmenu 在 mousedown 触发」的平台，但 Chromium 的 <code>context_menu_on_mouse_up = BUILDFLAG(IS_WIN)</code> 与 web_frame_widget_impl.cc 的 HandleMouseDown/HandleMouseUp 表明只有 Windows 在 mouseup 弹菜单，Linux/ChromeOS 与 macOS 一样在 mousedown 立即派发（Blink 注释即 &quot;On Mac/Linux, we handle it on mouse down, not up&quot;）。因此 Linux + <code>gestureKeepMenu=true</code> 时，116 行算出 <code>suppressContext = false</code>，191-195 不 preventDefault，原生菜单在每次右键按下瞬间弹出、拖动手势无法开始，而 177 行到 mouseup 才置标志已经太迟；菜单弹出后页面大概率收不到 mouseup 也不 blur，tracking 可能残留为 true 而持续显示浮层。gestures.js:15/108/115/170 注释、CLAUDE.md:266/272/313 与 options.html:165 的「Win/Linux 短按弹菜单、拖动触发手势」描述均与引擎实际行为不符；默认 keepMenu=false 不受影响。</p><div class="fix"><span class="fix-label">建议修复</span><p>把「菜单在 mousedown 触发」的判定从 <code>isMac</code> 改为「非 Windows」：新增 <code>const isWin = /Win/i.test(navigator.platform || &#x27;&#x27;)</code> 与 <code>const menuOnDown = !isWin</code>，将 110/116/191 行的 <code>isMac</code> 替换为 <code>menuOnDown</code>（Linux 因而与 Mac 同走 Shift 翻转逻辑），并同步修正注释、CLAUDE.md 与 options.html 文案。</p></div>
+</article><h2 class="sev-head sev-low" id="sev-low"><span class="sev-head-dot"></span>轻微<span class="sev-head-n">27 项</span></h2><article class="issue sev-low" data-sev="low" data-mod="后台服务" id="issue-17">
+<header class="issue-head">
+<span class="rank">#17</span>
+<span class="pill pill-low">轻微</span>
+<span class="mod">后台服务</span>
+</header>
+<h3 class="issue-title">PROVIDER_TIMEOUTS.firstByteMs=90s 对未压 thinkingLevel 的 Gemini 3.x 是“思考期间零字节”硬上限，长字幕总结可能被误判超时且无重试</h3>
+<div class="locs"><code class="loc">background.js:13</code><code class="loc">background.js:1593</code><code class="loc">background.js:1241</code><code class="loc">background.js:2048</code><code class="loc">background.js:1776</code></div>
+<p class="desc">background.js:13 对所有 callProvider 请求统一 firstByteMs=90000，1593 在 fetch 前 startAttempt 起表，而 markActivity 只在收到 body 字节时调用（2048），HTTP 头到达不算。非翻译功能 effort=null（1550），buildGeminiBody 只在 effort===&#x27;low&#x27; 时下发 thinkingLevel（1241-1243）且全文件从不设置 includeThoughts，因此 gemini-3.1-pro-preview（options.js 预置项）以默认 high 思考、整个思考阶段流上零字节。接近 200000 字符上限的字幕点总结时，若 prefill+思考超过 90 秒，firstByteTimer 触发 abort，1776-1782 以 cancelled:false 发出「请求超时：90 秒内未收到响应内容」，且 callProvider 无重试（对比 _fallbackVideoTranscribe 有 180s 首字节 + 重试）。发生频率取决于 Gemini 上游延迟，未实测。</p><div class="fix"><span class="fix-label">建议修复</span><p>在 callProvider 中按模型给 startAttempt 传更宽的首字节预算：当 provider/格式为 gemini、<code>/^gemini-3/.test(actualModel)</code> 且 effort !== &#x27;low&#x27; 时用 <code>{ ...PROVIDER_TIMEOUTS, firstByteMs: 180000 }</code>（与 TRANSCRIBE_TIMEOUTS 对齐），其余 provider 不变。</p></div>
+</article><article class="issue sev-low" data-sev="low" data-mod="后台服务" id="issue-18">
+<header class="issue-head">
+<span class="rank">#18</span>
+<span class="pill pill-low">轻微</span>
+<span class="mod">后台服务</span>
+</header>
+<h3 class="issue-title">快速路径切换用户已开启的字幕轨道后仅在原本关闭字幕时才恢复</h3>
+<div class="locs"><code class="loc">background.js:664</code><code class="loc">background.js:636</code><code class="loc">background.js:643</code><code class="loc">background.js:622</code></div>
+<p class="desc">background.js:636-638 记录了 <code>originalTrack</code> 但只用来算 <code>wasCaptionsOff</code>；643-644 无条件把字幕轨切到 <code>tracks.find(t =&gt; !t.kind || t.kind === &#x27;asr&#x27;) || tracks[0]</code>，而 664-668 的恢复逻辑只在 <code>wasCaptionsOff</code> 为 true 时执行。若用户原本已开启字幕且所选轨道与扩展选中的不同（看日文轨而 tracks[0] 是英文轨，或开了自动翻译 <code>translationLanguage</code>——裸 <code>{languageCode}</code> 的 setOption 会丢掉它），且 <code>findPotUrl()</code>（622-628）因 resource-timing 缓冲区已满而未命中，扩展就会把屏幕字幕切成自己选的轨道且永不恢复。CLAUDE.md:213 只描述了“原本没开字幕就关掉”的恢复，tests 也只覆盖单轨场景；影响仅为用户可见的字幕语言被改。</p><div class="fix"><span class="fix-label">建议修复</span><p>在 664-668 的恢复块加 else 分支：<code>modifiedCaptions &amp;&amp; !wasCaptionsOff</code> 且 player 仍为当前视频时 <code>player.setOption(&#x27;captions&#x27;,&#x27;track&#x27;, originalTrack)</code>（直接回传 getOption 得到的原对象以保留 translationLanguage）；或在 642 选轨时优先复用用户当前轨。</p></div>
+</article><article class="issue sev-low" data-sev="low" data-mod="后台服务" id="issue-19">
+<header class="issue-head">
+<span class="rank">#19</span>
+<span class="pill pill-low">轻微</span>
+<span class="mod">后台服务</span>
+</header>
+<h3 class="issue-title">缓存 IDBDatabase 句柄缺少 onclose 处理，连接被强制关闭后所有 CACHE_* 操作持续失败直到 SW 重启</h3>
+<div class="locs"><code class="loc">background.js:242</code><code class="loc">background.js:230</code><code class="loc">background.js:256</code><code class="loc">youtube/core.js:690</code></div>
+<p class="desc">background.js:230-254 的 openCacheDatabase 把已打开的 IDBDatabase 记忆在 cacheDatabasePromise 中，只在 onversionchange（241-245）和 open onerror（247-250）时置空，全文件没有任何 <code>db.onclose</code>。若连接被浏览器强制关闭（IndexedDB 后端 I/O 错误/损坏、配额驱逐、手动 Force close），withCacheStore（256-260）对死句柄调用 db.transaction 会抛 InvalidStateError，经 handleCacheMessage（383）与 onMessage catch（454-459）回 <code>{ok:false}</code>，但该路径不重置 cacheDatabasePromise，后续所有 CACHE_LOAD/SAVE/REMOVE 持续失败（core.js:690-728 静默降级为 save→false、load→null），直到 Service Worker 被终止；keepalive 按活动流式请求引用计数，活跃使用期间死句柄可存活数分钟。触发条件罕见，影响仅为缓存静默失效。</p><div class="fix"><span class="fix-label">建议修复</span><p>在 request.onsuccess（约 240 行）给 db 加 <code>db.onclose = () =&gt; { if (cacheDatabasePromise === promise) cacheDatabasePromise = null; }</code>（把 new Promise 存入局部变量以便比较）；可选地在 withCacheStore 里 try/catch 住 db.transaction，捕获 InvalidStateError 时置空并重试一次。</p></div>
+</article><article class="issue sev-low" data-sev="low" data-mod="后台服务" id="issue-20">
+<header class="issue-head">
+<span class="rank">#20</span>
+<span class="pill pill-low">轻微</span>
+<span class="mod">后台服务</span>
+</header>
+<h3 class="issue-title">handleSummarize 用字符串形式 replace 注入字幕，字幕中的 $` / $&amp; / $$ / $&#x27; 会被当作替换模式解释</h3>
+<div class="locs"><code class="loc">background.js:1052</code><code class="loc">youtube/core.js:272</code></div>
+<p class="desc">background.js:1052 <code>prompt.replace(&#x27;{transcript}&#x27;, transcript)</code> 把字幕作为字符串替换值传入，String.prototype.replace 会解释其中的 <code>$</code> 特殊模式：`<code> $</code> `<code> 把整段 prompt 指令前缀插进字幕中间，</code>$&amp;<code> 变成字面量 </code>{transcript}<code>，</code>$$<code> 塌缩为 </code>$<code>，</code>$&#x27;<code> 被删掉（三份默认模板都以 </code>{transcript}<code> 结尾，后缀为空；仅自定义 prompt 在占位符后还有文字时才会重复插入结尾指令），</code>$5<code> 这类价格写法不受影响。字幕来自 core.js:272 的 </code>YTX.transcriptData.full<code>（字符串），chat 路径用模板字符串拼接不受影响。触发需要人工字幕含 </code>$<code> 紧跟 </code><code> </code> `<code>/</code>&amp;<code>/</code>$<code>/</code>&#x27;`（shell/sed/正则教学视频），后果是 prompt 被污染、字幕轻微失真。</p><div class="fix"><span class="fix-label">建议修复</span><p>改为函数形式替换：<code>const fullPrompt = prompt.replace(&#x27;{transcript}&#x27;, () =&gt; transcript);</code>（或 <code>prompt.split(&#x27;{transcript}&#x27;).join(transcript)</code>）。</p></div>
+</article><article class="issue sev-low" data-sev="low" data-mod="YouTube 助手" id="issue-21">
+<header class="issue-head">
+<span class="rank">#21</span>
+<span class="pill pill-low">轻微</span>
+<span class="mod">YouTube 助手</span>
+</header>
+<h3 class="issue-title">Gemini 回退失败后 videoMode/横幅未复位，同视频重试成功的普通字幕被持久化为 videoMode:true</h3>
+<div class="locs"><code class="loc">youtube/core.js:294</code><code class="loc">youtube/core.js:345</code><code class="loc">youtube/core.js:474</code><code class="loc">youtube/panel.js:126</code></div>
+<p class="desc">core.js:294-295 在 <code>_analyzeVideoWithGemini</code> 入口就置 <code>YTX.videoMode = true</code> 并显示「已通过 Gemini 视频模式获取内容」横幅，而失败路径（345-362 的 catch/finally）只渲染错误、不复位该标志与横幅；唯一复位点是 panel.js:57 的 resetTranscriptState()，仅在切视频/离开视频页/清缓存时触发。因此当 FETCH_TRANSCRIPT 暂时失败且用户未配 Gemini Key 时，同一视频再次点击生成、字幕正常获取成功后，core.js:474-479 会以 <code>videoMode: YTX.videoMode</code>（仍为 true）写入缓存，panel.js:126-129 此后每次进入该视频都对真实字幕显示 Gemini 横幅。影响仅为误导性提示与缓存标志错误——videoMode 无其他消费者，renderTranscript 按 segments 分支渲染，功能不受影响。</p><div class="fix"><span class="fix-label">建议修复</span><p>把 core.js:294-295 的置位与横幅移到转录成功且通过 videoId/generation 校验之后（365-372 附近），入口只保留“正在转录”提示；并在 ensureTranscript 的字幕成功分支（462-464）显式 <code>YTX.videoMode = false</code>。</p></div>
+</article><article class="issue sev-low" data-sev="low" data-mod="YouTube 助手" id="issue-22">
+<header class="issue-head">
+<span class="rank">#22</span>
+<span class="pill pill-low">轻微</span>
+<span class="mod">YouTube 助手</span>
+</header>
+<h3 class="issue-title">旧缓存迁移遇到 background 永久拒绝的记录时无限重放且无法清理，其后的记录永远迁不过去</h3>
+<div class="locs"><code class="loc">youtube/core.js:673</code><code class="loc">youtube/core.js:680</code><code class="loc">background.js:334</code><code class="loc">background.js:390</code></div>
+<p class="desc">core.js:673-678 的 _migrateLegacy 顺序 await 每条 CACHE_MIGRATE_RECORD，全部成功后才调用 _removeMigratedLegacyRecords；任一失败进入 680-683 的 catch 返回 false，旧库整体保留。background.js:334-346 的 sanitizeLegacyCacheRecord 对 videoId 不是 11 位 <code>[A-Za-z0-9_-]</code>、或记录 JSON 超过 5,000,000 字符的旧记录会永久抛错（经 390-393 回 <code>{ok:false}</code>），这种记录永远不会变合法，于是每个新加载的观看页（_migrationPromise 按 content script 实例缓存）都重放它之前所有记录的 put、在同一条上失败、删除为零，其后的记录对新缓存永远不可见。产品内也无出口：remove() 只有 CACHE_REMOVE 成功后才删旧记录，而非法 id 在 background.js:394 就被拒。触发前提是旧库确实存在这类记录（旧版 save 对 ?v= 不做校验），5M 体积在 200k 字幕上限下基本不可达。</p><div class="fix"><span class="fix-label">建议修复</span><p>在 core.js:673-678 的循环里对每条记录单独 try/catch：内容侧先用同款 <code>/^[A-Za-z0-9_-]{11}$/</code> 校验 videoId，遇到 background 返回 <code>{ok:false}</code> 视为该条永久失败并跳过、继续迁移其余记录，仅在 sendToBg 本身 reject（传输层失败）时中止整轮，最后只把确认成功的记录传给 _removeMigratedLegacyRecords。</p></div>
+</article><article class="issue sev-low" data-sev="low" data-mod="YouTube 助手" id="issue-23">
+<header class="issue-head">
+<span class="rank">#23</span>
+<span class="pill pill-low">轻微</span>
+<span class="mod">YouTube 助手</span>
+</header>
+<h3 class="issue-title">waitForContainer 回调不校验 videoId/导航代际：过期轮询器会拆掉新面板并丢失缓存恢复</h3>
+<div class="locs"><code class="loc">youtube/panel.js:97</code><code class="loc">youtube/panel.js:172</code><code class="loc">youtube/panel.js:182</code><code class="loc">youtube/panel.js:115</code></div>
+<p class="desc">panel.js:97-100 的 waitForContainer 回调（injectPanel + restoreFromCache）与 172-178 的轮询器只检查 destroyed，从不校验 <code>YTX.currentVideoId</code> 是否仍是调度时的 videoId，也没有导航代际 token；而 injectPanel()（182-184）会无条件 removePanel()。当 <code>#secondary</code> 尚未出现时连续两次 onNavigate（A→B），或冷启动时 init() 与首个 yt-navigate-finish 因 YTX.panel 仍为 null 绕过 86 行短路而对同一视频起两个轮询器，先到的注入面板并开始缓存恢复，后醒的过期轮询器再次 injectPanel 把它拆掉换成空面板；此时新视频的恢复若未完成会被 115 行 <code>YTX.panel !== panelAtStart</code> 丢弃，若已完成则因 contentHtml() 是静态空态、再次恢复又被 <code>!s.text</code>/<code>!YTX.transcriptData</code> 守卫跳过，导致有缓存的面板显示空白直到重新切视频。不会渲染错误视频的数据，缓存本身不丢；已回滚的 fd22938 曾在此加 navigationToken + expectedVideoId 校验。</p><div class="fix"><span class="fix-label">建议修复</span><p>增加模块级 <code>var navToken = 0;</code>，在 onNavigate 两个分支开头 <code>navToken++</code>，把 <code>var token = navToken;</code> 与 videoId 一起传给 waitForContainer，在每次轮询与回调执行前加 <code>if (destroyed || token !== navToken || YTX.currentVideoId !== videoId) return;</code>。</p></div>
+</article><article class="issue sev-low" data-sev="low" data-mod="YouTube 助手" id="issue-24">
+<header class="issue-head">
+<span class="rank">#24</span>
+<span class="pill pill-low">轻微</span>
+<span class="mod">YouTube 助手</span>
+</header>
+<h3 class="issue-title">panel.js <code>_MODEL</code> 路由对 prefixMap 之外的前缀跳过 requestId 过滤，划词翻译会创建/覆盖 YouTube 面板模型徽章</h3>
+<div class="locs"><code class="loc">youtube/panel.js:844</code><code class="loc">youtube/panel.js:8</code><code class="loc">background.js:1589</code><code class="loc">background.js:1096</code></div>
+<p class="desc">panel.js:840-853 的 <code>_MODEL</code> 分支只在 <code>modelFeature = prefixMap[modelPrefix]</code> 存在时才做 requestId 校验（844 行），prefixMap（8-14）仅含 SUMMARY/HTML/MINDMAP/CHAT，其他前缀直接落到 846-853 行创建/覆盖 <code>#ytx-model-badge</code>。background.js 对每个请求都向 sender tab 发 <code>${PREFIX}_MODEL</code>（1589），划词翻译 PREFIX 为 &#x27;TRANSLATE&#x27;（1096），translate.js 又运行在 <code>&lt;all_urls&gt;</code>，因此在 YouTube 观看页翻译一次就会改写面板底部徽章，过期/已取消的翻译请求同样不受过滤。CLAUDE.md:201「<code>_MODEL</code> 消息也走同一过滤」对 prefixMap 之外的前缀不成立；因翻译与 YouTube 功能读取相同的 provider/model 字段，显示内容一致，无数据或安全后果。</p><div class="fix"><span class="fix-label">建议修复</span><p>把 844 行守卫改为对未知前缀直接丢弃：<code>if (!modelFeature || message.requestId !== modelFeature.requestId) return;</code>；若不改代码，则应修正 CLAUDE.md:201 的表述为“仅对 prefixMap 内的前缀过滤”。</p></div>
+</article><article class="issue sev-low" data-sev="low" data-mod="YouTube 助手" id="issue-25">
+<header class="issue-head">
+<span class="rank">#25</span>
+<span class="pill pill-low">轻微</span>
+<span class="mod">YouTube 助手</span>
+</header>
+<h3 class="issue-title">mindmap.onDone 在 render() 抛错后仍缓存 this.data，坏树被持久化且恢复时静默失败</h3>
+<div class="locs"><code class="loc">youtube/mindmap.js:288</code><code class="loc">youtube/mindmap.js:277</code><code class="loc">youtube/mindmap.js:14</code><code class="loc">youtube/panel.js:157</code></div>
+<p class="desc">mindmap.js:277 先把 extractJSON 结果赋给 this.data 再在 281 调 render()；若 AI 返回的 children 是真值非数组（&quot;无&quot;、{}）或数组含 null，14-20 行 assignNodeIds 的 <code>node.children.forEach</code> 会抛 TypeError（全文件无 Array.isArray 校验），catch（282-284）只显示「导图解析失败」，但 this.data 仍非空，288 行照样把坏树写入缓存（background cacheSaveFeature 只校验体积不校验结构）。下次进入该视频时 panel.js:157-158 直接 <code>m.data = record.mindmap.data; m.render()</code>，外层 .then 无 catch，render 再次抛错成为未处理 rejection，159 行 btnRefresh 不执行，导图页停留在占位且不显示任何错误；panel.js:404-410 每次切到导图 tab 还会再次静默抛错。用户点一次生成即可覆盖坏缓存。</p><div class="fix"><span class="fix-label">建议修复</span><p>在 onDone 的 catch 块里加 <code>this.data = null;</code>（或把 288 行的 cache.save 移到 try 内 render() 之后）；panel.js:158 的 <code>m.render()</code> 用 try/catch 包住，失败时 <code>m.data = null</code> 并提示；可选地让 assignNodeIds 用 <code>Array.isArray(node.children)</code> 判断。</p></div>
+</article><article class="issue sev-low" data-sev="low" data-mod="YouTube 助手" id="issue-26">
+<header class="issue-head">
+<span class="rank">#26</span>
+<span class="pill pill-low">轻微</span>
+<span class="mod">YouTube 助手</span>
+</header>
+<h3 class="issue-title">mindmap setupZoomPan 每次 render() 都新增 document 级 mousemove/mouseup 监听且从不移除</h3>
+<div class="locs"><code class="loc">youtube/mindmap.js:385</code><code class="loc">youtube/mindmap.js:392</code><code class="loc">youtube/mindmap.js:318</code><code class="loc">youtube/mindmap.js:359</code></div>
+<p class="desc">mindmap.js:318 的 render() 每次都用 innerHTML 重建视口/SVG，随后 359 行调用 setupZoomPan，在 385/392 向 document 注册 mousemove/mouseup 监听，闭包持有本次的 canvas/viewport；整个文件没有任何 removeEventListener，reset()（172-184）与 panel.js 的代际接管清理也都不摘这两个监听。render() 在 onDone、重置缩放、切换对齐、每次折叠/展开节点、panel.js:158 缓存恢复与 panel.js:408 首次可见自适应时都会调用，因此每次操作固定泄漏 2 个 document 监听并滞留一整棵已脱离 DOM 的 SVG，长会话持续累积、切视频也不释放。功能上无误（旧视口已脱离 DOM，旧监听每次只空跑一次早返回），属资源泄漏。</p><div class="fix"><span class="fix-label">建议修复</span><p>把两个 document 处理函数存到 <code>this._panMove</code> / <code>this._panUp</code>，注册前先 removeEventListener 掉旧的，并在 reset() 中一并移除并置 null。</p></div>
+</article><article class="issue sev-low" data-sev="low" data-mod="YouTube 助手" id="issue-27">
+<header class="issue-head">
+<span class="rank">#27</span>
+<span class="pill pill-low">轻微</span>
+<span class="mod">YouTube 助手</span>
+</header>
+<h3 class="issue-title">chat.js 请求失败后已 push 的 user 消息不回滚，后续每轮都会重复发送并产生连续 user 消息</h3>
+<div class="locs"><code class="loc">youtube/chat.js:75</code><code class="loc">youtube/chat.js:100</code><code class="loc">youtube/chat.js:132</code><code class="loc">youtube/chat.js:95</code></div>
+<p class="desc">chat.js:75 在发请求前就把 <code>{role:&#x27;user&#x27;}</code> 推入 this.messages，但失败路径都不回滚：catch 块（100-108，覆盖 ensureTranscript/getSettings/sendToBg 抛错）与 onError（132-138，收到 CHAT_ERROR 时调用，如缺 Key、HTTP/网络错误）都没有 messages.pop()，只有 onDone 会追加 assistant 消息。于是下一次提问后 this.messages 变成 <code>[..., user:Q1, user:Q2]</code>，95 行原样发出，background 与各请求体组装函数不做合并去重，失败的问题会随后续每轮被重复发送，UI（气泡显示错误）与实际历史不一致。实际影响有限：Anthropic 会合并连续 user 轮次、OpenAI 兼容端点接受连续 user 消息，主要表现为模型可能把上次失败的问题一并作答。</p><div class="fix"><span class="fix-label">建议修复</span><p>在 catch 块（<code>if (this.requestId !== requestId) return;</code> 之后）与 onError 开头各加 <code>if (this.messages.length &amp;&amp; this.messages[this.messages.length - 1].role === &#x27;user&#x27;) this.messages.pop();</code>；若想保留已流出的部分回复，可在 replyText 非空时改为 push assistant 部分内容。</p></div>
+</article><article class="issue sev-low" data-sev="low" data-mod="YouTube 助手" id="issue-28">
+<header class="issue-head">
+<span class="rank">#28</span>
+<span class="pill pill-low">轻微</span>
+<span class="mod">YouTube 助手</span>
+</header>
+<h3 class="issue-title">HTML 笔记面板 iframe 内的 http(s) 链接会把 iframe 自身导航到外部页面，依赖的 navigate-to CSP 指令 Chrome 并未实现</h3>
+<div class="locs"><code class="loc">youtube/html-notes.js:140</code><code class="loc">youtube/html-notes.js:150</code><code class="loc">youtube/export.js:143</code><code class="loc">youtube/export.js:168</code></div>
+<p class="desc">html-notes.js:140-141 用 <code>sandbox=&quot;allow-same-origin&quot;</code> + srcdoc 渲染 AI 生成的笔记，但沙箱只禁止导航其它浏览上下文、不禁止 iframe 自导航；150-165 的点击处理仅对匹配 <code>MM:SS</code> 的时间戳 preventDefault，对 <code>&lt;a&gt;</code> 完全不拦截。export.js:143-147 的 sanitizeHtml 只剥离 javascript:/data:/vbscript: 链接，http(s) href 原样保留，而唯一针对导航的 <code>navigate-to &#x27;none&#x27;</code>（export.js:168）已从 CSP3 规范移除、Chrome 稳定版从未启用，等于没有防线。字幕含注入文本让模型输出外链（或模型自然引用视频提到的网址）时，用户在面板内点击就会把笔记 iframe 替换为第三方页面。影响有限：沙箱标志延续到新文档（无脚本/表单/弹窗），工具栏按钮仍基于 self.text 导出；CLAUDE.md:181「不会向任何外部域发请求」对被动加载成立、对用户点击导航不成立。</p><div class="fix"><span class="fix-label">建议修复</span><p>在 html-notes.js:150 的 iframe 点击监听最前面加：<code>var a = e.target.closest &amp;&amp; e.target.closest(&#x27;a[href]&#x27;); if (a) { e.preventDefault(); var h = a.getAttribute(&#x27;href&#x27;) || &#x27;&#x27;; if (/^https?:/i.test(h)) window.open(h, &#x27;_blank&#x27;, &#x27;noopener,noreferrer&#x27;); return; }</code>；可顺带删掉 export.js:168 无效的 <code>navigate-to &#x27;none&#x27;;</code>。</p></div>
+</article><article class="issue sev-low" data-sev="low" data-mod="YouTube 助手" id="issue-29">
+<header class="issue-head">
+<span class="rank">#29</span>
+<span class="pill pill-low">轻微</span>
+<span class="mod">YouTube 助手</span>
+</header>
+<h3 class="issue-title">Obsidian 导出 frontmatter 的 title 只转义双引号不转义反斜杠，含 <code>\</code> 的标题生成非法 YAML</h3>
+<div class="locs"><code class="loc">youtube/export.js:102</code><code class="loc">youtube/export.js:101</code></div>
+<p class="desc">export.js:101-102 的 downloadObsidian 拼接 <code>title: &quot;...&quot;</code> 时仅做 <code>title.replace(/&quot;/g, &#x27;\\&quot;&#x27;)</code>，未转义反斜杠。YAML 双引号标量中 <code>\</code> 是转义前导符，未定义的转义序列属解析错误：标题含 <code>C:\Users</code>（<code>\U</code> 要求 8 位十六进制）或 <code>\o/</code> 时整个 frontmatter 解析失败，Obsidian 显示 Invalid frontmatter，<code>source</code>/<code>date</code>/<code>tags</code> 属性全部丢失；含 <code>\alpha</code> 时虽能解析但 <code>\a</code> 被解释为 BEL 控制字符、标题被静默篡改（已按同一规范实测）。标题来自页面 DOM，<code>getSafeFilename</code> 只作用于文件名不作用于 frontmatter；三处调用方都追加了后缀，所以“以 <code>\</code> 结尾吞掉闭合引号”的场景不可达。</p><div class="fix"><span class="fix-label">建议修复</span><p>在 export.js:102 先转义反斜杠再转义双引号：<code>title.replace(/\\/g, &#x27;\\\\&#x27;).replace(/&quot;/g, &#x27;\\&quot;&#x27;)</code>；或改用单引号标量 <code>&#x27;...&#x27;</code> 并把 <code>&#x27;</code> 转成 <code>&#x27;&#x27;</code>。</p></div>
+</article><article class="issue sev-low" data-sev="low" data-mod="划词翻译" id="issue-30">
+<header class="issue-head">
+<span class="rank">#30</span>
+<span class="pill pill-low">轻微</span>
+<span class="mod">划词翻译</span>
+</header>
+<h3 class="issue-title">同 world 双注入后 translate 新实例因 iframe._ytxTranslateHooked 残留而跳过已有 iframe</h3>
+<div class="locs"><code class="loc">translate/translate.js:73</code><code class="loc">translate/translate.js:39</code><code class="loc">translate/translate.js:126</code><code class="loc">background.js:2104</code></div>
+<p class="desc">translate.js:72-73 用 DOM expando <code>iframe._ytxTranslateHooked</code> 做 hookIframe 去重，而 takeover 监听（39-46）只置 destroyed、断开 observer、移除 icon/popup，不清除该标记。background.js:2104-2116 的 reinjectContentScripts 对 <code>tabs.query({})</code> 返回的全部 http(s) 标签页无差别 executeScript、不看 tab.status，正在加载的标签页会同时收到 manifest 注入与重注入，两份副本落在同一 isolated world（CLAUDE.md:189 已承认此撞车场景），expando 在同 world 内可见：先跑的副本给已有 iframe 打标，后跑的副本广播 takeover 杀掉前者后，126 行 <code>querySelectorAll(&#x27;iframe&#x27;).forEach(hookIframe)</code> 因标记为 true 全部跳过，页面内已存在的同源 iframe 里选词不再出现「译」图标，直到整页刷新。正常跨 world 的 reload 场景 expando 按 world 隔离，不受影响。</p><div class="fix"><span class="fix-label">建议修复</span><p>把去重标记改为实例闭包内的 <code>var hookedIframes = new WeakSet()</code>：<code>if (!iframe || hookedIframes.has(iframe)) return; hookedIframes.add(iframe);</code>，每个副本独立记账，旧实例的监听已由 destroyed 守卫失效。</p></div>
+</article><article class="issue sev-low" data-sev="low" data-mod="设置页" id="issue-31">
+<header class="issue-head">
+<span class="rank">#31</span>
+<span class="pill pill-low">轻微</span>
+<span class="mod">设置页</span>
+</header>
+<h3 class="issue-title">设置页初始加载的 storage.get 回调不检查 lastError，读取失败后任意一次自动保存会把全部 provider 的 key/model 覆盖为空串</h3>
+<div class="locs"><code class="loc">options.js:287</code><code class="loc">options.js:279</code><code class="loc">options.js:108</code><code class="loc">options.js:684</code></div>
+<p class="desc">options.js:279-285 与 287-303 的 <code>storage.local.get</code> / <code>storage.sync.get</code> 回调直接解引用 <code>local.xxx</code> / <code>data.xxx</code>，未检查 <code>chrome.runtime.lastError</code>；Chrome 读取失败时以无参数调用回调并设置 lastError，此时 280/288 行抛 TypeError，switchProvider 与各复选框初始化全部不执行。keyCache/modelCache/sub2apiBaseUrl 在 108-110 初始化为显式空串，autoSave 监听与 storage 回调无关地同步绑定，saveSettings（684-730）也无“已加载”守卫、无条件写入全部字段且写失败对 autoSave 静默。因此加载失败后用户在页面上做任意一次输入/勾选，1.5s 后 <code>sync.set</code> 就会把所有服务商的 key 与模型清空；由于 local 与 sync 是两个独立库，279 行那条仅读非关键缓存的 local.get 一旦失败会连带跳过整个 sync.get，而 sync 库正常时后续 set 仍能成功落盘。触发条件（存储后端 IO 错误/损坏）罕见。</p><div class="fix"><span class="fix-label">建议修复</span><p>279 行回调里先 <code>local = (!chrome.runtime.lastError &amp;&amp; local) || {}</code>；287 行回调开头加 <code>if (chrome.runtime.lastError || !data) { showStatus(&#x27;读取设置失败…&#x27;, &#x27;error&#x27;); return; }</code>；再加模块级 <code>settingsLoaded</code> 标志，在 sync.get 成功初始化后置 true，并在 saveSettings 开头未加载时直接 return。</p></div>
+</article><article class="issue sev-low" data-sev="low" data-mod="鼠标手势" id="issue-32">
+<header class="issue-head">
+<span class="rank">#32</span>
+<span class="pill pill-low">轻微</span>
+<span class="mod">鼠标手势</span>
+</header>
+<h3 class="issue-title">上一次手势的 200ms suppressContext 定时器会清掉新一次右键设置的抑制标志，Windows 默认模式下短按会漏出原生菜单</h3>
+<div class="locs"><code class="loc">gestures/gestures.js:178</code><code class="loc">gestures/gestures.js:177</code><code class="loc">gestures/gestures.js:116</code></div>
+<p class="desc">gestures.js:177-178 在每次手势 mouseup 时无条件 <code>setTimeout(() =&gt; suppressContext = false, 200)</code>，没有保存句柄、没有 clearTimeout、也没有代次校验。Windows 且 keepMenu=false 时，若用户在上一次手势松开后 200ms 内再次按下右键（116 行置 true）并按住越过 200ms，过期定时器会把标志翻回 false；若这次是短按，mouseup 在 168-173 直接 return 不再重置，随后 Windows 在 mouseup 后派发的 contextmenu 在 192 行看到 false 而放行，原生菜单弹出，与 gestures.js:11 / CLAUDE.md:264「keepMenu=false 时 contextmenu 始终抑制」的设计不符。后果仅是多弹一次原生菜单；keepMenu=true 与 macOS 不受影响。</p><div class="fix"><span class="fix-label">建议修复</span><p>增加 <code>let suppressTimer = null;</code>；mousedown 进入 tracking 时先 <code>clearTimeout(suppressTimer)</code>；178 行改为 <code>clearTimeout(suppressTimer); suppressTimer = setTimeout(() =&gt; { suppressContext = false; }, 200);</code>。</p></div>
+</article><article class="issue sev-low" data-sev="low" data-mod="鼠标手势" id="issue-33">
+<header class="issue-head">
+<span class="rank">#33</span>
+<span class="pill pill-low">轻微</span>
+<span class="mod">鼠标手势</span>
+</header>
+<h3 class="issue-title">gestures mousemove 把每次事件到锚点的距离累加进 totalMoved，MIN_GESTURE 有效阈值被压低到约 3-4px</h3>
+<div class="locs"><code class="loc">gestures/gestures.js:125</code><code class="loc">gestures/gestures.js:112</code><code class="loc">gestures/gestures.js:130</code><code class="loc">gestures/gestures.js:143</code></div>
+<p class="desc">gestures.js:112 在 mousedown 设 <code>lastPoint</code>，之后只有 130 行（过了 126 行 MIN_SEGMENT=30 门槛才执行）会更新它；122-125 每次 mousemove 都用同一锚点算 <code>Math.hypot(dx,dy)</code> 并 <code>totalMoved += dist</code>，于是 30px 内的慢速漂移按 1+2+3+4… 累加而非真实路径长度（wheel 分支 143-147 用的是每次事件增量，两处口径不一致；第 8 行注释表明意图是路径长度）。在 Windows 且 <code>gestureKeepMenu=true</code> 时，116 行令 mousedown 不抑制菜单，若右键按下期间指针漂移约 4px 触发 4 次 mousemove，totalMoved=10 ≥ 8，mouseup 走 177 行置 suppressContext=true 而 directions 为空不执行任何手势，随后到来的 contextmenu 被吞掉，用户既无菜单也无动作。影响限于非默认设置 + Win/Linux。</p><div class="fix"><span class="fix-label">建议修复</span><p>新增 <code>prevPoint</code>（mousedown 时与 lastPoint 一起初始化），mousemove 里改为 <code>totalMoved += Math.hypot(e.clientX - prevPoint.x, e.clientY - prevPoint.y)</code> 后立即更新 prevPoint（或直接用 <code>e.movementX/movementY</code>），<code>lastPoint</code> 继续只作为 MIN_SEGMENT 的分段锚点。</p></div>
+</article><article class="issue sev-low" data-sev="low" data-mod="鼠标手势" id="issue-34">
+<header class="issue-head">
+<span class="rank">#34</span>
+<span class="pill pill-low">轻微</span>
+<span class="mod">鼠标手势</span>
+</header>
+<h3 class="issue-title">wheel 监听未按平台/tracking 门控：Windows/Linux 滚轮方向反转触发误手势，且所有页面常驻一个非 passive 的 document 级 wheel 捕获监听</h3>
+<div class="locs"><code class="loc">gestures/gestures.js:143</code><code class="loc">gestures/gestures.js:160</code><code class="loc">gestures/gestures.js:141</code><code class="loc">manifest.json:50</code></div>
+<p class="desc">gestures.js:140-160 的 wheel 监听在脚本加载时无条件向 document 注册 capture 阶段、<code>{passive:false}</code> 的处理器，而 manifest.json:50-52 把该脚本注入 <code>&lt;all_urls&gt;</code>，因此每个顶层页面都常驻一个阻塞型 wheel 监听——它只在 tracking 期间才需要非 passive（159 行 preventDefault），却不随 tracking 增删、也不受 enableGestures 开关约束（102 行只短路 mousedown），表现为主线程繁忙页面上每段滚动的首个 wheel 事件需等待主线程。同时该监听没有 isMac 门控，143-144 无条件对 deltaX/deltaY 取反，而 138-139 行注释与提交 b6e4b21 说明该取反仅为适配 macOS 触控板自然滚动：Windows/Linux 默认 keepMenu=false 下每次右键都进 tracking，按住右键滚一格滚轮（deltaY≈+100 &gt; 30）即被记为 &#x27;U&#x27;、页面滚动被吞、松开后执行“滚到顶部”，与物理方向相反（横向倾斜同理变 &#x27;L&#x27; → 后退）；macOS 关闭自然滚动的用户整体方向也反了，且 WheelEvent 无法探测该系统设置。</p><div class="fix"><span class="fix-label">建议修复</span><p>把 wheel 监听改为按需注册：mousedown 进入 tracking 后 <code>document.addEventListener(&#x27;wheel&#x27;, onWheel, { passive:false, capture:true })</code>，在 mouseup、window blur、enableGestures 关闭与代际接管处 removeEventListener；同时在 handler 入口加平台门控 <code>if (!isMac) return;</code>（或用一个 sync 设置决定取反符号），并在 CLAUDE.md:262/264 注明 wheel 路径仅限 macOS 且假设自然滚动开启。</p></div>
+</article><article class="issue sev-low" data-sev="low" data-mod="鼠标手势" id="issue-35">
+<header class="issue-head">
+<span class="rank">#35</span>
+<span class="pill pill-low">轻微</span>
+<span class="mod">鼠标手势</span>
+</header>
+<h3 class="issue-title">非 HTML 文档（直接打开的 SVG/XML）上浮层创建抛 TypeError，mouseup 处理器中断导致手势永不执行</h3>
+<div class="locs"><code class="loc">gestures/gestures.js:77</code><code class="loc">gestures/gestures.js:97</code><code class="loc">gestures/gestures.js:166</code><code class="loc">manifest.json:50</code></div>
+<p class="desc">gestures.js 经 manifest.json:50-53 的 <code>&lt;all_urls&gt;</code> 注入到所有顶层文档，包括直接打开的 .svg / .xml / RSS；在这类文档中 <code>document.createElement(&#x27;div&#x27;)</code> 按规范返回 null 命名空间的普通 Element，没有 <code>.style</code>，因此 76 行赋值后 77 行的 <code>indicator.style.cssText</code> 立即抛 TypeError，此后每次 showIndicator 在 92 行也抛错。mouseup 时 165 行置 tracking=false 后 166 行调 hideIndicator()，97 行再次抛错且无 try/catch，处理器在 168-184 之前中止，183 行的 <code>g.run()</code> 永远不会执行——这类页面上所有手势静默失效（控制台有 TypeError）。默认 keepMenu=false 时菜单仍被吞（116 行已置位），只有 keepMenu=true 且非 Mac 时因 177 行未执行而照常弹菜单。</p><div class="fix"><span class="fix-label">建议修复</span><p>76 行改用 <code>document.createElementNS(&#x27;http://www.w3.org/1999/xhtml&#x27;, &#x27;div&#x27;)</code>，使任何文档类型下 indicator 都是带 .style 的 HTMLElement；并把 97 行改为 <code>if (indicator &amp;&amp; indicator.style)</code> 或用 try/catch 包住 show/hideIndicator 调用，保证浮层失败不阻断 177-184 的手势执行。</p></div>
+</article><article class="issue sev-low" data-sev="low" data-mod="YouTube 助手" id="issue-36">
+<header class="issue-head">
+<span class="rank">#36</span>
+<span class="pill pill-low">轻微</span>
+<span class="mod">YouTube 助手</span>
+</header>
+<h3 class="issue-title">panel.js TRANSCRIBE_SEGMENT 的 error 分支不可达：background 从不发送带 error 的 SEGMENT</h3>
+<div class="locs"><code class="loc">youtube/panel.js:973</code><code class="loc">youtube/panel.js:932</code><code class="loc">background.js:1377</code><code class="loc">youtube/core.js:337</code></div>
+<p class="desc">panel.js:973-977 在 TRANSCRIBE_SEGMENT 消息里处理 <code>message.error</code> 并插入“转录失败: …”提示，但全仓库唯一的 SEGMENT 发送点 background.js:1377-1381 硬编码 <code>error: null</code>；所有失败路径（1373 的 <code>if (res.error) return res;</code>、1446 的 <code>return { error }</code>、1329-1335 的 catch）都只经 sendResponse 返回错误，不发 SEGMENT。core.js:337-338 把 <code>resp.error</code> 转成 reject，由 350 行 renderError 渲染，因此该分支及其硬编码内联样式是死代码，panel.js:932-933 的注释“SEGMENT 是转录的终态消息（text 或 error）”也与实际不符；git 历史显示该发送点一直是 <code>error: null</code>。</p><div class="fix"><span class="fix-label">建议修复</span><p>删除 panel.js:973-977 的 <code>else if (message.error &amp;&amp; container)</code> 分支（保留 <code>if (message.text)</code>），并把 932-933 注释改为“SEGMENT 是转录成功的终态消息，失败走 sendResponse 由 core.js renderError 渲染”。</p></div>
+</article><article class="issue sev-low" data-sev="low" data-mod="文档" id="issue-37">
+<header class="issue-head">
+<span class="rank">#37</span>
+<span class="pill pill-low">轻微</span>
+<span class="mod">文档</span>
+</header>
+<h3 class="issue-title">CACHE_* 缓存代理层未进文档（“消息类型完整列表”漏 6 项），且 CACHE_CLEAR / YTX.cache.clear 无任何调用方</h3>
+<div class="locs"><code class="loc">CLAUDE.md:73</code><code class="loc">CLAUDE.md:320</code><code class="loc">background.js:386</code><code class="loc">youtube/core.js:714</code><code class="loc">background.js:462</code></div>
+<p class="desc">CLAUDE.md:73 的小节自称「消息类型完整列表」，但 75-86 的表格只列 10 种，漏掉 background 实际处理的 CANCEL_REQUEST（background.js:462-474）与 CACHE_LOAD/SAVE/REMOVE/CLEAR/MIGRATE_RECORD（background.js:200、453、384-408），而 content 端确实在发这些消息（core.js:143/674/693/705/717/725、translate.js:169-177）；缓存通道还有未记录的信任边界（isTrustedCacheSender 只放行 www.youtube.com 顶层帧）与新增字段（updatedAt、__legacyFeatures），CLAUDE.md:320-321 仍把 IndexedDB 描述为 content 端直接读写，<code>{PREFIX}_ERROR</code> / FETCH_TRANSCRIPT 响应可带 <code>cancelled:true</code> / <code>reason:&#x27;navigation&#x27;</code> 也未提及。同一片区域还有一处死代码：<code>YTX.cache.clear</code>（core.js:714-718）与 background.js:386-389 的 CACHE_CLEAR 分支全仓库无调用方（面板「清除缓存」走 panel.js:319 的 cache.remove），自 82338f0 引入起就没有入口。</p><div class="fix"><span class="fix-label">建议修复</span><p>在消息表补 CANCEL_REQUEST 与 5 个 CACHE_* 行（注明 sender 限制、videoId 正则与 5M 载荷上限），把 IndexedDB 段落改写为“库在扩展 origin、由 background 代理，content 侧 YTX.cache 仅做旧库一次性迁移”，并补一句 <code>_ERROR</code> 可携带 cancelled/reason；同时删除 core.js:714-718 的 clear()、background.js:386-389 的分支与 CACHE_MESSAGE_TYPES 中的 &#x27;CACHE_CLEAR&#x27;（或给它接上真实入口）。</p></div>
+</article><article class="issue sev-low" data-sev="low" data-mod="YouTube 助手" id="issue-38">
+<header class="issue-head">
+<span class="rank">#38</span>
+<span class="pill pill-low">轻微</span>
+<span class="mod">YouTube 助手</span>
+</header>
+<h3 class="issue-title">视频模式提示文案与注释仍宣称“长视频自动分段”，但转录早已是单次请求，且 startSec/endSec 为无人消费的死数据</h3>
+<div class="locs"><code class="loc">youtube/core.js:299</code><code class="loc">youtube/core.js:302</code><code class="loc">background.js:1340</code><code class="loc">background.js:1348</code><code class="loc">background.js:1377</code></div>
+<p class="desc">core.js:299 的面板提示条对用户宣称“长视频会自动分段处理”，302 行注释也仍写 videoDuration “用于判断是否需要分段转录”，但 background.js:1340-1386 的 _fallbackVideoTranscribe 已是单次请求 + 流式输出，TRANSCRIBE_PROGRESS（1347）与 TRANSCRIBE_SEGMENT（1377）均硬编码 <code>index: 0, total: 1</code>；videoDuration 现在只用于 console.log 和填充 startSec/endSec（1348/1378），而 panel.js 从不读取这两个字段。更进一步，长视频撞 maxOutputTokens 65536 时 consumeSSEStream 走 abnormalFinish + meaningfulText 分支返回 <code>{error:&#x27;&#x27;, warning}</code>，_callGeminiTranscribe:1443 只 console.warn，core.js:373-380 仍把状态栏置为绿色“转录完成”，用户看不到字幕被截断的提示。</p><div class="fix"><span class="fix-label">建议修复</span><p>把 core.js:299 的文案改为不承诺分段、删除或改写 302 行注释，并清理 background.js:1348/1378 中无人消费的 startSec/endSec；若想顺带修掉静默截断，可让 _callGeminiTranscribe 把 streamResult.warning 随 SEGMENT 回传，panel.js 显示“转录不完整（已截断）”。</p></div>
+</article><article class="issue sev-low" data-sev="low" data-mod="清单权限" id="issue-39">
+<header class="issue-head">
+<span class="rank">#39</span>
+<span class="pill pill-low">轻微</span>
+<span class="mod">清单权限</span>
+</header>
+<h3 class="issue-title">activeTab 权限冗余：无任何触发入口且能力被必需通配 host 权限完全覆盖，PRIVACY.md 对其用途的说明不实</h3>
+<div class="locs"><code class="loc">manifest.json:6</code><code class="loc">manifest.json:61</code><code class="loc">background.js:2101</code><code class="loc">PRIVACY.md:39</code></div>
+<p class="desc">manifest.json:6 声明的 activeTab 在代码里没有任何触发点：扩展没有 <code>chrome.action.onClicked</code>（61 行使用 default_popup）、没有 commands/contextMenus，popup 端 options.js 只调用 storage/runtime/permissions，从不碰 tabs 或 scripting。真正依赖宿主权限的两条路径——background.js:535/558 对 YouTube tabId 的 executeScript，以及 2101-2120 的 reinjectContentScripts——都由 host_permissions 里的 <code>https://*/*</code> + <code>http://*/*</code> 覆盖（2087-2090 的注释本身即写明「只认 host_permissions」），删除 activeTab 不损失任何能力也不改变安装警告。文档方面 PRIVACY.md:39 把 activeTab 说成“注入面板与提取字幕”的依据是错的（那靠 content_scripts matches + host_permissions）。</p><div class="fix"><span class="fix-label">建议修复</span><p>把 manifest.json:6 改为 <code>&quot;permissions&quot;: [&quot;storage&quot;, &quot;scripting&quot;, &quot;sessions&quot;]</code> 删除 activeTab；同时修正 PRIVACY.md:39，删掉该条目或改写为「面板注入与字幕读取由 content scripts 与宿主权限完成」。</p></div>
+</article><article class="issue sev-low" data-sev="low" data-mod="后台服务" id="issue-40">
+<header class="issue-head">
+<span class="rank">#40</span>
+<span class="pill pill-low">轻微</span>
+<span class="mod">后台服务</span>
+</header>
+<h3 class="issue-title">background.js handleTranslate 字典模式注释写「总长≤30字符」，代码实际为 ≤20</h3>
+<div class="locs"><code class="loc">background.js:1120</code><code class="loc">background.js:1125</code><code class="loc">translate/translate.js:235</code></div>
+<p class="desc">background.js:1120 的注释写「英文≤3词且总长≤30字符」，但紧随的 1125 行实际判定为 <code>strippedLen &lt;= 20</code>；translate.js:235 的 isDictWord 同样用 20，两份逻辑（去空白/标点/数字后 ≤20，且 CJK ≤4 字或非 CJK ≤3 词）完全一致，无功能漂移。CLAUDE.md:225 只写「CJK ≤4 字符或 Latin ≤3 单词」，未提 20 字符上限，属描述不完整。仅注释数字与代码不符，无用户可见 bug。</p><div class="fix"><span class="fix-label">建议修复</span><p>把 background.js:1120 注释中的「总长≤30字符」改为「去掉空白/标点/数字后总长≤20字符」，可选地在 CLAUDE.md:225 补一句该上限。</p></div>
+</article><article class="issue sev-low" data-sev="low" data-mod="文档" id="issue-41">
+<header class="issue-head">
+<span class="rank">#41</span>
+<span class="pill pill-low">轻微</span>
+<span class="mod">文档</span>
+</header>
+<h3 class="issue-title">CLAUDE.md 的 background 流式/超时/SSE/字幕抓取章节多处描述与代码不符（含不存在的符号名）</h3>
+<div class="locs"><code class="loc">CLAUDE.md:167</code><code class="loc">CLAUDE.md:169</code><code class="loc">CLAUDE.md:172</code><code class="loc">CLAUDE.md:217</code><code class="loc">CLAUDE.md:216</code></div>
+<p class="desc">五处均已核实为假：(1) 167 行「Gemini: <code>candidates[0].content.parts[0].text</code>，流结束即完成」——代码拼接所有 parts（background.js:1975-1977）且只有 <code>finishReason === &#x27;STOP&#x27;</code> 才算正常结束，未收到终态标记时 2065 行返回“流式响应意外中断”。(2) 169 行的 <code>doneSent</code> 标志全仓库不存在，真实实现是 createStreamEmitter（1796）的闭包 <code>terminalSent</code>，它让 <code>_DONE</code> 与 <code>_ERROR</code> 互斥并在终态后丢弃 <code>_CHUNK</code>。(3) 172 行的 <code>startKeepalive()</code> 不存在，真实实现是 background.js:19 的引用计数 <code>retainServiceWorker()</code>，且由 createActiveRequest 覆盖所有 callProvider 流式请求而非仅视频转录。(4) 217 行称转录靠 <code>reader.cancel()</code> 兜底，实为 requestContext.startAttempt + AbortController 中止 fetch；文档全篇也未记录 idle/total 中止与 <code>PROVIDER_TIMEOUTS = {90s, 60s, 15min}</code>。(5) 216 行称 DOM 回退耗时 6-30s、流程含“…菜单/暴力搜索”，实际最坏约 128s（8s 等待 + 60s 轮询 + 60s 强制展开）且代码中根本没有菜单点击或暴力搜索逻辑（background.js:528 有同款过时注释）。</p><div class="fix"><span class="fix-label">建议修复</span><p>按代码逐条改写这五处：Gemini 分支写明拼接所有 parts + finishReason=STOP 终态语义；把 <code>doneSent</code> 改为 createStreamEmitter/terminalSent 的终态互斥；把 <code>startKeepalive()</code> 改为 retainServiceWorker() 并说明覆盖所有流式请求；把转录超时改为 AbortController 并补记 PROVIDER_TIMEOUTS/TRANSCRIBE_TIMEOUTS 三档与 503/429 重试；把 DOM 回退耗时改为“无 section 约 6s、有 section 最长约 2 分钟”并列出真实步骤，同时修正 background.js:528 的注释。</p></div>
+</article><article class="issue sev-low" data-sev="low" data-mod="文档" id="issue-42">
+<header class="issue-head">
+<span class="rank">#42</span>
+<span class="pill pill-low">轻微</span>
+<span class="mod">文档</span>
+</header>
+<h3 class="issue-title">面向用户与开发者的说明陈旧：测试命令、免刷新重注入、Sub2API 权限口径、手势表格四处与代码/README 互相矛盾</h3>
+<div class="locs"><code class="loc">CLAUDE.md:48</code><code class="loc">README.md:128</code><code class="loc">README.md:44</code><code class="loc">README.md:103</code><code class="loc">README.md:110</code></div>
+<p class="desc">(1) CLAUDE.md:48 称「没有构建、lint 或测试命令」，但仓库有三个被跟踪的 node:test 文件，<code>node --test tests/*.test.js</code> 在 HEAD 上 36 个用例全部通过，README.md:130 已记录该命令。(2) README.md:128 仍要求“改完代码再刷新 YouTube 页面”，而 background.js:2124-2126 的 onInstalled 重注入 + 四个入口脚本的 takeover 事件已实现免刷新，CLAUDE.md:51 明确写“无需刷新已打开的页面”。(3) README.md:44 说 Sub2API「只请求该域名的可选访问权限」，但 manifest.json:7-9 已把 <code>https://*/*</code> + <code>http://*/*</code> 列为必需 host 权限且无 optional_host_permissions，默认安装即拥有全站访问、该按钮通常不再弹授权框（CLAUDE.md:188 已记录此副作用）。(4) README.md:103-108 的手势表只列 4 项，缺 <code>↑</code> 滚顶 / <code>↓</code> 滚底 / <code>↑↓</code> 强制刷新（gestures.js:60-68 共 7 项）；README.md:110「未达阈值不影响原生右键菜单」与默认 keepMenu=false 的实际行为相反（Win/Linux 无逃生口）。</p><div class="fix"><span class="fix-label">建议修复</span><p>CLAUDE.md:48 改为“没有构建或 lint 命令；测试：<code>node --test tests/*.test.js</code>”并在开发流程补一步；README.md:128 改为与 CLAUDE.md:51 一致的免刷新说法；README.md:44 如实说明扩展已声明通配 host 权限、该按钮主要做 URL 校验与保存；README.md:103-108 补齐三行手势，110 行改写为与 options.html:164-166 一致的默认行为描述。</p></div>
+</article><article class="issue sev-low" data-sev="low" data-mod="文档" id="issue-43">
+<header class="issue-head">
+<span class="rank">#43</span>
+<span class="pill pill-low">轻微</span>
+<span class="mod">文档</span>
+</header>
+<h3 class="issue-title">存储与 prompt 回退的文档描述不准：漏列仍在写入的遗留键 <code>model</code>，并把回退位置写在 getSettings()</h3>
+<div class="locs"><code class="loc">CLAUDE.md:303</code><code class="loc">CLAUDE.md:298</code><code class="loc">options.js:720</code><code class="loc">options.js:321</code><code class="loc">youtube/core.js:111</code></div>
+<p class="desc">(1) CLAUDE.md:303-314 的 <code>chrome.storage.sync</code> 键清单没有列出遗留键 <code>model</code>，但它是活的：options.js:720 每次自动保存都写入，它出现在 STORAGE_KEYS/SETTING_KEYS 中因而随导入导出走，options.js:321-323 在启动时用它为只存过 <code>model</code> 的老配置做迁移回退；真正读模型的两处都不用它，core.js:100 把 &#x27;model&#x27; 放进读取列表属无用读取。(2) CLAUDE.md:298 称「<code>getSettings()</code> 读取时回退到 <code>YTX.prompts.*</code> 默认值」，但 core.js:111-117 是原样 resolve、未设置时返回 undefined，真正的回退在 summary.js:86 / html-notes.js:81 / mindmap.js:246 三个调用点，翻译侧则由 background.js:1135/1155 的真值判断决定；照文档新增 feature 直接透传 <code>settings.promptX</code> 会让 background.js:1052 的 <code>prompt.replace(...)</code> 抛 TypeError。</p><div class="fix"><span class="fix-label">建议修复</span><p>在 sync 键清单补一行 <code>model</code> 并注明“遗留键，仅在 <code>&lt;provider&gt;Model</code> 缺失时作迁移回退，勿删”，顺手去掉 core.js:100 读取列表里无用的 &#x27;model&#x27;；把 CLAUDE.md:298 改为“回退由各 feature 组装消息时 <code>settings.promptX || YTX.prompts.*</code> 完成（summary.js:86 / html-notes.js:81 / mindmap.js:246），翻译侧在 background handleTranslate 的真值判断中”。</p></div>
+</article>
+    <p class="empty" id="empty" hidden>没有匹配的问题。</p>
+    <section class="fixed-section" id="fixed"><h2 class="sev-head sev-fixed"><span class="sev-head-dot"></span>已修复<span class="sev-head-n">1 项</span></h2><p class="fixed-note">以下问题已在代码中修复，保留条目以便回溯。</p><article class="issue sev-high is-fixed" data-sev="high" data-mod="设置页" id="issue-1">
+<header class="issue-head">
+<span class="rank">#1</span>
+<span class="pill pill-fixed">已修复</span>
+<span class="mod">设置页</span>
+</header>
+<h3 class="issue-title">导入含 Sub2API 网关地址的设置时被 1.5s 自动保存用旧缓存整体覆盖，导入确定性失效</h3>
+<div class="locs"><code class="loc">options.js:441</code><code class="loc">options.js:533</code><code class="loc">options.js:532</code><code class="loc">options.js:432</code><code class="loc">options.js:684</code></div>
+<div class="fixnote"><span class="fixnote-label">已改</span><p>排除 &lt;input type=&quot;file&quot;&gt; 的自动保存绑定，并加 importing 标志在导入到 reload 之间阻断 saveSettings。</p></div>
+</article></section>
+
+    <section class="refuted">
+      <h2>复核后驳回</h2>
+      <p class="refuted-note">审查员提出但经独立复核不成立、或属于测试覆盖建议而非代码缺陷的条目，列此备查。</p>
+      <div class="ref-row">
+<code class="loc">gestures/gestures.js:187</code>
+<div class="ref-body"><p class="ref-title">contextmenu and blur listeners lack isTrusted guards (all other entry points have them)</p>
+<p class="ref-why"><span class="ref-why-label">驳回</span>The factual observation is accurate: gestures/gestures.js:187-196 (contextmenu) and :199-202 (window blur) have no <code>isTrusted</code> check, and synthetic DOM events do cross isolated worlds (the takeover mechanism at :34-40 relies on exactly that), so a page can dispatch them. But nothing wrong or security-relevant follows. (1) The only action-executing path is the mouseup handler :162-185: <code>g.run()</code> at :183 requires <code>tracking === true</code>, which is set only at :111 inside the mousedown handler that is guarded by `if (!e.is</p></div>
+</div><div class="ref-row">
+<code class="loc">xhs/xhs-scroll-fix.js:60</code>
+<div class="ref-body"><p class="ref-title">Boundary preventDefault on the nearest vertical scroller blocks scroll-chaining to the modal&#x27;s own outer scroller, and horizontal-only scrollers are never detected</p>
+<p class="ref-why"><span class="ref-why-label">驳回</span>The code logic is exactly as the finder describes: xhs/xhs-scroll-fix.js:40-49 <code>scrollableParent</code> returns the nearest ancestor with <code>overflowY</code> auto/scroll and real vertical overflow (only <code>overflowY</code> is tested, line 44); lines 57-63 call <code>e.preventDefault()</code> when that nearest scroller is at its top/bottom, which by wheel-event semantics cancels the whole default scroll action, including native chaining to any enclosing in-modal scroller; lines 64-67 preventDefault everything when no vertical scroller is found in t</p></div>
+</div><div class="ref-row">
+<code class="loc">options.js:397</code>
+<div class="ref-body"><p class="ref-title">（未验证）弹窗内触发 &lt;input type=file&gt;.click() 打开系统文件对话框可能导致弹窗失焦关闭，导入流程无法完成；manifest 未提供 options_page 作为整页兜底</p>
+<p class="ref-why"><span class="ref-why-label">驳回</span>The code path is internally correct and complete: options.html:174 declares <code>&lt;input type=&quot;file&quot; id=&quot;importFile&quot; accept=&quot;.json&quot; hidden&gt;</code>; options.js:395-398 clears <code>.value</code> (so re-picking the same file still fires change) and calls <code>.click()</code>; options.js:400-448 binds the change handler, validates <code>data._meta.version</code> against [&#x27;AATube&#x27;,&#x27;AAtools&#x27;], runs <code>validateImportedSettings</code>, writes storage.local then storage.sync with <code>chrome.runtime.lastError</code> checks, and reloads (options.js:441). There is no defect in the cod</p></div>
+</div><div class="ref-row">
+<code class="loc">youtube/export.js:126</code>
+<div class="ref-body"><p class="ref-title">sanitizeHtml 只按 rel 白名单删 &lt;link&gt;，rel=icon 等仍保留，可能成为导出 HTML 打开时的外部信标</p>
+<p class="ref-why"><span class="ref-why-label">驳回</span>Code facts check out (export.js:124-131 keeps link[rel=icon]; export.js:143-147 keeps https hrefs), but the alleged wrong behavior depends entirely on an unverified browser behavior: whether current Chrome enforces the injected meta CSP <code>img-src data:</code> (export.js:158) on favicon fetches. Per the HTML/CSP contract a rel=icon fetch has destination &quot;image&quot; and should be blocked by img-src; the claimed Chromium carve-out is something I cannot confirm in this environment, and the finder flags it as uncertain too. Partia</p></div>
+</div><div class="ref-row">
+<code class="loc">options.js:279</code>
+<div class="ref-body"><p class="ref-title">fetchedModels_minimax 被读取/导入/导出，但没有 minimax 拉取器，永远不会产生；CLAUDE.md 列表也不含它</p>
+<p class="ref-why"><span class="ref-why-label">驳回</span>The finder&#x27;s code facts check out, but the failure scenario is unreachable and the doc claim is not false.
+
+(1) Code facts confirmed: options.js:279 reads <code>fetchedModels_minimax</code>, options.js:283 assigns it into <code>fetchedModelsCache.minimax</code>, options.js:375 lists it in <code>LOCAL_KEYS</code>; <code>MODEL_FETCHERS</code> (options.js:747-817) contains only <code>async claude</code> / <code>async openai</code> / <code>async gemini</code> / <code>async deepseek</code> / <code>async kimi</code> — no minimax; options.js:642-646 `const fetcher = MODEL_FETCHERS[currentProvider]; if (!fetcher) { show</p></div>
+</div><div class="ref-row">
+<code class="loc">youtube/export.js:118</code>
+<div class="ref-body"><p class="ref-title">安全模型第 4 条 sanitizeHtml（脚本/外链剥离 + CSP）完全没有测试</p>
+<p class="ref-why"><span class="ref-why-label">驳回</span>The finder&#x27;s factual claims are all accurate, but none of them describe a defect. youtube/export.js:118-173 implements sanitizeHtml exactly as CLAUDE.md&#x27;s security model #4 promises: :124-131 removes <code>script, base, object, embed, iframe, frame, frameset, applet, link[rel=&quot;import&quot;|&quot;stylesheet&quot;|&quot;preload&quot;|&quot;prefetch&quot;|&quot;dns-prefetch&quot;|&quot;preconnect&quot;], link[as], meta[http-equiv]</code>; :134-149 strips every attribute whose lowercased name starts with <code>on</code> and clears <code>javascript:/data:/vbscript:</code> from href/src/xlink:href/action/fo</p></div>
+</div><div class="ref-row">
+<code class="loc">youtube/panel.js:992</code>
+<div class="ref-body"><p class="ref-title">“请求隔离”核心——panel.js 路由层的 requestId/videoId 过滤没有任何测试</p>
+<p class="ref-why"><span class="ref-why-label">驳回</span>The factual claims check out but describe no defect. panel.js:992 <code>if (message.requestId &amp;&amp; message.requestId !== feature.requestId) return;</code> and the _MODEL filter at :844, plus the videoId+requestId pairs at :859-860 / :900-901 / :931-932, implement exactly what CLAUDE.md&#x27;s &quot;请求隔离&quot; section specifies (stale chunks dropped, including when feature.requestId is null). background.js always attaches requestId to these messages (line 1553 <code>const send = (msg) =&gt; safeSend(tabId, Object.assign({ requestId }, msg));</code>, and the</p></div>
+</div><div class="ref-row">
+<code class="loc">gestures/gestures.js:100</code>
+<div class="ref-body"><p class="ref-title">gestures.js 零测试：方向序列、keepMenu/Shift XOR、wheel 路径、isTrusted 守卫均无覆盖</p>
+<p class="ref-why"><span class="ref-why-label">驳回</span>The finder&#x27;s factual claims all check out — gestures/gestures.js:100-117 is the mousedown handler with the XOR guard <code>if (isMac &amp;&amp; keepMenu !== e.shiftKey) { suppressContext = false; return; }</code> at :110, mousemove accumulation at :119-136, wheel at :140-160 (<code>const dx = -e.deltaX; const dy = -e.deltaY;</code>), mouseup execution of <code>GESTURES[key]</code> at :162-185, and <code>ls tests/</code> returns only background.test.js / content-core.test.js / options.test.js. But no defect is described. I read every branch in the file and none of th</p></div>
+</div><div class="ref-row">
+<code class="loc">background.js:1125</code>
+<div class="ref-body"><p class="ref-title">字典/句段模式判定在 background.js 与 translate.js 各有一份，无一致性测试</p>
+<p class="ref-why"><span class="ref-why-label">驳回</span>Read both implementations in full. background.js:1122-1128 (<code>const trimmed = text.trim(); const strippedLen = trimmed.replace(/[\s\p{P}\d]/gu,&#x27;&#x27;).length; const wordCount = trimmed.split(/\s+/).length; const hasCJK = /[一-鿿㐀-䶿]/.test(trimmed); const isDictMode = strippedLen &lt;= 20 &amp;&amp; ((hasCJK &amp;&amp; strippedLen &lt;= 4) || (!hasCJK &amp;&amp; wordCount &lt;= 3));</code>) and translate/translate.js:232-240 (<code>isDictWord</code>, which early-returns false when <code>strippedLen &gt; 20</code> and otherwise returns the same disjunction) are semantically identical fo</p></div>
+</div><div class="ref-row">
+<code class="loc">youtube/core.js:75</code>
+<div class="ref-body"><p class="ref-title">安全模型第 3 条 YTX.safeTime（mindmap time 字段防注入）没有测试</p>
+<p class="ref-why"><span class="ref-why-label">驳回</span>The finder&#x27;s factual claims check out (youtube/core.js:75 defines safeTime; youtube/mindmap.js:123-131 gates the timestamp badge on it; <code>grep -rn safeTime</code> matches only those two lines, so no test references it), but nothing in the current code is wrong. I ran the actual regex <code>/^\d{1,2}(:\d{2}){1,2}$/</code> against the finder&#x27;s own payloads: <code>&lt;img src=x onerror=alert(1)&gt;</code> → false, <code>1:2:3:4</code> → false, <code>1:23</code>/<code>12:34:56</code> → true. So the defense works, <code>safeT</code> is null for any injection payload, and mindmap.js:124 `if (safeT)</p></div>
+</div>
+    </section>
+  </main>
+</div>
+
+<p class="foot">生成于 2026-09-08 · 数据源 <code>audit/issues.json</code>，修复后把该条 <code>fixed</code> 改为 true 并重跑 <code>python3 audit/build.py</code>。</p>
+
+<script>
+(function () {
+  var root = document.documentElement;
+  function get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+  function set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+
+  var saved = get('aatools-audit-theme');
+  if (saved === 'dark' || saved === 'light') root.setAttribute('data-theme', saved);
+  document.getElementById('themeBtn').addEventListener('click', function () {
+    var dark = root.getAttribute('data-theme') === 'dark' ||
+      (!root.hasAttribute('data-theme') && matchMedia('(prefers-color-scheme: dark)').matches);
+    var next = dark ? 'light' : 'dark';
+    root.setAttribute('data-theme', next);
+    set('aatools-audit-theme', next);
+  });
+
+  var issues = [].slice.call(document.querySelectorAll('#list > .issue'));
+  var navItems = [].slice.call(document.querySelectorAll('.nav-item'));
+  var heads = [].slice.call(document.querySelectorAll('#list > .sev-head'));
+  var qEl = document.getElementById('q');
+  var emptyEl = document.getElementById('empty');
+  var sevOn = {}, modOn = {};
+
+  function anyOn(o) { for (var k in o) { if (o[k]) return true; } return false; }
+
+  function apply() {
+    var q = qEl.value.trim().toLowerCase();
+    var shown = 0, byRank = {};
+    issues.forEach(function (el) {
+      var ok = true;
+      if (anyOn(sevOn) && !sevOn[el.dataset.sev]) ok = false;
+      if (ok && anyOn(modOn) && !modOn[el.dataset.mod]) ok = false;
+      if (ok && q && el.textContent.toLowerCase().indexOf(q) < 0) ok = false;
+      el.hidden = !ok;
+      byRank[el.id.slice(6)] = ok;
+      if (ok) shown++;
+    });
+    navItems.forEach(function (a) { a.hidden = !byRank[a.dataset.nav]; });
+    heads.forEach(function (h) {
+      var sib = h.nextElementSibling, live = false;
+      while (sib && sib.classList.contains('issue')) {
+        if (!sib.hidden) { live = true; break; }
+        sib = sib.nextElementSibling;
+      }
+      h.hidden = !live;
+    });
+    emptyEl.hidden = shown > 0;
+  }
+
+  function bindChips(id, state, key) {
+    var host = document.getElementById(id);
+    if (!host) return;
+    host.addEventListener('click', function (ev) {
+      var btn = ev.target.closest('.chip');
+      if (!btn) return;
+      var v = btn.getAttribute(key);
+      state[v] = !state[v];
+      btn.setAttribute('aria-pressed', state[v] ? 'true' : 'false');
+      apply();
+    });
+  }
+  bindChips('sevChips', sevOn, 'data-filter-sev');
+  bindChips('modChips', modOn, 'data-filter-mod');
+  qEl.addEventListener('input', apply);
+})();
+</script>

@@ -105,6 +105,8 @@ const PROVIDERS = {
 const $ = (sel) => document.querySelector(sel);
 
 let currentProvider = 'claude';
+// 导入设置期间为 true：此时内存缓存尚未刷新，任何保存都会覆盖刚导入的值
+let importing = false;
 let keyCache = { claudeKey: '', openaiKey: '', geminiKey: '', minimaxKey: '', deepseekKey: '', kimiKey: '', sub2apiKey: '' };
 let modelCache = { claude: '', openai: '', gemini: '', minimax: '', deepseek: '', kimi: '', sub2api: '', chatgpt: '' };
 let sub2apiBaseUrl = '';
@@ -429,8 +431,12 @@ document.addEventListener('DOMContentLoaded', () => {
             }
           });
         }
+        // 导入到 reload 之间禁止一切保存：内存缓存仍是导入前的值，任何 saveSettings
+        // 都会把刚导入的配置整体写回旧值。reload 会重新读 storage 并复位该标志。
+        importing = true;
         chrome.storage.sync.set(filtered, () => {
           if (chrome.runtime.lastError) {
+            importing = false;
             showStatus('设置导入失败：' + chrome.runtime.lastError.message, 'error');
             return;
           }
@@ -528,9 +534,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
   refreshChatgptAuthStatus();
 
-  // 自动保存：监听所有表单变化，debounce 1.5 秒
+  // 自动保存：监听所有表单变化，debounce 1.5 秒。
+  // 排除 <input type="file">：选择导入文件也会派发 change，1.5s 后的自动保存会用
+  // 导入前的 keyCache/modelCache 覆盖刚写入的设置（带网关的导入要 1800ms 才 reload）。
   const autoSave = debounce(() => saveSettings(false), 1500);
-  document.querySelectorAll('input, select, textarea').forEach(el => {
+  document.querySelectorAll('input:not([type="file"]), select, textarea').forEach(el => {
     el.addEventListener('input', autoSave);
     el.addEventListener('change', autoSave);
   });
@@ -682,6 +690,8 @@ function debounce(fn, ms) {
 
 // ── 保存设置（isManual=true 显示提示，false 静默）─────────────
 function saveSettings(isManual, gatewayProvider, gatewayBaseOverride) {
+  // 导入进行中：内存缓存还是导入前的旧值，写回会整体覆盖刚导入的设置
+  if (importing) return;
   const cfg = PROVIDERS[currentProvider];
 
   const oldGatewayBase = gatewayProvider ? getSavedGatewayBase(gatewayProvider) : '';
