@@ -561,8 +561,8 @@
    ],
    "description": "gestures.js:140-160 的 wheel 监听在脚本加载时无条件向 document 注册 capture 阶段、`{passive:false}` 的处理器，而 manifest.json:50-52 把该脚本注入 `<all_urls>`，因此每个顶层页面都常驻一个阻塞型 wheel 监听——它只在 tracking 期间才需要非 passive（159 行 preventDefault），却不随 tracking 增删、也不受 enableGestures 开关约束（102 行只短路 mousedown），表现为主线程繁忙页面上每段滚动的首个 wheel 事件需等待主线程。同时该监听没有 isMac 门控，143-144 无条件对 deltaX/deltaY 取反，而 138-139 行注释与提交 b6e4b21 说明该取反仅为适配 macOS 触控板自然滚动：Windows/Linux 默认 keepMenu=false 下每次右键都进 tracking，按住右键滚一格滚轮（deltaY≈+100 > 30）即被记为 'U'、页面滚动被吞、松开后执行“滚到顶部”，与物理方向相反（横向倾斜同理变 'L' → 后退）；macOS 关闭自然滚动的用户整体方向也反了，且 WheelEvent 无法探测该系统设置。",
    "fix": "把 wheel 监听改为按需注册：mousedown 进入 tracking 后 `document.addEventListener('wheel', onWheel, { passive:false, capture:true })`，在 mouseup、window blur、enableGestures 关闭与代际接管处 removeEventListener；同时在 handler 入口加平台门控 `if (!isMac) return;`（或用一个 sync 设置决定取反符号），并在 CLAUDE.md:262/264 注明 wheel 路径仅限 macOS 且假设自然滚动开启。",
-   "fixed": false,
-   "fixed_note": ""
+   "fixed": true,
+   "fixed_note": "wheel 监听改为按需注册：mousedown 进入 tracking 时挂上，mouseup/blur/关闭总开关/代际接管时摘掉；startWheelTracking 用 isMac 门控，Windows/Linux 不再因取反 delta 触发反向手势。CLAUDE.md 补充说明"
   },
   {
    "rank": 35,

@@ -21,6 +21,9 @@
   // 而不是「是 macOS」，否则 Linux 上 keepMenu=true 完全失效。
   const isWin = /Win/i.test(navigator.platform || '');
   const menuOnDown = !isWin;
+  // wheel 手势只对 macOS 触控板有意义（按住右键 + 另一指滑动会发 wheel 而非
+  // mousemove），且取反 delta 假设的是 macOS 默认的自然滚动。
+  const isMac = /Mac|iPhone|iPad|iPod/i.test(navigator.platform || '');
 
   let enabled = true; // 总开关，默认启用，由 storage 决定
   let keepMenu = false; // 是否保留原生右键菜单（默认 false：右键直接走手势）
@@ -48,6 +51,7 @@
   document.addEventListener(GEN_EVENT, () => {
     destroyed = true;
     tracking = false;
+    stopWheelTracking();
     if (indicator && indicator.parentNode) indicator.parentNode.removeChild(indicator);
     indicator = null;
   });
@@ -64,7 +68,7 @@
         enabled = changes.enableGestures.newValue !== false;
         // 关闭时必须一并清掉 suppressContext：否则残留的 true 会让 contextmenu
         // 监听继续吞掉原生右键菜单，直到页面刷新
-        if (!enabled) { tracking = false; suppressContext = false; hideIndicator(); }
+        if (!enabled) { tracking = false; stopWheelTracking(); suppressContext = false; hideIndicator(); }
       }
       if (changes.gestureKeepMenu) {
         keepMenu = !!changes.gestureKeepMenu.newValue;
@@ -139,6 +143,7 @@
     // 抑制 contextmenu：keepMenu=false 一律抑制；keepMenu=true 时只有菜单在
     // mousedown 触发的平台需要立即抑制（Windows 等到 mouseup 再决定）
     suppressContext = !keepMenu || menuOnDown;
+    startWheelTracking();
   }, true);
 
   document.addEventListener('mousemove', function (e) {
@@ -167,7 +172,13 @@
 
   // macOS 触摸板按住右键 + 另一根手指滑动 → 系统发 wheel 事件而非 mousemove
   // tracking 期间把 wheel 也算成手势位移；deltaX/deltaY 取反以匹配手指物理方向（macOS 自然滚动）
-  document.addEventListener('wheel', function (e) {
+  //
+  // 监听按需注册（见 startWheelTracking / stopWheelTracking），不是脚本加载时常驻：
+  // · 它只在 tracking 期间需要非 passive（要 preventDefault），常驻一个 <all_urls>
+  //   的阻塞型 document 级 wheel 捕获监听会让每段滚动的首个事件等待主线程
+  // · 取反 delta 只适配 macOS 自然滚动；Windows/Linux 默认 keepMenu=false 下
+  //   每次右键都进 tracking，按住右键滚一格就被记成方向相反的手势并吞掉滚动
+  function onWheel(e) {
     if (!tracking) return;
     if (!e.isTrusted) return;
 
@@ -196,12 +207,25 @@
     const key = directions.join('');
     const g = GESTURES[key];
     showIndicator(g ? g.label : '手势 ' + (key.split('').map(c => ({L:'←',R:'→',U:'↑',D:'↓'}[c])).join('')), !!g);
-  }, { passive: false, capture: true });
+  }
+
+  let wheelBound = false;
+  function startWheelTracking() {
+    if (wheelBound || !isMac) return;
+    wheelBound = true;
+    document.addEventListener('wheel', onWheel, { passive: false, capture: true });
+  }
+  function stopWheelTracking() {
+    if (!wheelBound) return;
+    wheelBound = false;
+    document.removeEventListener('wheel', onWheel, { capture: true });
+  }
 
   document.addEventListener('mouseup', function (e) {
     if (!tracking || e.button !== 2) return;
     if (!e.isTrusted) return;
     tracking = false;
+    stopWheelTracking();
     hideIndicator();
 
     if (totalMoved < MIN_GESTURE) {
@@ -248,6 +272,7 @@
   // 拖出窗口或切窗口时复位
   window.addEventListener('blur', function () {
     tracking = false;
+    stopWheelTracking();
     hideIndicator();
   });
 })();

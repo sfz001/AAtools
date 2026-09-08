@@ -197,11 +197,11 @@ h1 { font-size:30px; font-weight:600; letter-spacing:-.018em; margin:0; text-wra
 
 <section class="stats">
   <div class="stats-in">
-    <div class="stat"><div class="stat-n">10</div><div class="stat-l">待处理</div></div>
+    <div class="stat"><div class="stat-n">9</div><div class="stat-l">待处理</div></div>
     <div class="stat"><div class="stat-n high">0</div><div class="stat-l">严重</div></div>
     <div class="stat"><div class="stat-n med">0</div><div class="stat-l">中等</div></div>
-    <div class="stat"><div class="stat-n low">10</div><div class="stat-l">轻微</div></div>
-    <div class="stat"><div class="stat-n done">33</div><div class="stat-l">已修复</div></div>
+    <div class="stat"><div class="stat-n low">9</div><div class="stat-l">轻微</div></div>
+    <div class="stat"><div class="stat-n done">34</div><div class="stat-l">已修复</div></div>
     <div class="stat"><div class="stat-n">10</div><div class="stat-l">复核驳回</div></div>
     <div class="stat"><div class="stat-n ok">36/36</div><div class="stat-l">现有测试通过</div></div>
   </div>
@@ -218,28 +218,19 @@ h1 { font-size:30px; font-weight:600; letter-spacing:-.018em; margin:0; text-wra
       <div class="chips" id="sevChips">
         <button class="chip" data-filter-sev="high" aria-pressed="false">严重<span class="chip-n">0</span></button>
         <button class="chip" data-filter-sev="med" aria-pressed="false">中等<span class="chip-n">0</span></button>
-        <button class="chip" data-filter-sev="low" aria-pressed="false">轻微<span class="chip-n">10</span></button>
+        <button class="chip" data-filter-sev="low" aria-pressed="false">轻微<span class="chip-n">9</span></button>
       </div>
     </div>
     <div>
       <p class="rail-label">模块</p>
-      <div class="chips" id="modChips"><button class="chip" data-filter-mod="鼠标手势" aria-pressed="false">鼠标手势<span class="chip-n">2</span></button><button class="chip" data-filter-mod="YouTube 助手" aria-pressed="false">YouTube 助手<span class="chip-n">2</span></button><button class="chip" data-filter-mod="文档" aria-pressed="false">文档<span class="chip-n">4</span></button><button class="chip" data-filter-mod="清单权限" aria-pressed="false">清单权限<span class="chip-n">1</span></button><button class="chip" data-filter-mod="后台服务" aria-pressed="false">后台服务<span class="chip-n">1</span></button></div>
+      <div class="chips" id="modChips"><button class="chip" data-filter-mod="鼠标手势" aria-pressed="false">鼠标手势<span class="chip-n">1</span></button><button class="chip" data-filter-mod="YouTube 助手" aria-pressed="false">YouTube 助手<span class="chip-n">2</span></button><button class="chip" data-filter-mod="文档" aria-pressed="false">文档<span class="chip-n">4</span></button><button class="chip" data-filter-mod="清单权限" aria-pressed="false">清单权限<span class="chip-n">1</span></button><button class="chip" data-filter-mod="后台服务" aria-pressed="false">后台服务<span class="chip-n">1</span></button></div>
     </div>
     <a class="rail-jump" href="#fixed">跳到已修复 &darr;</a>
-    <nav class="nav" id="nav" aria-label="问题索引"><a class="nav-item" href="#issue-34" data-nav="34" data-sev="low" data-mod="鼠标手势"><span class="nav-dot sev-low"></span><span class="nav-n">34</span><span class="nav-t">wheel 监听未按平台/tracking 门控：Windows/Linux 滚轮方向反转触</span></a><a class="nav-item" href="#issue-35" data-nav="35" data-sev="low" data-mod="鼠标手势"><span class="nav-dot sev-low"></span><span class="nav-n">35</span><span class="nav-t">非 HTML 文档（直接打开的 SVG/XML）上浮层创建抛 TypeError，mouse</span></a><a class="nav-item" href="#issue-36" data-nav="36" data-sev="low" data-mod="YouTube 助手"><span class="nav-dot sev-low"></span><span class="nav-n">36</span><span class="nav-t">panel.js TRANSCRIBE_SEGMENT 的 error 分支不可达：back</span></a><a class="nav-item" href="#issue-37" data-nav="37" data-sev="low" data-mod="文档"><span class="nav-dot sev-low"></span><span class="nav-n">37</span><span class="nav-t">CACHE_* 缓存代理层未进文档（“消息类型完整列表”漏 6 项），且 CACHE_CLE</span></a><a class="nav-item" href="#issue-38" data-nav="38" data-sev="low" data-mod="YouTube 助手"><span class="nav-dot sev-low"></span><span class="nav-n">38</span><span class="nav-t">视频模式提示文案与注释仍宣称“长视频自动分段”，但转录早已是单次请求，且 startSec/</span></a><a class="nav-item" href="#issue-39" data-nav="39" data-sev="low" data-mod="清单权限"><span class="nav-dot sev-low"></span><span class="nav-n">39</span><span class="nav-t">activeTab 权限冗余：无任何触发入口且能力被必需通配 host 权限完全覆盖，PRI</span></a><a class="nav-item" href="#issue-40" data-nav="40" data-sev="low" data-mod="后台服务"><span class="nav-dot sev-low"></span><span class="nav-n">40</span><span class="nav-t">background.js handleTranslate 字典模式注释写「总长≤30字符」</span></a><a class="nav-item" href="#issue-41" data-nav="41" data-sev="low" data-mod="文档"><span class="nav-dot sev-low"></span><span class="nav-n">41</span><span class="nav-t">CLAUDE.md 的 background 流式/超时/SSE/字幕抓取章节多处描述与代码</span></a><a class="nav-item" href="#issue-42" data-nav="42" data-sev="low" data-mod="文档"><span class="nav-dot sev-low"></span><span class="nav-n">42</span><span class="nav-t">面向用户与开发者的说明陈旧：测试命令、免刷新重注入、Sub2API 权限口径、手势表格四处与</span></a><a class="nav-item" href="#issue-43" data-nav="43" data-sev="low" data-mod="文档"><span class="nav-dot sev-low"></span><span class="nav-n">43</span><span class="nav-t">存储与 prompt 回退的文档描述不准：漏列仍在写入的遗留键 `model`，并把回退位置</span></a></nav>
+    <nav class="nav" id="nav" aria-label="问题索引"><a class="nav-item" href="#issue-35" data-nav="35" data-sev="low" data-mod="鼠标手势"><span class="nav-dot sev-low"></span><span class="nav-n">35</span><span class="nav-t">非 HTML 文档（直接打开的 SVG/XML）上浮层创建抛 TypeError，mouse</span></a><a class="nav-item" href="#issue-36" data-nav="36" data-sev="low" data-mod="YouTube 助手"><span class="nav-dot sev-low"></span><span class="nav-n">36</span><span class="nav-t">panel.js TRANSCRIBE_SEGMENT 的 error 分支不可达：back</span></a><a class="nav-item" href="#issue-37" data-nav="37" data-sev="low" data-mod="文档"><span class="nav-dot sev-low"></span><span class="nav-n">37</span><span class="nav-t">CACHE_* 缓存代理层未进文档（“消息类型完整列表”漏 6 项），且 CACHE_CLE</span></a><a class="nav-item" href="#issue-38" data-nav="38" data-sev="low" data-mod="YouTube 助手"><span class="nav-dot sev-low"></span><span class="nav-n">38</span><span class="nav-t">视频模式提示文案与注释仍宣称“长视频自动分段”，但转录早已是单次请求，且 startSec/</span></a><a class="nav-item" href="#issue-39" data-nav="39" data-sev="low" data-mod="清单权限"><span class="nav-dot sev-low"></span><span class="nav-n">39</span><span class="nav-t">activeTab 权限冗余：无任何触发入口且能力被必需通配 host 权限完全覆盖，PRI</span></a><a class="nav-item" href="#issue-40" data-nav="40" data-sev="low" data-mod="后台服务"><span class="nav-dot sev-low"></span><span class="nav-n">40</span><span class="nav-t">background.js handleTranslate 字典模式注释写「总长≤30字符」</span></a><a class="nav-item" href="#issue-41" data-nav="41" data-sev="low" data-mod="文档"><span class="nav-dot sev-low"></span><span class="nav-n">41</span><span class="nav-t">CLAUDE.md 的 background 流式/超时/SSE/字幕抓取章节多处描述与代码</span></a><a class="nav-item" href="#issue-42" data-nav="42" data-sev="low" data-mod="文档"><span class="nav-dot sev-low"></span><span class="nav-n">42</span><span class="nav-t">面向用户与开发者的说明陈旧：测试命令、免刷新重注入、Sub2API 权限口径、手势表格四处与</span></a><a class="nav-item" href="#issue-43" data-nav="43" data-sev="low" data-mod="文档"><span class="nav-dot sev-low"></span><span class="nav-n">43</span><span class="nav-t">存储与 prompt 回退的文档描述不准：漏列仍在写入的遗留键 `model`，并把回退位置</span></a></nav>
   </aside>
 
   <main id="list">
-    <h2 class="sev-head sev-low" id="sev-low"><span class="sev-head-dot"></span>轻微<span class="sev-head-n">10 项</span></h2><article class="issue sev-low" data-sev="low" data-mod="鼠标手势" id="issue-34">
-<header class="issue-head">
-<span class="rank">#34</span>
-<span class="pill pill-low">轻微</span>
-<span class="mod">鼠标手势</span>
-</header>
-<h3 class="issue-title">wheel 监听未按平台/tracking 门控：Windows/Linux 滚轮方向反转触发误手势，且所有页面常驻一个非 passive 的 document 级 wheel 捕获监听</h3>
-<div class="locs"><code class="loc">gestures/gestures.js:143</code><code class="loc">gestures/gestures.js:160</code><code class="loc">gestures/gestures.js:141</code><code class="loc">manifest.json:50</code></div>
-<p class="desc">gestures.js:140-160 的 wheel 监听在脚本加载时无条件向 document 注册 capture 阶段、<code>{passive:false}</code> 的处理器，而 manifest.json:50-52 把该脚本注入 <code>&lt;all_urls&gt;</code>，因此每个顶层页面都常驻一个阻塞型 wheel 监听——它只在 tracking 期间才需要非 passive（159 行 preventDefault），却不随 tracking 增删、也不受 enableGestures 开关约束（102 行只短路 mousedown），表现为主线程繁忙页面上每段滚动的首个 wheel 事件需等待主线程。同时该监听没有 isMac 门控，143-144 无条件对 deltaX/deltaY 取反，而 138-139 行注释与提交 b6e4b21 说明该取反仅为适配 macOS 触控板自然滚动：Windows/Linux 默认 keepMenu=false 下每次右键都进 tracking，按住右键滚一格滚轮（deltaY≈+100 &gt; 30）即被记为 &#x27;U&#x27;、页面滚动被吞、松开后执行“滚到顶部”，与物理方向相反（横向倾斜同理变 &#x27;L&#x27; → 后退）；macOS 关闭自然滚动的用户整体方向也反了，且 WheelEvent 无法探测该系统设置。</p><div class="fix"><span class="fix-label">建议修复</span><p>把 wheel 监听改为按需注册：mousedown 进入 tracking 后 <code>document.addEventListener(&#x27;wheel&#x27;, onWheel, { passive:false, capture:true })</code>，在 mouseup、window blur、enableGestures 关闭与代际接管处 removeEventListener；同时在 handler 入口加平台门控 <code>if (!isMac) return;</code>（或用一个 sync 设置决定取反符号），并在 CLAUDE.md:262/264 注明 wheel 路径仅限 macOS 且假设自然滚动开启。</p></div>
-</article><article class="issue sev-low" data-sev="low" data-mod="鼠标手势" id="issue-35">
+    <h2 class="sev-head sev-low" id="sev-low"><span class="sev-head-dot"></span>轻微<span class="sev-head-n">9 项</span></h2><article class="issue sev-low" data-sev="low" data-mod="鼠标手势" id="issue-35">
 <header class="issue-head">
 <span class="rank">#35</span>
 <span class="pill pill-low">轻微</span>
@@ -322,7 +313,7 @@ h1 { font-size:30px; font-weight:600; letter-spacing:-.018em; margin:0; text-wra
 <p class="desc">(1) CLAUDE.md:303-314 的 <code>chrome.storage.sync</code> 键清单没有列出遗留键 <code>model</code>，但它是活的：options.js:720 每次自动保存都写入，它出现在 STORAGE_KEYS/SETTING_KEYS 中因而随导入导出走，options.js:321-323 在启动时用它为只存过 <code>model</code> 的老配置做迁移回退；真正读模型的两处都不用它，core.js:100 把 &#x27;model&#x27; 放进读取列表属无用读取。(2) CLAUDE.md:298 称「<code>getSettings()</code> 读取时回退到 <code>YTX.prompts.*</code> 默认值」，但 core.js:111-117 是原样 resolve、未设置时返回 undefined，真正的回退在 summary.js:86 / html-notes.js:81 / mindmap.js:246 三个调用点，翻译侧则由 background.js:1135/1155 的真值判断决定；照文档新增 feature 直接透传 <code>settings.promptX</code> 会让 background.js:1052 的 <code>prompt.replace(...)</code> 抛 TypeError。</p><div class="fix"><span class="fix-label">建议修复</span><p>在 sync 键清单补一行 <code>model</code> 并注明“遗留键，仅在 <code>&lt;provider&gt;Model</code> 缺失时作迁移回退，勿删”，顺手去掉 core.js:100 读取列表里无用的 &#x27;model&#x27;；把 CLAUDE.md:298 改为“回退由各 feature 组装消息时 <code>settings.promptX || YTX.prompts.*</code> 完成（summary.js:86 / html-notes.js:81 / mindmap.js:246），翻译侧在 background handleTranslate 的真值判断中”。</p></div>
 </article>
     <p class="empty" id="empty" hidden>没有匹配的问题。</p>
-    <section class="fixed-section" id="fixed"><h2 class="sev-head sev-fixed"><span class="sev-head-dot"></span>已修复<span class="sev-head-n">33 项</span></h2><p class="fixed-note">以下问题已在代码中修复，保留条目以便回溯。</p><article class="issue sev-high is-fixed" data-sev="high" data-mod="设置页" id="issue-1">
+    <section class="fixed-section" id="fixed"><h2 class="sev-head sev-fixed"><span class="sev-head-dot"></span>已修复<span class="sev-head-n">34 项</span></h2><p class="fixed-note">以下问题已在代码中修复，保留条目以便回溯。</p><article class="issue sev-high is-fixed" data-sev="high" data-mod="设置页" id="issue-1">
 <header class="issue-head">
 <span class="rank">#1</span>
 <span class="pill pill-fixed">已修复</span>
@@ -619,6 +610,15 @@ h1 { font-size:30px; font-weight:600; letter-spacing:-.018em; margin:0; text-wra
 <h3 class="issue-title">gestures mousemove 把每次事件到锚点的距离累加进 totalMoved，MIN_GESTURE 有效阈值被压低到约 3-4px</h3>
 <div class="locs"><code class="loc">gestures/gestures.js:125</code><code class="loc">gestures/gestures.js:112</code><code class="loc">gestures/gestures.js:130</code><code class="loc">gestures/gestures.js:143</code></div>
 <div class="fixnote"><span class="fixnote-label">已改</span><p>mousemove 改用 prevPoint 按事件增量累加 totalMoved，路径长度口径与 wheel 分支一致，MIN_GESTURE=8 恢复为真实阈值；lastPoint 仍只作 MIN_SEGMENT 的分段锚点</p></div>
+</article><article class="issue sev-low is-fixed" data-sev="low" data-mod="鼠标手势" id="issue-34">
+<header class="issue-head">
+<span class="rank">#34</span>
+<span class="pill pill-fixed">已修复</span>
+<span class="mod">鼠标手势</span>
+</header>
+<h3 class="issue-title">wheel 监听未按平台/tracking 门控：Windows/Linux 滚轮方向反转触发误手势，且所有页面常驻一个非 passive 的 document 级 wheel 捕获监听</h3>
+<div class="locs"><code class="loc">gestures/gestures.js:143</code><code class="loc">gestures/gestures.js:160</code><code class="loc">gestures/gestures.js:141</code><code class="loc">manifest.json:50</code></div>
+<div class="fixnote"><span class="fixnote-label">已改</span><p>wheel 监听改为按需注册：mousedown 进入 tracking 时挂上，mouseup/blur/关闭总开关/代际接管时摘掉；startWheelTracking 用 isMac 门控，Windows/Linux 不再因取反 delta 触发反向手势。CLAUDE.md 补充说明</p></div>
 </article></section>
 
     <section class="refuted">

@@ -260,6 +260,8 @@ YouTube SPA 切视频时旧异步操作会污染新视频结果。用四层防�
 **识别逻辑**
 
 - 右键 `mousedown` 开始追踪 → `mousemove`（鼠标）/ `wheel`（Mac 触控板按住右键 + 另一指滑动会发 wheel 而非 mousemove）累计方向序列 → `mouseup` 匹配 `GESTURES` 表执行
+- **wheel 路径仅限 macOS，且假设自然滚动开启**：handler 把 `-deltaX/-deltaY` 计入方向序列，这个取反只对 macOS 默认的自然滚动成立；Windows/Linux 上按住右键滚一格会被记成方向相反的手势，所以 `startWheelTracking()` 用 `isMac` 门控。监听还按需注册：`mousedown` 进入 tracking 时挂上、`mouseup`/`blur`/关闭总开关/代际接管时摘掉——它只在 tracking 期间需要非 passive（要 `preventDefault`），常驻一个 `<all_urls>` 的阻塞型 document 级 wheel 捕获监听会让每段滚动的首个事件等待主线程
+- **totalMoved 按事件增量累加**：`prevPoint` 每次 mousemove 都前移，`lastPoint` 只作 `MIN_SEGMENT` 的分段锚点。用分段锚点算距离会把 30px 内的慢速漂移按 1+2+3+4… 叠加，把 `MIN_GESTURE` 的有效阈值压到 3-4px
 - **`gestureKeepMenu` 设置**（`chrome.storage.sync`，boolean，默认 `false`）：
   - **`false`（默认，触控板友好）**：所有平台右键直接进手势模式，contextmenu 抑制（`suppressContext = true` 在 mousedown 时设置）。Mac 用户配"左下角=右键"后，按住左下角 + 触控板滑动即触发手势；wheel 事件 handler 把滑动按 `-deltaX/-deltaY` 计入方向序列（自然滚动取反）。**Mac 上 `Shift+右键` 是逃生口**：mousedown 守卫直接 return 不进 tracking，contextmenu 不被抑制，原生菜单照常弹
   - **`true`（保留菜单）**：
