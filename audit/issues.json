@@ -277,8 +277,8 @@
    ],
    "description": "gestures.js:18 只用 `isMac` 区分「contextmenu 在 mousedown 触发」的平台，但 Chromium 的 `context_menu_on_mouse_up = BUILDFLAG(IS_WIN)` 与 web_frame_widget_impl.cc 的 HandleMouseDown/HandleMouseUp 表明只有 Windows 在 mouseup 弹菜单，Linux/ChromeOS 与 macOS 一样在 mousedown 立即派发（Blink 注释即 \"On Mac/Linux, we handle it on mouse down, not up\"）。因此 Linux + `gestureKeepMenu=true` 时，116 行算出 `suppressContext = false`，191-195 不 preventDefault，原生菜单在每次右键按下瞬间弹出、拖动手势无法开始，而 177 行到 mouseup 才置标志已经太迟；菜单弹出后页面大概率收不到 mouseup 也不 blur，tracking 可能残留为 true 而持续显示浮层。gestures.js:15/108/115/170 注释、CLAUDE.md:266/272/313 与 options.html:165 的「Win/Linux 短按弹菜单、拖动触发手势」描述均与引擎实际行为不符；默认 keepMenu=false 不受影响。",
    "fix": "把「菜单在 mousedown 触发」的判定从 `isMac` 改为「非 Windows」：新增 `const isWin = /Win/i.test(navigator.platform || '')` 与 `const menuOnDown = !isWin`，将 110/116/191 行的 `isMac` 替换为 `menuOnDown`（Linux 因而与 Mac 同走 Shift 翻转逻辑），并同步修正注释、CLAUDE.md 与 options.html 文案。",
-   "fixed": false,
-   "fixed_note": ""
+   "fixed": true,
+   "fixed_note": "把「菜单在 mousedown 触发」的判据从 isMac 改为 menuOnDown = !isWin，Linux 因而与 macOS 同走 Shift 翻转逻辑；三处判定与全部注释、设置页文案同步。"
   },
   {
    "rank": 17,
