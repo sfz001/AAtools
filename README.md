@@ -41,7 +41,7 @@ git clone https://github.com/sfz001/AAtools.git
 
 ### 可选配置
 
-- **自定义 Sub2API 网关** — 填写 Base URL 后点击「授权域名」；扩展只请求该域名的可选访问权限，公网网关必须使用 HTTPS（localhost 可使用 HTTP）
+- **自定义 Sub2API 网关** — 填写 Base URL 后点击「授权域名」；该按钮会校验 URL 并保存（公网网关必须使用 HTTPS，localhost 可使用 HTTP）。扩展为了「重载后免刷新页面」已把 `https://*/*` + `http://*/*` 声明为必需权限，所以通常不会再弹单独的授权框
 - **导出 Obsidian** — 总结/笔记/导图可一键下载为带 YAML frontmatter 的 `.md`，直接拖进 Vault 即可
 - **设置导入/导出** — 支持将全部配置（含已拉取的模型列表）导出为 JSON 文件，方便迁移
 
@@ -104,10 +104,16 @@ git clone https://github.com/sfz001/AAtools.git
 |------|------|
 | `←` | 后退 |
 | `→` | 前进 |
+| `↑` | 滚动到顶部 |
+| `↓` | 滚动到底部 |
 | `↓→` | 关闭当前标签页 |
 | `←↑` | 恢复刚关闭的标签页 |
+| `↑↓` | 强制刷新（绕过缓存） |
 
-屏幕中央实时显示手势提示，未达识别阈值时不影响原生右键菜单。
+屏幕中央实时显示手势提示。右键菜单行为由设置页的「保留原生右键菜单」开关决定：
+
+- **关闭（默认）**：按住右键 + 滑动直接触发手势，不弹菜单（Mac 触控板友好）；Mac 与 Linux 上 `Shift+右键` 临时弹原生菜单
+- **开启**：Mac 与 Linux 普通右键弹菜单、`Shift+右键` 进手势；Windows 短按弹菜单、拖动触发手势
 
 ---
 
@@ -125,7 +131,7 @@ git clone https://github.com/sfz001/AAtools.git
 无构建、无第三方依赖。直接改代码：
 
 1. `chrome://extensions/` → 加载已解压的扩展程序（项目根目录）
-2. 修改代码后点击扩展页刷新图标，再刷新 YouTube 页面
+2. 修改代码后点击扩展页刷新图标即可，**无需刷新已打开的页面**——background 会把 content scripts 重注入到所有匹配标签页
 3. 修改 `background.js` 后需在扩展页重新加载 Service Worker
 4. 协议、缓存与权限测试：`node --test tests/*.test.js`
 

@@ -692,8 +692,8 @@
    ],
    "description": "(1) CLAUDE.md:48 称「没有构建、lint 或测试命令」，但仓库有三个被跟踪的 node:test 文件，`node --test tests/*.test.js` 在 HEAD 上 36 个用例全部通过，README.md:130 已记录该命令。(2) README.md:128 仍要求“改完代码再刷新 YouTube 页面”，而 background.js:2124-2126 的 onInstalled 重注入 + 四个入口脚本的 takeover 事件已实现免刷新，CLAUDE.md:51 明确写“无需刷新已打开的页面”。(3) README.md:44 说 Sub2API「只请求该域名的可选访问权限」，但 manifest.json:7-9 已把 `https://*/*` + `http://*/*` 列为必需 host 权限且无 optional_host_permissions，默认安装即拥有全站访问、该按钮通常不再弹授权框（CLAUDE.md:188 已记录此副作用）。(4) README.md:103-108 的手势表只列 4 项，缺 `↑` 滚顶 / `↓` 滚底 / `↑↓` 强制刷新（gestures.js:60-68 共 7 项）；README.md:110「未达阈值不影响原生右键菜单」与默认 keepMenu=false 的实际行为相反（Win/Linux 无逃生口）。",
    "fix": "CLAUDE.md:48 改为“没有构建或 lint 命令；测试：`node --test tests/*.test.js`”并在开发流程补一步；README.md:128 改为与 CLAUDE.md:51 一致的免刷新说法；README.md:44 如实说明扩展已声明通配 host 权限、该按钮主要做 URL 校验与保存；README.md:103-108 补齐三行手势，110 行改写为与 options.html:164-166 一致的默认行为描述。",
-   "fixed": false,
-   "fixed_note": ""
+   "fixed": true,
+   "fixed_note": "CLAUDE.md 开发章节改为「没有构建或 lint 命令」并写明 node --test tests/*.test.js；README 的开发步骤改为免刷新说法、Sub2API 条目如实说明已声明通配 host 权限、手势表补齐 3 项并按 gestureKeepMenu 重写菜单行为"
   },
   {
    "rank": 43,

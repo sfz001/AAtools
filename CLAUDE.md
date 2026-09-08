@@ -45,11 +45,12 @@ AAtools/
 
 ## Development
 
-没有构建、lint 或测试命令。开发流程：
+没有构建或 lint 命令。测试用 Node 内置 runner：`node --test tests/*.test.js`（注意用 glob，`node --test tests/` 会 MODULE_NOT_FOUND）。开发流程：
 
 1. `chrome://extensions/` → 开启开发者模式 → 加载已解压的扩展程序（选择项目根目录）
 2. 修改代码后在扩展页点击刷新图标即可——**无需刷新已打开的页面**：`onInstalled` 时 background 会把 content scripts 重注入到所有已打开的匹配标签页（见"扩展重载免刷新"）
 3. 修改 `background.js` 后需要在扩展页重新加载 Service Worker
+4. 改完跑一遍 `node --test tests/*.test.js`——三个 `node:test` 文件用 `vm.createContext` 桩掉 `chrome.*`，覆盖协议、缓存迁移与设置页权限逻辑
 
 ## Architecture
 
