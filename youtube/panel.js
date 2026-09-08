@@ -68,11 +68,19 @@
   // 功能开关（设置页「功能开关」卡片）；关闭时走 !videoId 清理路径拆面板
   var featureEnabled = true;
 
+  // 导航代际：每次 onNavigate 自增，作废此前排下的 waitForContainer 轮询器。
+  // #secondary 尚未出现时连续两次导航（A→B），或冷启动时 init() 与首个
+  // yt-navigate-finish 因 YTX.panel 仍为 null 各起一个轮询器，先醒的注入面板
+  // 并开始缓存恢复，后醒的过期轮询器会再次 injectPanel 把它拆掉换成空面板，
+  // 恢复结果随即被 panelAtStart 校验丢弃 —— 有缓存的面板显示空白。
+  var navToken = 0;
+
   function onNavigate() {
     var videoId = featureEnabled ? getVideoId() : null;
     if (!videoId) {
       // 离开视频页（首页/搜索/频道页等）：清状态 + 重置功能模块，
       // 否则旧 in-flight 转写会让下一个视频被错误拦截
+      navToken++;
       resetTranscriptState();
       YTX.currentVideoId = null;
       YTX.featureOrder.forEach(function (key) {
@@ -84,6 +92,8 @@
       return;
     }
     if (videoId === YTX.currentVideoId && YTX.panel) return;
+    navToken++;
+    var token = navToken;
     YTX.currentVideoId = videoId;
     resetTranscriptState();
     YTX.activeTab = 'summary';
@@ -97,6 +107,8 @@
     waitForContainer(function () {
       injectPanel();
       restoreFromCache(videoId);
+    }, undefined, function () {
+      return token !== navToken || YTX.currentVideoId !== videoId;
     });
   }
 
@@ -169,12 +181,15 @@
 
   // ── 等待右侧栏加载 ────────────────────────────────────
 
-  function waitForContainer(callback, retries) {
+  // isStale：每次轮询与回调执行前都重新求值，过期的轮询器直接停掉，
+  // 不会再 injectPanel 拆掉新导航已经注入好的面板
+  function waitForContainer(callback, retries, isStale) {
     if (destroyed) return;
+    if (isStale && isStale()) return;
     retries = retries !== undefined ? retries : 30;
     var container = document.querySelector('#secondary, #secondary-inner');
     if (container) { callback(); }
-    else if (retries > 0) { setTimeout(function () { waitForContainer(callback, retries - 1); }, 500); }
+    else if (retries > 0) { setTimeout(function () { waitForContainer(callback, retries - 1, isStale); }, 500); }
   }
 
   // ── 面板注入 ─────────────────────────────────────────

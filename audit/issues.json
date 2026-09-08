@@ -388,8 +388,8 @@
    ],
    "description": "panel.js:97-100 的 waitForContainer 回调（injectPanel + restoreFromCache）与 172-178 的轮询器只检查 destroyed，从不校验 `YTX.currentVideoId` 是否仍是调度时的 videoId，也没有导航代际 token；而 injectPanel()（182-184）会无条件 removePanel()。当 `#secondary` 尚未出现时连续两次 onNavigate（A→B），或冷启动时 init() 与首个 yt-navigate-finish 因 YTX.panel 仍为 null 绕过 86 行短路而对同一视频起两个轮询器，先到的注入面板并开始缓存恢复，后醒的过期轮询器再次 injectPanel 把它拆掉换成空面板；此时新视频的恢复若未完成会被 115 行 `YTX.panel !== panelAtStart` 丢弃，若已完成则因 contentHtml() 是静态空态、再次恢复又被 `!s.text`/`!YTX.transcriptData` 守卫跳过，导致有缓存的面板显示空白直到重新切视频。不会渲染错误视频的数据，缓存本身不丢；已回滚的 fd22938 曾在此加 navigationToken + expectedVideoId 校验。",
    "fix": "增加模块级 `var navToken = 0;`，在 onNavigate 两个分支开头 `navToken++`，把 `var token = navToken;` 与 videoId 一起传给 waitForContainer，在每次轮询与回调执行前加 `if (destroyed || token !== navToken || YTX.currentVideoId !== videoId) return;`。",
-   "fixed": false,
-   "fixed_note": ""
+   "fixed": true,
+   "fixed_note": "panel.js 增加模块级 navToken，onNavigate 两个分支各自自增；waitForContainer 新增 isStale 回调，每次轮询与回调执行前校验 token 与 videoId，过期轮询器不再 injectPanel 拆掉新面板"
   },
   {
    "rank": 24,
