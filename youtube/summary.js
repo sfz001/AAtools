@@ -71,6 +71,8 @@ YTX.features.summary = {
       try {
         await YTX.ensureTranscript();
         if (YTX.currentVideoId !== startVideoId || self._deferred !== deferred) return bailSilently();
+        // 字幕可能已被「使用视频模式」或「清除缓存」清空，此时静默退出而不是崩在 payload 上
+        if (!YTX.transcriptData) return bailSilently();
 
         contentEl.innerHTML = '<div class="ytx-loading"><div class="ytx-spinner"></div><span>正在生成总结...</span></div>';
 

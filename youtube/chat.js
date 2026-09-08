@@ -85,6 +85,7 @@ YTX.features.chat = {
       aiBubble.innerHTML = '<div class="ytx-loading"><div class="ytx-spinner"></div><span>获取字幕中...</span></div>';
       await YTX.ensureTranscript();
       if (YTX.currentVideoId !== startVideoId || this.requestId !== requestId) return;
+      if (!YTX.transcriptData) throw new Error('字幕已失效，请重新提问');
 
       var settings = await YTX.getSettings();
       if (YTX.currentVideoId !== startVideoId || this.requestId !== requestId) return;

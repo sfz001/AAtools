@@ -281,6 +281,8 @@ YTX.getVideoUrl = function () {
 
 // 获取内容参数（统一返回 transcript）
 YTX.getContentPayload = function () {
+  // 字幕可能在 await 期间被清空（切视频模式、清缓存）；给出可读错误而不是 TypeError
+  if (!YTX.transcriptData) throw new Error('字幕已失效，请重新生成');
   return { transcript: YTX.transcriptData.full };
 };
 
@@ -397,8 +399,14 @@ YTX._analyzeVideoWithGemini = async function (expectedGeneration) {
 // ── 手动切换到视频模式 ──────────────────────────────
 
 YTX.switchToVideoMode = function () {
-  // busy 时直接 throw，让调用方的 catch 能恢复按钮，不会被当成"切换成功"
-  if (YTX.isFetchingTranscript) return Promise.reject(new Error('字幕正在获取中，请稍候'));
+  // busy 时直接 throw，让调用方的 catch 能恢复按钮，不会被当成"切换成功"。
+  // isFetchingTranscript 只由本函数置位，功能触发的 ensureTranscript 不置位，
+  // 所以还要看在途的 _transcriptPromise——否则这里会把它正在等的 transcriptData
+  // 清空，让那一路功能在 getContentPayload 上抛 TypeError。
+  if (YTX.isFetchingTranscript ||
+      (YTX._transcriptPromise && YTX._transcriptVideoId === YTX.currentVideoId)) {
+    return Promise.reject(new Error('字幕正在获取中，请稍候'));
+  }
 
   // 早绑定：异步期间用户可能切到别的视频/重建面板
   var startVideoId = YTX.currentVideoId;

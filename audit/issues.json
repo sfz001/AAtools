@@ -127,8 +127,8 @@
    ],
    "description": "core.js:447-492 的 `ensureTranscript` 从不设置 `YTX.isFetchingTranscript`（全仓唯一置 true 处是 397 行的 `switchToVideoMode`，回退前的 ab2f4d1 版本是有的），而 switchToVideoMode 的 busy 守卫（390）只看该标志、不看在途的 `_transcriptPromise`；面板头部的「使用视频模式」按钮（panel.js:231）在功能获取字幕期间始终可点。用户点「总结」后在 DOM 回退等待中点该按钮，switchToVideoMode 通过守卫，抬升 `_transcriptGeneration`、把 `YTX.transcriptData` 置 null（407）并替换 `_transcriptPromise`；旧 fetch 完成后因代际不匹配 return，promise resolve undefined，summary.js:72-79（html-notes/mindmap/chat 同）只复查 videoId 与 deferred 便调用 `getContentPayload()`，core.js:273 对 null 取 `.full` 抛 TypeError，经 renderError 原样显示 \"Cannot read properties of null (reading 'full')\"，且 summary.js:99 还把刚被禁用的按钮重新启用。",
    "fix": "把 core.js:390 的守卫扩为 `if (YTX.isFetchingTranscript || (YTX._transcriptPromise && YTX._transcriptVideoId === YTX.currentVideoId)) return Promise.reject(new Error('字幕正在获取中，请稍候'));`（或恢复 ensureTranscript 自行置位/复位 isFetchingTranscript）；并在各 feature `await YTX.ensureTranscript()` 之后加 `if (!YTX.transcriptData) { if (YTX._transcriptPromise) await YTX._transcriptPromise; if (!YTX.transcriptData) return bailSilently(); }`。",
-   "fixed": false,
-   "fixed_note": ""
+   "fixed": true,
+   "fixed_note": "switchToVideoMode 的 busy 守卫扩展到在途的 _transcriptPromise；getContentPayload 在字幕缺失时抛可读错误；四个 feature 在 ensureTranscript 之后检查 transcriptData 并静默退出。"
   },
   {
    "rank": 8,
