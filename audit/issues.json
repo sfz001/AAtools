@@ -294,8 +294,8 @@
    ],
    "description": "background.js:13 对所有 callProvider 请求统一 firstByteMs=90000，1593 在 fetch 前 startAttempt 起表，而 markActivity 只在收到 body 字节时调用（2048），HTTP 头到达不算。非翻译功能 effort=null（1550），buildGeminiBody 只在 effort==='low' 时下发 thinkingLevel（1241-1243）且全文件从不设置 includeThoughts，因此 gemini-3.1-pro-preview（options.js 预置项）以默认 high 思考、整个思考阶段流上零字节。接近 200000 字符上限的字幕点总结时，若 prefill+思考超过 90 秒，firstByteTimer 触发 abort，1776-1782 以 cancelled:false 发出「请求超时：90 秒内未收到响应内容」，且 callProvider 无重试（对比 _fallbackVideoTranscribe 有 180s 首字节 + 重试）。发生频率取决于 Gemini 上游延迟，未实测。",
    "fix": "在 callProvider 中按模型给 startAttempt 传更宽的首字节预算：当 provider/格式为 gemini、`/^gemini-3/.test(actualModel)` 且 effort !== 'low' 时用 `{ ...PROVIDER_TIMEOUTS, firstByteMs: 180000 }`（与 TRANSCRIBE_TIMEOUTS 对齐），其余 provider 不变。",
-   "fixed": false,
-   "fixed_note": ""
+   "fixed": true,
+   "fixed_note": "callProvider 对未压到 low 的 gemini-3.x（直连与 sub2api gemini 槽位）把首字节预算放宽到 180 秒，与转录链路对齐；其余 provider 维持 90 秒。"
   },
   {
    "rank": 18,

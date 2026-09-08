@@ -1639,7 +1639,15 @@ async function callProvider(provider, opts) {
 
   try {
     let response;
-    requestContext.startAttempt(PROVIDER_TIMEOUTS);
+    // Gemini 3.x 默认思考档位较高（Flash medium、Pro high），思考期间不吐任何
+    // 字节。长字幕总结在 90 秒首字节上限下会被误判超时且没有重试，这里对未压
+    // 到 low 的 gemini-3.x 放宽首字节预算（与转录链路一致）。其余 provider 不变：
+    // Claude 有 ping、Kimi/MiniMax 有 reasoning_content 流、Responses 有 summary 事件。
+    const isSlowFirstByte = (provider === 'gemini' || sub2apiFmt === 'gemini') &&
+      /^gemini-3/.test(actualModel) && effort !== 'low';
+    requestContext.startAttempt(isSlowFirstByte
+      ? Object.assign({}, PROVIDER_TIMEOUTS, { firstByteMs: 180000 })
+      : PROVIDER_TIMEOUTS);
 
     if (provider === 'openai' || provider === 'minimax' || provider === 'deepseek' || provider === 'kimi') {
       const apiMessages = systemPrompt
