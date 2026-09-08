@@ -23,6 +23,8 @@
   let lastPoint = null;
   let directions = [];
   let totalMoved = 0;
+  // wheel 手势的跨事件位移累加器（触控板单个事件 delta 很小，必须累加）
+  let wheelAccX = 0, wheelAccY = 0;
   let suppressContext = false;
   // 抑制标志的复位定时器：必须共用一个句柄，否则上一次右键排的定时器会在
   // 新一次右键刚设置好标志之后把它清掉，导致该抑制的菜单漏出来
@@ -117,6 +119,8 @@
     lastPoint = { x: e.clientX, y: e.clientY };
     directions = [];
     totalMoved = 0;
+    wheelAccX = 0;
+    wheelAccY = 0;
     // 抑制 contextmenu：keepMenu=false 一律抑制；keepMenu=true 时仅 Mac mousedown 立即抑制（Win/Linux 等 mouseup 决定）
     suppressContext = !keepMenu || isMac;
   }, true);
@@ -145,23 +149,32 @@
   document.addEventListener('wheel', function (e) {
     if (!tracking) return;
     if (!e.isTrusted) return;
+
+    // 进了 tracking 就一律阻止滚动：用户在做手势，不是在浏览内容。
+    // 必须在阈值判断之前，否则未达阈值的那几个事件会让页面照常滚动。
+    e.preventDefault();
+
     const dx = -e.deltaX;
     const dy = -e.deltaY;
     const dist = Math.hypot(dx, dy);
     if (dist < 1) return;
     totalMoved += dist;
-    if (Math.abs(dx) < MIN_SEGMENT && Math.abs(dy) < MIN_SEGMENT) return;
 
-    const d = dirOf(dx, dy);
+    // 触控板一次滑动被拆成很多个小 delta 事件，单个事件几乎不可能达到 30px。
+    // 必须跨事件累加，累加量达标后记一次方向并清零，否则中速滑动永远不成手势。
+    wheelAccX += dx;
+    wheelAccY += dy;
+    if (Math.abs(wheelAccX) < MIN_SEGMENT && Math.abs(wheelAccY) < MIN_SEGMENT) return;
+
+    const d = dirOf(wheelAccX, wheelAccY);
+    wheelAccX = 0;
+    wheelAccY = 0;
     if (directions[directions.length - 1] !== d) directions.push(d);
 
     if (totalMoved < MIN_GESTURE) return;
     const key = directions.join('');
     const g = GESTURES[key];
     showIndicator(g ? g.label : '手势 ' + (key.split('').map(c => ({L:'←',R:'→',U:'↑',D:'↓'}[c])).join('')), !!g);
-
-    // 阻止页面同时滚动（用户在做手势，不是在浏览内容）
-    e.preventDefault();
   }, { passive: false, capture: true });
 
   document.addEventListener('mouseup', function (e) {

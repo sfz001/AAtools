@@ -159,8 +159,8 @@
    ],
    "description": "gestures.js:119-130 的 mousemove 路径以 `lastPoint` 为锚点累计位移，小步移动能凑满一段 30px；但 140-160 的 wheel 路径没有任何累加器——143-144 只取当前单个事件的 `-deltaX/-deltaY`，148 直接与 `MIN_SEGMENT = 30` 比较，不足即 return，既不推入 `directions` 也不执行 159 行的 `e.preventDefault()`。macOS Chrome 触控板 wheel 按帧派发、每事件 delta 为像素级小值，CLAUDE.md:264 文档化的 Mac 主路径（keepMenu=false，按住角落右键 + 另一指滑动）在中速下多数事件低于 30px，结果 `directions` 保持为空，mouseup 时 key 为 '' 不执行任何动作，同时页面在手势期间照常滚动（与 158 行注释矛盾），只有快速甩动才偶尔触发。被整体回滚的 fd22938 曾单独为该 handler 加过 `wheelAccumX/Y` 累加器，佐证该缺陷。",
    "fix": "新增 `let wheelAccX = 0, wheelAccY = 0;`，mousedown 进入 tracking 时清零；wheel handler 先 `e.preventDefault()`，再累加 dx/dy，用 `Math.abs(wheelAccX) < MIN_SEGMENT && Math.abs(wheelAccY) < MIN_SEGMENT` 判段，通过后 `dirOf(wheelAccX, wheelAccY)` 推方向并把累加器清零。",
-   "fixed": false,
-   "fixed_note": ""
+   "fixed": true,
+   "fixed_note": "新增 wheelAccX/wheelAccY 跨事件累加器，mousedown 进 tracking 时清零，累加量达 MIN_SEGMENT 后记方向并清零；preventDefault 提前到阈值判断之前，手势期间页面不再滚动。"
   },
   {
    "rank": 10,
