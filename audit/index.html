@@ -197,11 +197,11 @@ h1 { font-size:30px; font-weight:600; letter-spacing:-.018em; margin:0; text-wra
 
 <section class="stats">
   <div class="stats-in">
-    <div class="stat"><div class="stat-n">3</div><div class="stat-l">待处理</div></div>
+    <div class="stat"><div class="stat-n">2</div><div class="stat-l">待处理</div></div>
     <div class="stat"><div class="stat-n high">0</div><div class="stat-l">严重</div></div>
     <div class="stat"><div class="stat-n med">0</div><div class="stat-l">中等</div></div>
-    <div class="stat"><div class="stat-n low">3</div><div class="stat-l">轻微</div></div>
-    <div class="stat"><div class="stat-n done">40</div><div class="stat-l">已修复</div></div>
+    <div class="stat"><div class="stat-n low">2</div><div class="stat-l">轻微</div></div>
+    <div class="stat"><div class="stat-n done">41</div><div class="stat-l">已修复</div></div>
     <div class="stat"><div class="stat-n">10</div><div class="stat-l">复核驳回</div></div>
     <div class="stat"><div class="stat-n ok">36/36</div><div class="stat-l">现有测试通过</div></div>
   </div>
@@ -218,28 +218,19 @@ h1 { font-size:30px; font-weight:600; letter-spacing:-.018em; margin:0; text-wra
       <div class="chips" id="sevChips">
         <button class="chip" data-filter-sev="high" aria-pressed="false">严重<span class="chip-n">0</span></button>
         <button class="chip" data-filter-sev="med" aria-pressed="false">中等<span class="chip-n">0</span></button>
-        <button class="chip" data-filter-sev="low" aria-pressed="false">轻微<span class="chip-n">3</span></button>
+        <button class="chip" data-filter-sev="low" aria-pressed="false">轻微<span class="chip-n">2</span></button>
       </div>
     </div>
     <div>
       <p class="rail-label">模块</p>
-      <div class="chips" id="modChips"><button class="chip" data-filter-mod="文档" aria-pressed="false">文档<span class="chip-n">3</span></button></div>
+      <div class="chips" id="modChips"><button class="chip" data-filter-mod="文档" aria-pressed="false">文档<span class="chip-n">2</span></button></div>
     </div>
     <a class="rail-jump" href="#fixed">跳到已修复 &darr;</a>
-    <nav class="nav" id="nav" aria-label="问题索引"><a class="nav-item" href="#issue-41" data-nav="41" data-sev="low" data-mod="文档"><span class="nav-dot sev-low"></span><span class="nav-n">41</span><span class="nav-t">CLAUDE.md 的 background 流式/超时/SSE/字幕抓取章节多处描述与代码</span></a><a class="nav-item" href="#issue-42" data-nav="42" data-sev="low" data-mod="文档"><span class="nav-dot sev-low"></span><span class="nav-n">42</span><span class="nav-t">面向用户与开发者的说明陈旧：测试命令、免刷新重注入、Sub2API 权限口径、手势表格四处与</span></a><a class="nav-item" href="#issue-43" data-nav="43" data-sev="low" data-mod="文档"><span class="nav-dot sev-low"></span><span class="nav-n">43</span><span class="nav-t">存储与 prompt 回退的文档描述不准：漏列仍在写入的遗留键 `model`，并把回退位置</span></a></nav>
+    <nav class="nav" id="nav" aria-label="问题索引"><a class="nav-item" href="#issue-42" data-nav="42" data-sev="low" data-mod="文档"><span class="nav-dot sev-low"></span><span class="nav-n">42</span><span class="nav-t">面向用户与开发者的说明陈旧：测试命令、免刷新重注入、Sub2API 权限口径、手势表格四处与</span></a><a class="nav-item" href="#issue-43" data-nav="43" data-sev="low" data-mod="文档"><span class="nav-dot sev-low"></span><span class="nav-n">43</span><span class="nav-t">存储与 prompt 回退的文档描述不准：漏列仍在写入的遗留键 `model`，并把回退位置</span></a></nav>
   </aside>
 
   <main id="list">
-    <h2 class="sev-head sev-low" id="sev-low"><span class="sev-head-dot"></span>轻微<span class="sev-head-n">3 项</span></h2><article class="issue sev-low" data-sev="low" data-mod="文档" id="issue-41">
-<header class="issue-head">
-<span class="rank">#41</span>
-<span class="pill pill-low">轻微</span>
-<span class="mod">文档</span>
-</header>
-<h3 class="issue-title">CLAUDE.md 的 background 流式/超时/SSE/字幕抓取章节多处描述与代码不符（含不存在的符号名）</h3>
-<div class="locs"><code class="loc">CLAUDE.md:167</code><code class="loc">CLAUDE.md:169</code><code class="loc">CLAUDE.md:172</code><code class="loc">CLAUDE.md:217</code><code class="loc">CLAUDE.md:216</code></div>
-<p class="desc">五处均已核实为假：(1) 167 行「Gemini: <code>candidates[0].content.parts[0].text</code>，流结束即完成」——代码拼接所有 parts（background.js:1975-1977）且只有 <code>finishReason === &#x27;STOP&#x27;</code> 才算正常结束，未收到终态标记时 2065 行返回“流式响应意外中断”。(2) 169 行的 <code>doneSent</code> 标志全仓库不存在，真实实现是 createStreamEmitter（1796）的闭包 <code>terminalSent</code>，它让 <code>_DONE</code> 与 <code>_ERROR</code> 互斥并在终态后丢弃 <code>_CHUNK</code>。(3) 172 行的 <code>startKeepalive()</code> 不存在，真实实现是 background.js:19 的引用计数 <code>retainServiceWorker()</code>，且由 createActiveRequest 覆盖所有 callProvider 流式请求而非仅视频转录。(4) 217 行称转录靠 <code>reader.cancel()</code> 兜底，实为 requestContext.startAttempt + AbortController 中止 fetch；文档全篇也未记录 idle/total 中止与 <code>PROVIDER_TIMEOUTS = {90s, 60s, 15min}</code>。(5) 216 行称 DOM 回退耗时 6-30s、流程含“…菜单/暴力搜索”，实际最坏约 128s（8s 等待 + 60s 轮询 + 60s 强制展开）且代码中根本没有菜单点击或暴力搜索逻辑（background.js:528 有同款过时注释）。</p><div class="fix"><span class="fix-label">建议修复</span><p>按代码逐条改写这五处：Gemini 分支写明拼接所有 parts + finishReason=STOP 终态语义；把 <code>doneSent</code> 改为 createStreamEmitter/terminalSent 的终态互斥；把 <code>startKeepalive()</code> 改为 retainServiceWorker() 并说明覆盖所有流式请求；把转录超时改为 AbortController 并补记 PROVIDER_TIMEOUTS/TRANSCRIBE_TIMEOUTS 三档与 503/429 重试；把 DOM 回退耗时改为“无 section 约 6s、有 section 最长约 2 分钟”并列出真实步骤，同时修正 background.js:528 的注释。</p></div>
-</article><article class="issue sev-low" data-sev="low" data-mod="文档" id="issue-42">
+    <h2 class="sev-head sev-low" id="sev-low"><span class="sev-head-dot"></span>轻微<span class="sev-head-n">2 项</span></h2><article class="issue sev-low" data-sev="low" data-mod="文档" id="issue-42">
 <header class="issue-head">
 <span class="rank">#42</span>
 <span class="pill pill-low">轻微</span>
@@ -259,7 +250,7 @@ h1 { font-size:30px; font-weight:600; letter-spacing:-.018em; margin:0; text-wra
 <p class="desc">(1) CLAUDE.md:303-314 的 <code>chrome.storage.sync</code> 键清单没有列出遗留键 <code>model</code>，但它是活的：options.js:720 每次自动保存都写入，它出现在 STORAGE_KEYS/SETTING_KEYS 中因而随导入导出走，options.js:321-323 在启动时用它为只存过 <code>model</code> 的老配置做迁移回退；真正读模型的两处都不用它，core.js:100 把 &#x27;model&#x27; 放进读取列表属无用读取。(2) CLAUDE.md:298 称「<code>getSettings()</code> 读取时回退到 <code>YTX.prompts.*</code> 默认值」，但 core.js:111-117 是原样 resolve、未设置时返回 undefined，真正的回退在 summary.js:86 / html-notes.js:81 / mindmap.js:246 三个调用点，翻译侧则由 background.js:1135/1155 的真值判断决定；照文档新增 feature 直接透传 <code>settings.promptX</code> 会让 background.js:1052 的 <code>prompt.replace(...)</code> 抛 TypeError。</p><div class="fix"><span class="fix-label">建议修复</span><p>在 sync 键清单补一行 <code>model</code> 并注明“遗留键，仅在 <code>&lt;provider&gt;Model</code> 缺失时作迁移回退，勿删”，顺手去掉 core.js:100 读取列表里无用的 &#x27;model&#x27;；把 CLAUDE.md:298 改为“回退由各 feature 组装消息时 <code>settings.promptX || YTX.prompts.*</code> 完成（summary.js:86 / html-notes.js:81 / mindmap.js:246），翻译侧在 background handleTranslate 的真值判断中”。</p></div>
 </article>
     <p class="empty" id="empty" hidden>没有匹配的问题。</p>
-    <section class="fixed-section" id="fixed"><h2 class="sev-head sev-fixed"><span class="sev-head-dot"></span>已修复<span class="sev-head-n">40 项</span></h2><p class="fixed-note">以下问题已在代码中修复，保留条目以便回溯。</p><article class="issue sev-high is-fixed" data-sev="high" data-mod="设置页" id="issue-1">
+    <section class="fixed-section" id="fixed"><h2 class="sev-head sev-fixed"><span class="sev-head-dot"></span>已修复<span class="sev-head-n">41 项</span></h2><p class="fixed-note">以下问题已在代码中修复，保留条目以便回溯。</p><article class="issue sev-high is-fixed" data-sev="high" data-mod="设置页" id="issue-1">
 <header class="issue-head">
 <span class="rank">#1</span>
 <span class="pill pill-fixed">已修复</span>
@@ -619,6 +610,15 @@ h1 { font-size:30px; font-weight:600; letter-spacing:-.018em; margin:0; text-wra
 <h3 class="issue-title">background.js handleTranslate 字典模式注释写「总长≤30字符」，代码实际为 ≤20</h3>
 <div class="locs"><code class="loc">background.js:1120</code><code class="loc">background.js:1125</code><code class="loc">translate/translate.js:235</code></div>
 <div class="fixnote"><span class="fixnote-label">已改</span><p>background.js 字典模式注释的「总长≤30字符」改为与代码一致的「去掉空白/标点/数字后总长≤20 字符」，CLAUDE.md 划词翻译章节补上该上限</p></div>
+</article><article class="issue sev-low is-fixed" data-sev="low" data-mod="文档" id="issue-41">
+<header class="issue-head">
+<span class="rank">#41</span>
+<span class="pill pill-fixed">已修复</span>
+<span class="mod">文档</span>
+</header>
+<h3 class="issue-title">CLAUDE.md 的 background 流式/超时/SSE/字幕抓取章节多处描述与代码不符（含不存在的符号名）</h3>
+<div class="locs"><code class="loc">CLAUDE.md:167</code><code class="loc">CLAUDE.md:169</code><code class="loc">CLAUDE.md:172</code><code class="loc">CLAUDE.md:217</code><code class="loc">CLAUDE.md:216</code></div>
+<div class="fixnote"><span class="fixnote-label">已改</span><p>按代码改写 CLAUDE.md 五处：Gemini 分支拼接全部 parts 且以 finishReason=STOP 为终态；doneSent 改为 createStreamEmitter 的 terminalSent 终态互斥；startKeepalive 改为引用计数的 retainServiceWorker 并说明覆盖所有流式请求；新增超时与中止小节记录 PROVIDER_TIMEOUTS/TRANSCRIBE_TIMEOUTS 三档与 AbortController；DOM 回退耗时与真实步骤改写为 6s~2 分钟</p></div>
 </article></section>
 
     <section class="refuted">

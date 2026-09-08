@@ -173,12 +173,13 @@ YTX.features.KEY = {
 - **SSE 解析**: 统一由 `readSSEStream()` 处理，按 provider 提取文本：
   - Claude: `content_block_delta` → `delta.text`，`message_stop` 结束
   - OpenAI / MiniMax / DeepSeek / Kimi: `choices[0].delta.content`，`[DONE]` 行结束
-  - Gemini: `candidates[0].content.parts[0].text`，流结束即完成
+  - Gemini: 拼接 `candidates[0].content.parts[]` 里所有 `text`（不是只取第一个 part）；终态看 `finishReason`——`STOP` 才算正常结束，其它值转成「异常结束（finishReason=…）」的告警，流读完却从未收到终态标记则报「流式响应意外中断」
 - **请求 ID 透传**: `callProvider` + `readSSEStream` 内定义局部 `send(msg) = safeSend(tabId, {requestId, ...msg})`，所有发往 content script 的消息自动带上 requestId
-- **防重复**: `doneSent` 标志防止重复发送 `{PREFIX}_DONE`
+- **终态互斥**: `createStreamEmitter()` 的闭包标志 `terminalSent` 保证 `{PREFIX}_DONE` 与 `{PREFIX}_ERROR` 只发一次且互斥，终态之后到达的 `_CHUNK` 一律丢弃
 - **安全发送**: `safeSend(tabId, msg)` 包裹 try/catch + `.catch(() => {})`，tab 关闭不会崩溃
 - **错误分类**: `classifyApiError()` 将 HTTP 状态码映射为中文提示（401→Key 无效，429+quota→余额不足，400+token→内容太长）
-- **SW 保活**: `startKeepalive()` 每 20 秒 ping 一次防止 Service Worker 被杀（视频转录时使用）
+- **SW 保活**: `retainServiceWorker()` 引用计数保活，`createActiveRequest` 对**所有** callProvider 流式请求都持有一份（不只是视频转录），计数归零才释放
+- **超时与中止**: 每次尝试由 `requestContext.startAttempt(timeouts)` 挂三档定时器，全部经 AbortController 中止 fetch，不靠 `reader.cancel()`。普通请求 `PROVIDER_TIMEOUTS = { firstByteMs: 90s, idleMs: 60s, totalMs: 15min }`；视频转录 `TRANSCRIBE_TIMEOUTS = { firstByteMs: 180s, idleMs: 120s, totalMs: 45min }`；Gemini 3.x 非 low 档另把首字节放宽到 180s（首 token 慢）。503/429 会退避重试
 
 ### 安全模型
 
@@ -222,8 +223,8 @@ YouTube SPA 切视频时旧异步操作会污染新视频结果。用四层防�
    - 用户原本没开字幕的话，触发后立即 `setOption('captions','track',{}) + unloadModule('captions')` 关掉，避免污染观看体验
    - 拿到 URL 后直接 fetch（追加 `&fmt=json3`），解析 `events[].segs[].utf8` + `tStartMs` 为 segments
    - **关键约束**：YouTube `/api/timedtext` 服务端校验 `pot` (proof-of-origin token)，没有 pot 的 fetch 返回 200 + 空 body。pot 由 player 内部生成，无法逆向，所以必须借 player 发的请求
-3. **回退**（`scrapeTranscriptFromDOM`，6-30s）：快速路径失败（无字幕轨道、player 未就绪等）时走 DOM 抓取——点描述区转录按钮 → "..." 菜单 → 暴力搜索 → 解析 `ytd-transcript-renderer` DOM
-4. 失败时若有 Gemini Key，启用视频模式：调用 Gemini API（固定使用 `gemini-3.5-flash-lite`，忽略用户模型选择；不用 `gemini-flash-lite-latest` 这类漂移别名——官方会随新版本热切换、可能切到预览版并收紧限速，转录链路要可预期）分析视频 URL 生成虚拟字幕。**仅走原生 Gemini direct**（`generativelanguage.googleapis.com`），不走 sub2api — sub2api 网关大多绑的是 OAuth/codeassist 账号，不支持 `file_data.file_uri` 的 YouTube URL 视频处理（虽然 sub2api 源码本身是透明转发，但上游 Google 账号没视频权限）。`_callGeminiTranscribe` 内置 180 秒首块超时（`reader.cancel()` 兜底防挂死）+ SSE 上游错误事件解析（`parsed.error` / `promptFeedback.blockReason` / 异常 finishReason 都会冒泡）
+3. **回退**（`scrapeTranscriptFromDOM`）：快速路径失败（无字幕轨道、player 未就绪等）时走 DOM 抓取，MAIN world 执行，步骤为：等页面就绪（最多 8s）→ 读已打开的字幕面板 → 展开描述区并点「内容转文字」按钮 → 每 300ms 轮询解析面板、段数连续 3 轮不变即完成（有 transcript section 时最多 200 轮≈60s，没有则 20 轮≈6s）→ 仍失败则强制把 `engagement-panel-searchable-transcript` 置为 EXPANDED 再轮询一轮（最多 60s）。所以最好情况约 6s，最坏约 2 分钟；代码里没有点「...」菜单或暴力搜索的逻辑
+4. 失败时若有 Gemini Key，启用视频模式：调用 Gemini API（固定使用 `gemini-3.5-flash-lite`，忽略用户模型选择；不用 `gemini-flash-lite-latest` 这类漂移别名——官方会随新版本热切换、可能切到预览版并收紧限速，转录链路要可预期）分析视频 URL 生成虚拟字幕。**仅走原生 Gemini direct**（`generativelanguage.googleapis.com`），不走 sub2api — sub2api 网关大多绑的是 OAuth/codeassist 账号，不支持 `file_data.file_uri` 的 YouTube URL 视频处理（虽然 sub2api 源码本身是透明转发，但上游 Google 账号没视频权限）。`_callGeminiTranscribe` 走 `TRANSCRIBE_TIMEOUTS`（首字节 180s / 空闲 120s / 总时长 45min），超时由 AbortController 中止 fetch + SSE 上游错误事件解析（`parsed.error` / `promptFeedback.blockReason` / 异常 finishReason 都会冒泡）
 5. 字幕截断保护：`YTX.TRANSCRIPT_MAX_CHARS = 200000`
 
 ### 划词翻译（`translate/translate.js`）

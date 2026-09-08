@@ -675,8 +675,8 @@
    ],
    "description": "五处均已核实为假：(1) 167 行「Gemini: `candidates[0].content.parts[0].text`，流结束即完成」——代码拼接所有 parts（background.js:1975-1977）且只有 `finishReason === 'STOP'` 才算正常结束，未收到终态标记时 2065 行返回“流式响应意外中断”。(2) 169 行的 `doneSent` 标志全仓库不存在，真实实现是 createStreamEmitter（1796）的闭包 `terminalSent`，它让 `_DONE` 与 `_ERROR` 互斥并在终态后丢弃 `_CHUNK`。(3) 172 行的 `startKeepalive()` 不存在，真实实现是 background.js:19 的引用计数 `retainServiceWorker()`，且由 createActiveRequest 覆盖所有 callProvider 流式请求而非仅视频转录。(4) 217 行称转录靠 `reader.cancel()` 兜底，实为 requestContext.startAttempt + AbortController 中止 fetch；文档全篇也未记录 idle/total 中止与 `PROVIDER_TIMEOUTS = {90s, 60s, 15min}`。(5) 216 行称 DOM 回退耗时 6-30s、流程含“…菜单/暴力搜索”，实际最坏约 128s（8s 等待 + 60s 轮询 + 60s 强制展开）且代码中根本没有菜单点击或暴力搜索逻辑（background.js:528 有同款过时注释）。",
    "fix": "按代码逐条改写这五处：Gemini 分支写明拼接所有 parts + finishReason=STOP 终态语义；把 `doneSent` 改为 createStreamEmitter/terminalSent 的终态互斥；把 `startKeepalive()` 改为 retainServiceWorker() 并说明覆盖所有流式请求；把转录超时改为 AbortController 并补记 PROVIDER_TIMEOUTS/TRANSCRIBE_TIMEOUTS 三档与 503/429 重试；把 DOM 回退耗时改为“无 section 约 6s、有 section 最长约 2 分钟”并列出真实步骤，同时修正 background.js:528 的注释。",
-   "fixed": false,
-   "fixed_note": ""
+   "fixed": true,
+   "fixed_note": "按代码改写 CLAUDE.md 五处：Gemini 分支拼接全部 parts 且以 finishReason=STOP 为终态；doneSent 改为 createStreamEmitter 的 terminalSent 终态互斥；startKeepalive 改为引用计数的 retainServiceWorker 并说明覆盖所有流式请求；新增超时与中止小节记录 PROVIDER_TIMEOUTS/TRANSCRIBE_TIMEOUTS 三档与 AbortController；DOM 回退耗时与真实步骤改写为 6s~2 分钟"
   },
   {
    "rank": 42,
