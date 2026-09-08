@@ -435,15 +435,18 @@ try {
   });
 } catch {}
 
+// 整页刷新和跨站跳转会销毁旧文档；旧 content script 无法再主动取消，
+// 因此在导航层兜底中断。这里必须用 webNavigation.onBeforeNavigate 而不是
+// tabs.onUpdated 的 status:'loading'——后者在 pushState / replaceState / hash
+// 这类同文档导航时同样触发（Chromium NavigationEntryCommitted 无条件带 status），
+// 会误杀同一页面上正在流式输出的请求；同文档导航走的是 onHistoryStateUpdated /
+// onReferenceFragmentUpdated，不会进入这里。
 try {
-  chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
-    // 整页刷新和跨站跳转会销毁旧文档；旧 content script 无法再主动取消，
-    // 因此在 tab 生命周期层兜底中断。History/hash 变化不在这里误杀翻译请求。
-    if (changeInfo.status === 'loading') {
-      pruneNavigationTombstones();
-      tabNavigationEpochs.set(tabId, currentNavigationEpoch(tabId) + 1);
-      cancelRequestsForTab(tabId, null, '页面已导航，请求已取消');
-    }
+  chrome.webNavigation.onBeforeNavigate.addListener((details) => {
+    if (details.frameId !== 0) return; // 只认主框架，子框架导航不影响页面级请求
+    pruneNavigationTombstones();
+    tabNavigationEpochs.set(details.tabId, currentNavigationEpoch(details.tabId) + 1);
+    cancelRequestsForTab(details.tabId, null, '页面已导航，请求已取消');
   });
 } catch {}
 

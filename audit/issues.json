@@ -41,8 +41,8 @@
    ],
    "description": "background.js:442-445 把任意 `changeInfo.status === 'loading'` 当作整页导航，递增 tab epoch 并 abort 该 tab 全部 activeRequests；但 Chromium（tabs_event_router.cc 的 NavigationEntryCommitted 无条件插入 status 键，其自带扩展测试 internalAnchorNavigated 明确期望 `a.html#b` 产生 `{status:'loading'}`）对 pushState/replaceState/hash 同文档导航同样派发该事件，441 行注释与 tests/background.test.js:553 的假设不成立。后果一：正在流式输出的总结/笔记/导图/问答/翻译/转录被 abort，background.js:1776-1781 发 `_ERROR '页面已导航，请求已取消'`，panel.js:983-999 与 translate.js:805-813 不过滤 cancelled 直接渲染成错误（同视频点描述/评论时间戳改写 `&t=`、任何用 replaceState 更新 URL 的站点翻译期间滚动均可触发）。后果二：若同文档导航落在 FETCH_TRANSCRIPT 窗口（DOM 回退常达数十秒），handleFetchTranscript 返回 `{error, cancelled:true}`，core.js:150-152 一律 throw，core.js:462-468 的 catch 不看 cancelled 标志便调用 `_analyzeVideoWithGemini`，对本有字幕的视频发起计费转录。",
    "fix": "不要用 tabs.onUpdated 的 status:'loading' 作跨文档导航信号：改为 content script 在 `pagehide` 里对自己在途的 requestId 发 CANCEL_REQUEST，或改用 `chrome.webNavigation.onBeforeNavigate`（frameId===0）bump epoch，tab 关闭仍由 onRemoved 兜底；同时让 core.js fetchTranscript 把 `result.cancelled` 带到抛出的 Error 上，ensureTranscript 的 catch 在 cancelled 时 rethrow 而不回退 Gemini。",
-   "fixed": false,
-   "fixed_note": ""
+   "fixed": true,
+   "fixed_note": "导航信号从 tabs.onUpdated 的 status:loading 换成 webNavigation.onBeforeNavigate（frameId===0），同文档导航不再误杀在途请求；manifest 增加 webNavigation 权限；fetchTranscript 把 cancelled 带到 Error 上，ensureTranscript 遇取消直接上抛而不回退 Gemini 计费转录。"
   },
   {
    "rank": 3,

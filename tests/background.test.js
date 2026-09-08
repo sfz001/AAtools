@@ -156,6 +156,9 @@ function loadBackground(options = {}) {
           return Promise.resolve();
         },
       },
+      webNavigation: {
+        onBeforeNavigate: { addListener(listener) { tabListeners.navigated = listener; } },
+      },
     },
   };
   if (options.storageGet) {
@@ -545,12 +548,14 @@ test('request registry cancels active and not-yet-registered work and keeps refe
   assert.equal(late.signal.aborted, true);
   assert.equal(late.abortReason.code, 'cancelled');
 
-  tabListeners.updated(3, { status: 'loading' });
+  tabListeners.navigated({ tabId: 3, frameId: 0, url: 'https://example.com/next' });
   assert.equal(second.signal.aborted, true);
   assert.equal(second.abortReason.message, '页面已导航，请求已取消');
 
+  // 同文档导航（pushState / hash）不会触发 onBeforeNavigate，在途翻译必须存活；
+  // 子框架导航也不能误杀页面级请求
   const historyOnly = context.createActiveRequest({ tabId: 8, requestId: 'history', kind: 'translate', totalMs: 1000 });
-  tabListeners.updated(8, { url: 'https://example.com/#new-state' });
+  tabListeners.navigated({ tabId: 8, frameId: 3, url: 'https://ads.example.com/frame' });
   assert.equal(historyOnly.signal.aborted, false);
 
   second.cleanup();
@@ -573,7 +578,7 @@ test('navigation and tab close invalidate provider work still waiting for config
       provider: 'claude', requestId: `stale-${lifecycleEvent}`, transcript: 'text', prompt: '{transcript}',
     }, 42, 'SUMMARY');
     assert.equal(typeof releaseConfig, 'function');
-    if (lifecycleEvent === 'updated') loaded.tabListeners.updated(42, { status: 'loading' });
+    if (lifecycleEvent === 'updated') loaded.tabListeners.navigated({ tabId: 42, frameId: 0, url: 'https://example.com/next' });
     else loaded.tabListeners.removed(42);
     releaseConfig();
     await work;
@@ -594,7 +599,7 @@ test('navigation during a custom gateway permission check prevents the upstream 
     maxTokens: 128, tabId: 12, PREFIX: 'SUMMARY', requestId: 'permission-race',
     baseUrl: 'https://gateway.example', model: 'claude-sonnet-5', navigationEpoch: 0,
   });
-  loaded.tabListeners.updated(12, { status: 'loading' });
+  loaded.tabListeners.navigated({ tabId: 12, frameId: 0, url: 'https://example.com/next' });
   releasePermission();
   await work;
 
@@ -612,7 +617,7 @@ test('transcript fallback does not execute in a new document after navigation', 
     },
   });
   const work = loaded.context.handleFetchTranscript('abcdefghijk', 15, 0);
-  loaded.tabListeners.updated(15, { status: 'loading' });
+  loaded.tabListeners.navigated({ tabId: 15, frameId: 0, url: 'https://example.com/next' });
   finishFastPath([{ result: { error: 'no fast transcript' } }]);
   const result = await work;
 

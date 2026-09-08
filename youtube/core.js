@@ -149,7 +149,12 @@ YTX.cancelRequest = function (requestId) {
 
 YTX.fetchTranscript = async function () {
   var result = await YTX.sendToBg({ type: 'FETCH_TRANSCRIPT', videoId: YTX.currentVideoId });
-  if (result.error) throw new Error(result.error);
+  if (result.error) {
+    var fetchError = new Error(result.error);
+    // 导航/取消导致的失败不代表这个视频没有字幕，调用方不应据此回退到计费的 Gemini 转录
+    if (result.cancelled) fetchError.cancelled = true;
+    throw fetchError;
+  }
   if (!result.segments || result.segments.length === 0) throw new Error('字幕内容为空');
 
   // 获取字幕后滚动到页面顶部
@@ -465,6 +470,9 @@ YTX.ensureTranscript = function () {
         YTX.renderTranscript(); // defined in panel.js
       } catch (err) {
         if (YTX.currentVideoId !== startVideoId || YTX._transcriptGeneration !== transcriptGeneration) return;
+        // 请求被导航/用户取消：不是「这个视频没有字幕」，直接上抛，
+        // 否则会对本来有字幕的视频白白发起一次计费的 Gemini 视频转录
+        if (err && err.cancelled) throw err;
         await YTX._analyzeVideoWithGemini(transcriptGeneration);
         if (YTX.currentVideoId !== startVideoId || YTX._transcriptGeneration !== transcriptGeneration) return;
       }
