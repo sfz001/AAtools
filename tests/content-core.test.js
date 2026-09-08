@@ -164,18 +164,21 @@ test('unchanged legacy cache records are removed only after every record is ackn
   assert.equal(legacy.stats.openCount, migrationOpenCount, 'daily cache writes must not reopen page-origin IndexedDB');
 });
 
-test('failed legacy acknowledgement preserves the old database but does not block new cache', async () => {
+test('a permanently rejected legacy record is skipped instead of blocking the records after it', async () => {
+  // background 对非法 videoId / 超大记录永久回 { ok:false }，重试多少次都不会变合法。
+  // 这类记录必须被跳过，否则它之后的记录永远迁不过去。
   const legacy = createLegacyIndexedDB([
     { videoId: 'abcdefghijk', summary: { text: 'one' } },
     { videoId: 'lmnopqrstuv', summary: { text: 'two' } },
+    { videoId: 'wxyz01234-_', summary: { text: 'three' } },
   ]);
-  let migrationCount = 0;
   const loaded = loadCore({
     indexedDB: legacy,
     responseFor(message) {
       if (message.type === 'CACHE_MIGRATE_RECORD') {
-        migrationCount++;
-        return migrationCount === 2 ? { ok: false, error: 'write failed' } : { ok: true };
+        return message.record.videoId === 'lmnopqrstuv'
+          ? { ok: false, error: 'record rejected' }
+          : { ok: true };
       }
       if (message.type === 'CACHE_LOAD') return { ok: true, record: { videoId: message.videoId } };
       return { ok: true };
@@ -184,11 +187,46 @@ test('failed legacy acknowledgement preserves the old database but does not bloc
 
   const record = await loaded.context.YTX.cache.load('abcdefghijk');
   assert.equal(record.videoId, 'abcdefghijk');
-  assert.equal(legacy.stats.deleteCount, 0);
   assert.equal(loaded.messages.at(-1).type, 'CACHE_LOAD');
 
-  assert.equal(await loaded.context.YTX.cache.remove('abcdefghijk'), true);
-  assert.deepEqual(legacy.stats.deletedRecordIds, ['abcdefghijk']);
+  // 被拒的那条之后的记录仍然迁移成功；只有被拒的那条留在旧库里
+  const migrated = loaded.messages
+    .filter(message => message.type === 'CACHE_MIGRATE_RECORD')
+    .map(message => message.record.videoId);
+  assert.deepEqual(migrated, ['abcdefghijk', 'lmnopqrstuv', 'wxyz01234-_']);
+  assert.deepEqual(legacy.stats.deletedRecordIds, ['abcdefghijk', 'wxyz01234-_']);
+  assert.deepEqual(legacy.records().map(item => item.videoId), ['lmnopqrstuv']);
+
+  // 卡住的旧记录仍可通过 remove() 清掉
+  assert.equal(await loaded.context.YTX.cache.remove('lmnopqrstuv'), true);
+  assert.deepEqual(legacy.records(), []);
+});
+
+test('a transport failure during migration aborts the round and deletes nothing', async () => {
+  const legacy = createLegacyIndexedDB([
+    { videoId: 'abcdefghijk', summary: { text: 'one' } },
+    { videoId: 'lmnopqrstuv', summary: { text: 'two' } },
+  ]);
+  let loaded;
+  loaded = loadCore({
+    indexedDB: legacy,
+    responseFor(message) {
+      loaded.runtime.lastError = null;
+      // 传输层失败（SW 未就绪/扩展重载）是暂时的，整轮中止、旧库原样保留
+      if (message.type === 'CACHE_MIGRATE_RECORD' && message.record.videoId === 'lmnopqrstuv') {
+        loaded.runtime.lastError = { message: 'Could not establish connection' };
+        return undefined;
+      }
+      if (message.type === 'CACHE_LOAD') return { ok: true, record: { videoId: message.videoId } };
+      return { ok: true };
+    },
+  });
+
+  const record = await loaded.context.YTX.cache.load('abcdefghijk');
+  assert.equal(record.videoId, 'abcdefghijk');
+  assert.equal(legacy.stats.deletedRecordIds.length, 0);
+  assert.deepEqual(legacy.records().map(item => item.videoId), ['abcdefghijk', 'lmnopqrstuv']);
+  assert.equal(loaded.messages.at(-1).type, 'CACHE_LOAD');
 });
 
 test('legacy records updated during migration are retained for the next migration', async () => {

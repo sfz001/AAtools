@@ -372,8 +372,8 @@
    ],
    "description": "core.js:673-678 的 _migrateLegacy 顺序 await 每条 CACHE_MIGRATE_RECORD，全部成功后才调用 _removeMigratedLegacyRecords；任一失败进入 680-683 的 catch 返回 false，旧库整体保留。background.js:334-346 的 sanitizeLegacyCacheRecord 对 videoId 不是 11 位 `[A-Za-z0-9_-]`、或记录 JSON 超过 5,000,000 字符的旧记录会永久抛错（经 390-393 回 `{ok:false}`），这种记录永远不会变合法，于是每个新加载的观看页（_migrationPromise 按 content script 实例缓存）都重放它之前所有记录的 put、在同一条上失败、删除为零，其后的记录对新缓存永远不可见。产品内也无出口：remove() 只有 CACHE_REMOVE 成功后才删旧记录，而非法 id 在 background.js:394 就被拒。触发前提是旧库确实存在这类记录（旧版 save 对 ?v= 不做校验），5M 体积在 200k 字幕上限下基本不可达。",
    "fix": "在 core.js:673-678 的循环里对每条记录单独 try/catch：内容侧先用同款 `/^[A-Za-z0-9_-]{11}$/` 校验 videoId，遇到 background 返回 `{ok:false}` 视为该条永久失败并跳过、继续迁移其余记录，仅在 sendToBg 本身 reject（传输层失败）时中止整轮，最后只把确认成功的记录传给 _removeMigratedLegacyRecords。",
-   "fixed": false,
-   "fixed_note": ""
+   "fixed": true,
+   "fixed_note": "_migrateLegacy 区分两类失败：background 回 {ok:false} 视为该条永久失败并跳过，仅传输层 reject 才中止整轮；内容侧先按 /^[A-Za-z0-9_-]{11}$/ 校验 videoId，只把确认成功的记录交给 _removeMigratedLegacyRecords。新增 2 条测试覆盖跳过与中止两条路径"
   },
   {
    "rank": 23,

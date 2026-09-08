@@ -689,6 +689,9 @@ YTX.cache = {
     }).catch(function () { return false; });
   },
 
+  // 与 background sanitizeLegacyCacheRecord 同款的 videoId 校验
+  _LEGACY_VIDEO_ID_RE: /^[A-Za-z0-9_-]{11}$/,
+
   _migrateLegacy: function () {
     var self = this;
     if (this._migrationPromise) return this._migrationPromise;
@@ -696,14 +699,32 @@ YTX.cache = {
     this._migrationPromise = this._legacyDatabaseExists().then(function (exists) {
       if (!exists) return false;
       return self._readLegacyRecords().then(async function (records) {
-        // 逐条等待 background 落盘确认。中途失败时保留整个旧库，
-        // 下次页面加载可安全重试（background 合并操作必须是幂等的）。
+        // 逐条等待 background 落盘确认，两类失败区别对待：
+        // · 传输层失败（sendToBg reject，如 SW 未就绪/扩展重载）是暂时的 →
+        //   中止整轮，保留整个旧库，下次页面加载重试（合并操作是幂等的）
+        // · background 回 { ok:false }（videoId 非 11 位合法 ID、记录超 5MB）
+        //   是永久性的，这条记录再重试多少次都不会变合法 → 跳过它继续迁移其余
+        //   记录。否则损坏记录会在每次页面加载时重放并卡住，它之后的所有记录
+        //   对新缓存永远不可见。
+        var migrated = [];
         for (var i = 0; i < records.length; i++) {
-          await self._request({ type: 'CACHE_MIGRATE_RECORD', record: records[i] });
+          var record = records[i];
+          // 内容侧先做一次同款校验，明显非法的记录不必往返 background
+          if (!record || !self._LEGACY_VIDEO_ID_RE.test(record.videoId || '')) continue;
+          var response;
+          try {
+            response = await YTX.sendToBg({ type: 'CACHE_MIGRATE_RECORD', record: record });
+          } catch (_) {
+            // 传输层失败：中止整轮，什么都不删
+            return false;
+          }
+          if (!response || response.ok !== true) continue; // 该条永久失败，跳过
+          migrated.push(record);
         }
+        if (!migrated.length) return false;
         // 不调用 deleteDatabase：旧版标签页可能长期持有连接，blocked 的删除请求
         // 无法取消并会阻塞后续 open。仅条件删除已迁移且仍未变化的旧记录。
-        return self._removeMigratedLegacyRecords(records);
+        return self._removeMigratedLegacyRecords(migrated);
       });
     }).catch(function () {
       // 迁移失败不影响新缓存通道，也绝不删除旧数据。
