@@ -76,8 +76,8 @@
    ],
    "description": "manifest.json:61 把 options.html 配成 `action.default_popup`（无 options_page/options_ui），弹窗失焦即销毁文档，挂起的 setTimeout 随之丢弃。options.js:532-536 把所有 input/select/textarea 的 input/change 都接到 `debounce(() => saveSettings(false), 1500)`，675-681 的 debounce 只有 clearTimeout/setTimeout，整个 options.js/options.html 没有 pagehide/visibilitychange/beforeunload 冲刷；功能开关等 checkbox 也没有直接落盘（唯一写入点是 saveSettings 的 732 行 `chrome.storage.sync.set`）。因此用户切换「鼠标手势」开关或粘贴 Key 后 1.5 秒内点击弹窗外部，修改被静默丢弃，再次打开仍是旧值；options.js:488 的 chatgptAuth 粘贴（600ms 防抖）同理。缓解因素是 options.html:170 有手动「保存设置」按钮，且既有配置不会被破坏。",
    "fix": "让 debounce 返回的函数带 `flush()`（有挂起 timer 时 clearTimeout 并立即执行 fn），并注册 `visibilitychange`（hidden 时）与 `pagehide` 调用 `autoSave.flush()`——`chrome.storage.sync.set` 的 IPC 在文档销毁前已发出，回调不执行也能落盘；更简单的补充是 checkbox/select 的 change 直接 `saveSettings(false)`，只对文本框保留防抖。",
-   "fixed": false,
-   "fixed_note": ""
+   "fixed": true,
+   "fixed_note": "debounce 返回值增加 flush()，并在 visibilitychange(hidden) 与 pagehide 时冲刷 autoSave 和 chatgptAuth 粘贴框的挂起保存。"
   },
   {
    "rank": 5,

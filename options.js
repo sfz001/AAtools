@@ -542,6 +542,17 @@ document.addEventListener('DOMContentLoaded', () => {
     el.addEventListener('input', autoSave);
     el.addEventListener('change', autoSave);
   });
+
+  // 设置页作为 popup 运行时，点击弹窗外部会立即销毁文档，挂起的防抖保存随之丢失。
+  // 隐藏/卸载前冲刷：storage.set 的 IPC 在文档销毁前已发出，回调不执行也能落盘。
+  const flushPending = () => {
+    autoSave.flush();
+    saveChatgptAuthPaste.flush();
+  };
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flushPending();
+  });
+  window.addEventListener('pagehide', flushPending);
 });
 
 // 缓存已拉取的模型列表（从 storage.local 加载）
@@ -680,12 +691,21 @@ async function fetchLatestModels() {
 }
 
 // ── 防抖：等用户停止操作一段时间后才执行 ──────────────────
+// 带 flush()：设置页是 action.default_popup，弹窗失焦即销毁文档，挂起的
+// setTimeout 会随之丢弃。页面隐藏/卸载前调 flush() 立刻落盘。
 function debounce(fn, ms) {
-  let timer;
-  return function () {
+  let timer = null;
+  const wrapped = function () {
     clearTimeout(timer);
-    timer = setTimeout(fn, ms);
+    timer = setTimeout(() => { timer = null; fn(); }, ms);
   };
+  wrapped.flush = function () {
+    if (timer === null) return;
+    clearTimeout(timer);
+    timer = null;
+    fn();
+  };
+  return wrapped;
 }
 
 // ── 保存设置（isManual=true 显示提示，false 静默）─────────────
