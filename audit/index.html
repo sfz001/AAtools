@@ -197,11 +197,11 @@ h1 { font-size:30px; font-weight:600; letter-spacing:-.018em; margin:0; text-wra
 
 <section class="stats">
   <div class="stats-in">
-    <div class="stat"><div class="stat-n">9</div><div class="stat-l">待处理</div></div>
+    <div class="stat"><div class="stat-n">8</div><div class="stat-l">待处理</div></div>
     <div class="stat"><div class="stat-n high">0</div><div class="stat-l">严重</div></div>
     <div class="stat"><div class="stat-n med">0</div><div class="stat-l">中等</div></div>
-    <div class="stat"><div class="stat-n low">9</div><div class="stat-l">轻微</div></div>
-    <div class="stat"><div class="stat-n done">34</div><div class="stat-l">已修复</div></div>
+    <div class="stat"><div class="stat-n low">8</div><div class="stat-l">轻微</div></div>
+    <div class="stat"><div class="stat-n done">35</div><div class="stat-l">已修复</div></div>
     <div class="stat"><div class="stat-n">10</div><div class="stat-l">复核驳回</div></div>
     <div class="stat"><div class="stat-n ok">36/36</div><div class="stat-l">现有测试通过</div></div>
   </div>
@@ -218,28 +218,19 @@ h1 { font-size:30px; font-weight:600; letter-spacing:-.018em; margin:0; text-wra
       <div class="chips" id="sevChips">
         <button class="chip" data-filter-sev="high" aria-pressed="false">严重<span class="chip-n">0</span></button>
         <button class="chip" data-filter-sev="med" aria-pressed="false">中等<span class="chip-n">0</span></button>
-        <button class="chip" data-filter-sev="low" aria-pressed="false">轻微<span class="chip-n">9</span></button>
+        <button class="chip" data-filter-sev="low" aria-pressed="false">轻微<span class="chip-n">8</span></button>
       </div>
     </div>
     <div>
       <p class="rail-label">模块</p>
-      <div class="chips" id="modChips"><button class="chip" data-filter-mod="鼠标手势" aria-pressed="false">鼠标手势<span class="chip-n">1</span></button><button class="chip" data-filter-mod="YouTube 助手" aria-pressed="false">YouTube 助手<span class="chip-n">2</span></button><button class="chip" data-filter-mod="文档" aria-pressed="false">文档<span class="chip-n">4</span></button><button class="chip" data-filter-mod="清单权限" aria-pressed="false">清单权限<span class="chip-n">1</span></button><button class="chip" data-filter-mod="后台服务" aria-pressed="false">后台服务<span class="chip-n">1</span></button></div>
+      <div class="chips" id="modChips"><button class="chip" data-filter-mod="YouTube 助手" aria-pressed="false">YouTube 助手<span class="chip-n">2</span></button><button class="chip" data-filter-mod="文档" aria-pressed="false">文档<span class="chip-n">4</span></button><button class="chip" data-filter-mod="清单权限" aria-pressed="false">清单权限<span class="chip-n">1</span></button><button class="chip" data-filter-mod="后台服务" aria-pressed="false">后台服务<span class="chip-n">1</span></button></div>
     </div>
     <a class="rail-jump" href="#fixed">跳到已修复 &darr;</a>
-    <nav class="nav" id="nav" aria-label="问题索引"><a class="nav-item" href="#issue-35" data-nav="35" data-sev="low" data-mod="鼠标手势"><span class="nav-dot sev-low"></span><span class="nav-n">35</span><span class="nav-t">非 HTML 文档（直接打开的 SVG/XML）上浮层创建抛 TypeError，mouse</span></a><a class="nav-item" href="#issue-36" data-nav="36" data-sev="low" data-mod="YouTube 助手"><span class="nav-dot sev-low"></span><span class="nav-n">36</span><span class="nav-t">panel.js TRANSCRIBE_SEGMENT 的 error 分支不可达：back</span></a><a class="nav-item" href="#issue-37" data-nav="37" data-sev="low" data-mod="文档"><span class="nav-dot sev-low"></span><span class="nav-n">37</span><span class="nav-t">CACHE_* 缓存代理层未进文档（“消息类型完整列表”漏 6 项），且 CACHE_CLE</span></a><a class="nav-item" href="#issue-38" data-nav="38" data-sev="low" data-mod="YouTube 助手"><span class="nav-dot sev-low"></span><span class="nav-n">38</span><span class="nav-t">视频模式提示文案与注释仍宣称“长视频自动分段”，但转录早已是单次请求，且 startSec/</span></a><a class="nav-item" href="#issue-39" data-nav="39" data-sev="low" data-mod="清单权限"><span class="nav-dot sev-low"></span><span class="nav-n">39</span><span class="nav-t">activeTab 权限冗余：无任何触发入口且能力被必需通配 host 权限完全覆盖，PRI</span></a><a class="nav-item" href="#issue-40" data-nav="40" data-sev="low" data-mod="后台服务"><span class="nav-dot sev-low"></span><span class="nav-n">40</span><span class="nav-t">background.js handleTranslate 字典模式注释写「总长≤30字符」</span></a><a class="nav-item" href="#issue-41" data-nav="41" data-sev="low" data-mod="文档"><span class="nav-dot sev-low"></span><span class="nav-n">41</span><span class="nav-t">CLAUDE.md 的 background 流式/超时/SSE/字幕抓取章节多处描述与代码</span></a><a class="nav-item" href="#issue-42" data-nav="42" data-sev="low" data-mod="文档"><span class="nav-dot sev-low"></span><span class="nav-n">42</span><span class="nav-t">面向用户与开发者的说明陈旧：测试命令、免刷新重注入、Sub2API 权限口径、手势表格四处与</span></a><a class="nav-item" href="#issue-43" data-nav="43" data-sev="low" data-mod="文档"><span class="nav-dot sev-low"></span><span class="nav-n">43</span><span class="nav-t">存储与 prompt 回退的文档描述不准：漏列仍在写入的遗留键 `model`，并把回退位置</span></a></nav>
+    <nav class="nav" id="nav" aria-label="问题索引"><a class="nav-item" href="#issue-36" data-nav="36" data-sev="low" data-mod="YouTube 助手"><span class="nav-dot sev-low"></span><span class="nav-n">36</span><span class="nav-t">panel.js TRANSCRIBE_SEGMENT 的 error 分支不可达：back</span></a><a class="nav-item" href="#issue-37" data-nav="37" data-sev="low" data-mod="文档"><span class="nav-dot sev-low"></span><span class="nav-n">37</span><span class="nav-t">CACHE_* 缓存代理层未进文档（“消息类型完整列表”漏 6 项），且 CACHE_CLE</span></a><a class="nav-item" href="#issue-38" data-nav="38" data-sev="low" data-mod="YouTube 助手"><span class="nav-dot sev-low"></span><span class="nav-n">38</span><span class="nav-t">视频模式提示文案与注释仍宣称“长视频自动分段”，但转录早已是单次请求，且 startSec/</span></a><a class="nav-item" href="#issue-39" data-nav="39" data-sev="low" data-mod="清单权限"><span class="nav-dot sev-low"></span><span class="nav-n">39</span><span class="nav-t">activeTab 权限冗余：无任何触发入口且能力被必需通配 host 权限完全覆盖，PRI</span></a><a class="nav-item" href="#issue-40" data-nav="40" data-sev="low" data-mod="后台服务"><span class="nav-dot sev-low"></span><span class="nav-n">40</span><span class="nav-t">background.js handleTranslate 字典模式注释写「总长≤30字符」</span></a><a class="nav-item" href="#issue-41" data-nav="41" data-sev="low" data-mod="文档"><span class="nav-dot sev-low"></span><span class="nav-n">41</span><span class="nav-t">CLAUDE.md 的 background 流式/超时/SSE/字幕抓取章节多处描述与代码</span></a><a class="nav-item" href="#issue-42" data-nav="42" data-sev="low" data-mod="文档"><span class="nav-dot sev-low"></span><span class="nav-n">42</span><span class="nav-t">面向用户与开发者的说明陈旧：测试命令、免刷新重注入、Sub2API 权限口径、手势表格四处与</span></a><a class="nav-item" href="#issue-43" data-nav="43" data-sev="low" data-mod="文档"><span class="nav-dot sev-low"></span><span class="nav-n">43</span><span class="nav-t">存储与 prompt 回退的文档描述不准：漏列仍在写入的遗留键 `model`，并把回退位置</span></a></nav>
   </aside>
 
   <main id="list">
-    <h2 class="sev-head sev-low" id="sev-low"><span class="sev-head-dot"></span>轻微<span class="sev-head-n">9 项</span></h2><article class="issue sev-low" data-sev="low" data-mod="鼠标手势" id="issue-35">
-<header class="issue-head">
-<span class="rank">#35</span>
-<span class="pill pill-low">轻微</span>
-<span class="mod">鼠标手势</span>
-</header>
-<h3 class="issue-title">非 HTML 文档（直接打开的 SVG/XML）上浮层创建抛 TypeError，mouseup 处理器中断导致手势永不执行</h3>
-<div class="locs"><code class="loc">gestures/gestures.js:77</code><code class="loc">gestures/gestures.js:97</code><code class="loc">gestures/gestures.js:166</code><code class="loc">manifest.json:50</code></div>
-<p class="desc">gestures.js 经 manifest.json:50-53 的 <code>&lt;all_urls&gt;</code> 注入到所有顶层文档，包括直接打开的 .svg / .xml / RSS；在这类文档中 <code>document.createElement(&#x27;div&#x27;)</code> 按规范返回 null 命名空间的普通 Element，没有 <code>.style</code>，因此 76 行赋值后 77 行的 <code>indicator.style.cssText</code> 立即抛 TypeError，此后每次 showIndicator 在 92 行也抛错。mouseup 时 165 行置 tracking=false 后 166 行调 hideIndicator()，97 行再次抛错且无 try/catch，处理器在 168-184 之前中止，183 行的 <code>g.run()</code> 永远不会执行——这类页面上所有手势静默失效（控制台有 TypeError）。默认 keepMenu=false 时菜单仍被吞（116 行已置位），只有 keepMenu=true 且非 Mac 时因 177 行未执行而照常弹菜单。</p><div class="fix"><span class="fix-label">建议修复</span><p>76 行改用 <code>document.createElementNS(&#x27;http://www.w3.org/1999/xhtml&#x27;, &#x27;div&#x27;)</code>，使任何文档类型下 indicator 都是带 .style 的 HTMLElement；并把 97 行改为 <code>if (indicator &amp;&amp; indicator.style)</code> 或用 try/catch 包住 show/hideIndicator 调用，保证浮层失败不阻断 177-184 的手势执行。</p></div>
-</article><article class="issue sev-low" data-sev="low" data-mod="YouTube 助手" id="issue-36">
+    <h2 class="sev-head sev-low" id="sev-low"><span class="sev-head-dot"></span>轻微<span class="sev-head-n">8 项</span></h2><article class="issue sev-low" data-sev="low" data-mod="YouTube 助手" id="issue-36">
 <header class="issue-head">
 <span class="rank">#36</span>
 <span class="pill pill-low">轻微</span>
@@ -313,7 +304,7 @@ h1 { font-size:30px; font-weight:600; letter-spacing:-.018em; margin:0; text-wra
 <p class="desc">(1) CLAUDE.md:303-314 的 <code>chrome.storage.sync</code> 键清单没有列出遗留键 <code>model</code>，但它是活的：options.js:720 每次自动保存都写入，它出现在 STORAGE_KEYS/SETTING_KEYS 中因而随导入导出走，options.js:321-323 在启动时用它为只存过 <code>model</code> 的老配置做迁移回退；真正读模型的两处都不用它，core.js:100 把 &#x27;model&#x27; 放进读取列表属无用读取。(2) CLAUDE.md:298 称「<code>getSettings()</code> 读取时回退到 <code>YTX.prompts.*</code> 默认值」，但 core.js:111-117 是原样 resolve、未设置时返回 undefined，真正的回退在 summary.js:86 / html-notes.js:81 / mindmap.js:246 三个调用点，翻译侧则由 background.js:1135/1155 的真值判断决定；照文档新增 feature 直接透传 <code>settings.promptX</code> 会让 background.js:1052 的 <code>prompt.replace(...)</code> 抛 TypeError。</p><div class="fix"><span class="fix-label">建议修复</span><p>在 sync 键清单补一行 <code>model</code> 并注明“遗留键，仅在 <code>&lt;provider&gt;Model</code> 缺失时作迁移回退，勿删”，顺手去掉 core.js:100 读取列表里无用的 &#x27;model&#x27;；把 CLAUDE.md:298 改为“回退由各 feature 组装消息时 <code>settings.promptX || YTX.prompts.*</code> 完成（summary.js:86 / html-notes.js:81 / mindmap.js:246），翻译侧在 background handleTranslate 的真值判断中”。</p></div>
 </article>
     <p class="empty" id="empty" hidden>没有匹配的问题。</p>
-    <section class="fixed-section" id="fixed"><h2 class="sev-head sev-fixed"><span class="sev-head-dot"></span>已修复<span class="sev-head-n">34 项</span></h2><p class="fixed-note">以下问题已在代码中修复，保留条目以便回溯。</p><article class="issue sev-high is-fixed" data-sev="high" data-mod="设置页" id="issue-1">
+    <section class="fixed-section" id="fixed"><h2 class="sev-head sev-fixed"><span class="sev-head-dot"></span>已修复<span class="sev-head-n">35 项</span></h2><p class="fixed-note">以下问题已在代码中修复，保留条目以便回溯。</p><article class="issue sev-high is-fixed" data-sev="high" data-mod="设置页" id="issue-1">
 <header class="issue-head">
 <span class="rank">#1</span>
 <span class="pill pill-fixed">已修复</span>
@@ -619,6 +610,15 @@ h1 { font-size:30px; font-weight:600; letter-spacing:-.018em; margin:0; text-wra
 <h3 class="issue-title">wheel 监听未按平台/tracking 门控：Windows/Linux 滚轮方向反转触发误手势，且所有页面常驻一个非 passive 的 document 级 wheel 捕获监听</h3>
 <div class="locs"><code class="loc">gestures/gestures.js:143</code><code class="loc">gestures/gestures.js:160</code><code class="loc">gestures/gestures.js:141</code><code class="loc">manifest.json:50</code></div>
 <div class="fixnote"><span class="fixnote-label">已改</span><p>wheel 监听改为按需注册：mousedown 进入 tracking 时挂上，mouseup/blur/关闭总开关/代际接管时摘掉；startWheelTracking 用 isMac 门控，Windows/Linux 不再因取反 delta 触发反向手势。CLAUDE.md 补充说明</p></div>
+</article><article class="issue sev-low is-fixed" data-sev="low" data-mod="鼠标手势" id="issue-35">
+<header class="issue-head">
+<span class="rank">#35</span>
+<span class="pill pill-fixed">已修复</span>
+<span class="mod">鼠标手势</span>
+</header>
+<h3 class="issue-title">非 HTML 文档（直接打开的 SVG/XML）上浮层创建抛 TypeError，mouseup 处理器中断导致手势永不执行</h3>
+<div class="locs"><code class="loc">gestures/gestures.js:77</code><code class="loc">gestures/gestures.js:97</code><code class="loc">gestures/gestures.js:166</code><code class="loc">manifest.json:50</code></div>
+<div class="fixnote"><span class="fixnote-label">已改</span><p>ensureIndicator 改用 createElementNS 的 XHTML 命名空间拿到 HTMLElement；show/hideIndicator 各包 try/catch 并校验 .style，浮层失败不再中断 mouseup 处理器</p></div>
 </article></section>
 
     <section class="refuted">

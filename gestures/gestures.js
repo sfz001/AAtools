@@ -92,7 +92,10 @@
 
   function ensureIndicator() {
     if (indicator) return indicator;
-    indicator = document.createElement('div');
+    // 直接打开的 .svg / .xml / RSS 是非 HTML 文档，createElement('div') 按规范
+    // 返回 null 命名空间的普通 Element，没有 .style，赋值即抛 TypeError；
+    // 显式指定 XHTML 命名空间才能拿到 HTMLElement
+    indicator = document.createElementNS('http://www.w3.org/1999/xhtml', 'div');
     indicator.style.cssText = [
       'position:fixed', 'left:50%', 'top:50%', 'transform:translate(-50%,-50%)',
       'background:rgba(20,20,20,0.82)', 'color:#fff',
@@ -101,19 +104,27 @@
       'z-index:2147483647', 'pointer-events:none', 'user-select:none',
       'box-shadow:0 6px 20px rgba(0,0,0,0.3)', 'display:none',
     ].join(';');
-    (document.body || document.documentElement).appendChild(indicator);
+    var host = document.body || document.documentElement;
+    if (host && host.appendChild) host.appendChild(indicator);
     return indicator;
   }
 
+  // 浮层只是视觉反馈，任何失败都不能冒泡到 mouseup —— 否则处理器中断，
+  // 后面的 g.run() 永远执行不到，手势在这类页面上静默失效
   function showIndicator(text, matched) {
-    const el = ensureIndicator();
-    el.textContent = text;
-    el.style.opacity = matched ? '1' : '0.7';
-    el.style.display = 'block';
+    try {
+      const el = ensureIndicator();
+      if (!el || !el.style) return;
+      el.textContent = text;
+      el.style.opacity = matched ? '1' : '0.7';
+      el.style.display = 'block';
+    } catch (_) {}
   }
 
   function hideIndicator() {
-    if (indicator) indicator.style.display = 'none';
+    try {
+      if (indicator && indicator.style) indicator.style.display = 'none';
+    } catch (_) {}
   }
 
   document.addEventListener('mousedown', function (e) {

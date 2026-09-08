@@ -577,8 +577,8 @@
    ],
    "description": "gestures.js 经 manifest.json:50-53 的 `<all_urls>` 注入到所有顶层文档，包括直接打开的 .svg / .xml / RSS；在这类文档中 `document.createElement('div')` 按规范返回 null 命名空间的普通 Element，没有 `.style`，因此 76 行赋值后 77 行的 `indicator.style.cssText` 立即抛 TypeError，此后每次 showIndicator 在 92 行也抛错。mouseup 时 165 行置 tracking=false 后 166 行调 hideIndicator()，97 行再次抛错且无 try/catch，处理器在 168-184 之前中止，183 行的 `g.run()` 永远不会执行——这类页面上所有手势静默失效（控制台有 TypeError）。默认 keepMenu=false 时菜单仍被吞（116 行已置位），只有 keepMenu=true 且非 Mac 时因 177 行未执行而照常弹菜单。",
    "fix": "76 行改用 `document.createElementNS('http://www.w3.org/1999/xhtml', 'div')`，使任何文档类型下 indicator 都是带 .style 的 HTMLElement；并把 97 行改为 `if (indicator && indicator.style)` 或用 try/catch 包住 show/hideIndicator 调用，保证浮层失败不阻断 177-184 的手势执行。",
-   "fixed": false,
-   "fixed_note": ""
+   "fixed": true,
+   "fixed_note": "ensureIndicator 改用 createElementNS 的 XHTML 命名空间拿到 HTMLElement；show/hideIndicator 各包 try/catch 并校验 .style，浮层失败不再中断 mouseup 处理器"
   },
   {
    "rank": 36,
