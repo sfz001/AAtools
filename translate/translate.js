@@ -10,6 +10,10 @@
   // 当前请求 ID：每次 doTranslate 生成新 ID，CHUNK/DONE/ERROR/MODEL 必须匹配才处理
   // 防止用户关弹窗后立刻发起下一次翻译时旧 chunk 污染新结果
   var currentRequestId = null;
+  // 单次翻译的文本上限，与选区路径保持一致；页面无法通过改写弹窗放大请求
+  var MAX_TEXT_CHARS = 5000;
+  // 弹窗内原文框的真实引用：只按 class 判定的话，页面可以伪造同名 class 的元素
+  var sourceTextarea = null;
   function makeReqId() { return 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
 
   // ── 拖拽状态 ──────────────────────────────────────────
@@ -306,9 +310,10 @@
 
       // 在弹窗的 textarea 内选中短词 → 自动触发字典模式（带上下文）
       var inSourceTextarea = popup && popup.style.display === 'flex' &&
-        capturedActiveEl && capturedActiveEl.classList.contains('ytx-translate-source-textarea');
+        capturedActiveEl && capturedActiveEl === sourceTextarea &&
+        popup.contains(capturedActiveEl);
       if (inSourceTextarea && isDictWord(text)) {
-        var fullContext = capturedActiveEl.value.trim();
+        var fullContext = capturedActiveEl.value.trim().slice(0, MAX_TEXT_CHARS);
         hideIcon();
         doTranslate(text, fullContext);
         return;
@@ -468,6 +473,7 @@
 
     // 填入原文
     var textarea = popup.querySelector('.ytx-translate-source-textarea');
+    sourceTextarea = textarea;
     textarea.value = sourceText;
     autoResizeTextarea(textarea);
     textarea.addEventListener('input', function () { autoResizeTextarea(textarea); });
@@ -587,6 +593,7 @@
     if (!textarea) return;
     var text = textarea.value.trim();
     if (!text) return;
+    if (text.length > MAX_TEXT_CHARS) text = text.slice(0, MAX_TEXT_CHARS);
     currentText = text;
     doTranslate(text);
   }

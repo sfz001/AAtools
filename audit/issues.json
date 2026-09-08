@@ -176,8 +176,8 @@
    ],
    "description": "translate.js:147-151 把弹窗与图标直接 append 到 `document.documentElement`，translate.css 无任何 `!important`，页面样式/脚本可任意改写这些节点。translate.js:308-309 判定「弹窗内选词」时只看页面可写的 `popup.style.display === 'flex'` 加 `classList.contains('ytx-translate-source-textarea')`，不校验 `popup.contains(capturedActiveEl)`、也不与 buildPopup（442/470）创建的真实 textarea 做引用比较，于是页面自建同类名 textarea 获得焦点并选中短词后，310-313 行会自动把该元素整段 value 当语境发出；更简单的路径是用 `!important` 把 `#ytx-translate-icon` 撑成全屏透明层，用户下一次真实点击即触发翻译（isTrusted 守卫只挡合成事件，挡不住“事件为真但内容与 UI 被页面控制”）。同时 handleSubmit（584-592）与语境查词路径都没有选区入口那样的 5000 字符上限（对照 83/296 行），background.js handleTranslate（1090-1170）对 text/context 同样无长度校验或频率限制，结果又写进 light DOM 的 `.ytx-translate-result-text` 供页面读回。实际损失限于盗刷用户额度/把用户 key 当免费模型网关，拿不到 key 也读不到跨源内容。",
    "fix": "在 buildPopup 里把创建的 textarea 存进闭包变量，308-309 行改为 `capturedActiveEl === sourceTextarea && popup.contains(capturedActiveEl)` 的身份判定；提取 `MAX_TEXT_CHARS = 5000` 用于 handleSubmit 与 context 截断，并在 background.js handleTranslate 对 `text`/`context` 做长度校验（超限回 `TRANSLATE_ERROR` 或 slice）；如需根治 UI 改写可把 icon/popup 挂进 `attachShadow({mode:'closed'})`。",
-   "fixed": false,
-   "fixed_note": ""
+   "fixed": true,
+   "fixed_note": "弹窗内选词改用 sourceTextarea 身份判定并要求 popup.contains；handleSubmit 与语境截断到 MAX_TEXT_CHARS=5000；background.handleTranslate 对 text/context 做 5000 字硬截断，不再信任 content script 传入的长度。"
   },
   {
    "rank": 11,

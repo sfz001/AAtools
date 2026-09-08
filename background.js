@@ -1102,8 +1102,15 @@ ${transcript}`;
 }
 
 // ── 划词翻译路由 ──────────────────────────────────────────
+// 单次翻译的文本与语境上限。content script 跑在 <all_urls>，被攻陷或被页面
+// 改写 UI 时不能借用户的 Key 发起任意大小的请求，这里做服务端侧的硬上限。
+const TRANSLATE_MAX_TEXT = 5000;
+const TRANSLATE_MAX_CONTEXT = 5000;
+
 async function handleTranslate(message, tabId, navigationEpoch = currentNavigationEpoch(tabId)) {
-  const { text, targetLang, context, promptDict, promptSentence, requestId } = message;
+  const { targetLang, promptDict, promptSentence, requestId } = message;
+  const text = typeof message.text === 'string' ? message.text.slice(0, TRANSLATE_MAX_TEXT) : '';
+  const context = typeof message.context === 'string' ? message.context.slice(0, TRANSLATE_MAX_CONTEXT) : '';
   const provider = message.provider || 'claude';
   const cfg = await loadProviderConfig(provider);
   const key = cfg.key;
