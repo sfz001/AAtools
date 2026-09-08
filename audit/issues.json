@@ -498,8 +498,8 @@
    ],
    "description": "translate.js:72-73 用 DOM expando `iframe._ytxTranslateHooked` 做 hookIframe 去重，而 takeover 监听（39-46）只置 destroyed、断开 observer、移除 icon/popup，不清除该标记。background.js:2104-2116 的 reinjectContentScripts 对 `tabs.query({})` 返回的全部 http(s) 标签页无差别 executeScript、不看 tab.status，正在加载的标签页会同时收到 manifest 注入与重注入，两份副本落在同一 isolated world（CLAUDE.md:189 已承认此撞车场景），expando 在同 world 内可见：先跑的副本给已有 iframe 打标，后跑的副本广播 takeover 杀掉前者后，126 行 `querySelectorAll('iframe').forEach(hookIframe)` 因标记为 true 全部跳过，页面内已存在的同源 iframe 里选词不再出现「译」图标，直到整页刷新。正常跨 world 的 reload 场景 expando 按 world 隔离，不受影响。",
    "fix": "把去重标记改为实例闭包内的 `var hookedIframes = new WeakSet()`：`if (!iframe || hookedIframes.has(iframe)) return; hookedIframes.add(iframe);`，每个副本独立记账，旧实例的监听已由 destroyed 守卫失效。",
-   "fixed": false,
-   "fixed_note": ""
+   "fixed": true,
+   "fixed_note": "hookIframe 的去重标记从 DOM expando iframe._ytxTranslateHooked 改为实例闭包内的 WeakSet，同 world 双注入时新实例不再跳过已被旧副本打标的 iframe"
   },
   {
    "rank": 31,

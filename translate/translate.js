@@ -72,9 +72,14 @@
   var SVG_PIN_FILLED = '<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 11V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v7"/><path d="M5 17h14"/><path d="M7 11l-2 6h14l-2-6"/></svg>';
 
   // ── 监听 iframe 内的选区（iframe 事件不冒泡到父文档）────
+  // 去重记账放在实例闭包里，不用 DOM expando：扩展重载时 manifest 注入与
+  // background 重注入可能落进同一个 isolated world，expando 在同 world 内可见，
+  // 新实例会把先跑那份打过标的 iframe 全部跳过，页面里已存在的同源 iframe
+  // 从此选词不出「译」图标，直到整页刷新。WeakSet 让每个副本独立记账。
+  var hookedIframes = new WeakSet();
   function hookIframe(iframe) {
-    if (!iframe || iframe._ytxTranslateHooked) return;
-    iframe._ytxTranslateHooked = true;
+    if (!iframe || hookedIframes.has(iframe)) return;
+    hookedIframes.add(iframe);
     var tryHook = function () {
       try {
         var doc = iframe.contentDocument;
