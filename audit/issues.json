@@ -193,8 +193,8 @@
    ],
    "description": "options.js:771 的 OpenAI 拉取过滤器 `/^(gpt-|o[1-9]|chatgpt-)/` 明确放行 o1/o3/o4-mini/chatgpt-4o-latest，781-787 的 Gemini 拉取只按 `supportedGenerationMethods` 含 generateContent 过滤，会把 gemma-*-it、learnlm-* 列入下拉框；switchProvider（575-583）、fetchLatestModels（649-663）、autoSave（700）三处都只过滤 RETIRED_MODELS，无任何前缀校验就把选中值写入 storage。但 background.js:1173 的 MODEL_PREFIX 只认 openai `gpt-`、gemini `gemini-`，sanitizeModel（1187-1196）前缀不匹配返回 ''，callProvider（1541/1545）随即静默改用 DEFAULT_MODEL（gpt-5.6-sol / gemini-3.7-flash），仅面板模型徽章（1589 的 `_MODEL` 消息）能察觉。用户点「从官网获取最新列表」后选中 o4-mini 或 gemma-3-27b-it 保存，之后每次请求都以默认模型发出并计费，设置页仍显示所选模型；tests/background.test.js:238-252 表明 background 侧的前缀拒绝是有意为之。",
    "fix": "让设置页只提供 background 会接受的模型：options.js:771 改为 `/^gpt-/`，options.js:782 追加 `m.name.startsWith('models/gemini-')`，并在 switchProvider/fetchLatestModels 渲染 storage.local 缓存列表时同样按前缀过滤、命中不匹配的 selected 置空以完成迁移；若确要支持 o 系列，则应把 background.js:1173 的 `MODEL_PREFIX.openai` 扩成数组并确认请求参数兼容。",
-   "fixed": false,
-   "fixed_note": ""
+   "fixed": true,
+   "fixed_note": "新增与 background 同义的 MODEL_PREFIX；openai 拉取白名单收窄为 /^gpt-/，gemini 只留 models/gemini- 前缀；switchProvider 与 fetchLatestModels 渲染缓存列表时同样按前缀过滤，不匹配的选中值置空落回默认。"
   },
   {
    "rank": 12,

@@ -560,6 +560,13 @@ let fetchedModelsCache = {};
 
 // 已退役模型（与 background.js RETIRED_MODELS 同款正则）。旧缓存的拉取列表里可能还留着，渲染前过滤；
 // 存量选中值命中时视为未选择，让 UI 落到推荐默认值（与 background.js sanitizeModel 的回退行为一致）
+// 与 background.js 的 MODEL_PREFIX 同义：不匹配的模型请求时会被静默换成默认模型，
+// 所以设置页也不该把它们列出来或保留为选中值。minimax / sub2api 不做前缀校验。
+const MODEL_PREFIX = {
+  claude: /^claude-/, openai: /^gpt-/, chatgpt: /^gpt-/,
+  gemini: /^gemini-/, deepseek: /^deepseek-/, kimi: /^kimi-/,
+};
+
 const RETIRED_MODELS = {
   // Claude 2.x / 3.x / instant 全系列，Opus 4 / Sonnet 4（2026-06-15 退役）、Opus 4.1（2026-08-05 退役）
   claude: /^claude-(2[.-]|instant|3-|(opus|sonnet)-4-[01](-|$)|(opus|sonnet)-4-\d{8}$)/,
@@ -597,6 +604,13 @@ function switchProvider(id) {
   if (retired) {
     models = models.filter(m => !retired.test(m.value));
     if (retired.test(selected)) selected = '';
+  }
+  // 与 background sanitizeModel 的前缀校验保持一致：旧缓存里可能留着
+  // o 系列 / chatgpt-* / gemma-* 这类选中后会被静默替换的模型
+  const prefix = MODEL_PREFIX[id];
+  if (prefix) {
+    models = models.filter(m => prefix.test(m.value));
+    if (selected && !prefix.test(selected)) selected = '';
   }
   populateModelSelect(models, selected);
 }
@@ -666,7 +680,10 @@ async function fetchLatestModels() {
     const fetched = await fetcher(key);
     // 拉取结果先剔除已退役模型，避免缓存里长期留着会 404 的名字
     const retired = RETIRED_MODELS[currentProvider];
-    const models = retired ? (fetched || []).filter(m => !retired.test(m.value)) : fetched;
+    const prefix = MODEL_PREFIX[currentProvider];
+    let models = fetched || [];
+    if (retired) models = models.filter(m => !retired.test(m.value));
+    if (prefix) models = models.filter(m => prefix.test(m.value));
     if (!models || models.length === 0) {
       showStatus('未获取到可用模型', 'error');
       return;
@@ -798,7 +815,9 @@ const MODEL_FETCHERS = {
     if (!resp.ok) throw new Error('API 返回 ' + resp.status);
     const data = await resp.json();
     const models = (data.data || [])
-      .filter(m => m.id && /^(gpt-|o[1-9]|chatgpt-)/.test(m.id) && !m.id.includes('instruct') && !m.id.includes('realtime') && !m.id.includes('audio'))
+      // 只保留 background sanitizeModel 会接受的 gpt- 前缀：o 系列 / chatgpt-* 选中后
+      // 会被静默换成默认模型，列出来只会误导
+      .filter(m => m.id && /^gpt-/.test(m.id) && !m.id.includes('instruct') && !m.id.includes('realtime') && !m.id.includes('audio'))
       .sort((a, b) => a.id < b.id ? 1 : -1)
       .map(m => ({ value: m.id, label: m.id }));
     return models;
@@ -809,7 +828,9 @@ const MODEL_FETCHERS = {
     if (!resp.ok) throw new Error('API 返回 ' + resp.status);
     const data = await resp.json();
     const models = (data.models || [])
-      .filter(m => m.name && m.supportedGenerationMethods && m.supportedGenerationMethods.includes('generateContent'))
+      // 同理只留 gemini- 前缀：gemma-* 等走不通 background 的前缀校验
+      .filter(m => m.name && m.name.startsWith('models/gemini-') &&
+        m.supportedGenerationMethods && m.supportedGenerationMethods.includes('generateContent'))
       .map(m => {
         const id = m.name.replace('models/', '');
         return { value: id, label: m.displayName || id };
