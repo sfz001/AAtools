@@ -58,9 +58,15 @@ YTX.parseError = function (contentEl, label, err) {
 
 // ── 工具函数 ──────────────────────────────────────────
 
+// 满 1 小时进位为 H:MM:SS，否则 M:SS。
+// 不进位的话 100 分钟以上会输出 [125:30]，而下游消费 AI 时间戳的正则
+// （markdown.js、safeTime、html-notes）只认 1-2 位分钟，长视频的时间戳会静默失效。
 YTX.fmtTime = function (seconds) {
-  var m = Math.floor(seconds / 60);
-  var s = seconds % 60;
+  var total = Math.max(0, Math.floor(seconds || 0));
+  var h = Math.floor(total / 3600);
+  var m = Math.floor(total / 60) % 60;
+  var s = total % 60;
+  if (h > 0) return h + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
   return m + ':' + String(s).padStart(2, '0');
 };
 

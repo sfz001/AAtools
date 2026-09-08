@@ -59,8 +59,8 @@
    ],
    "description": "core.js:61-65 的 `YTX.fmtTime` 只做 `Math.floor(seconds/60)`、分钟不进位为小时，而字幕段 start 是整数秒（background.js:694 / 748-752），因此 core.js:159 喂给模型的字幕行在 100 分钟后变成 `[125:30]`，prompts.js:7/19/24 又要求模型照抄行首时间点。但所有消费 AI 输出的地方只接受 1-2 位分钟：markdown.js:23 的 `/\\[(\\d{1,2}:\\d{2}(?::\\d{2})?)\\]/` 不匹配 → 总结/问答里不生成 `.ytx-timestamp`，panel.js:466 的委托点击拿不到目标；core.js:78 `safeTime` 返回 null → mindmap.js:123-124 不渲染时间徽章；html-notes.js:155/170 的 `/^(\\d{1,2}):(\\d{2})$/` 同样拒绝。字幕面板（panel.js:429/447 用 `\\d+`）与 Gemini 视频模式（要求 `[H:MM:SS]`）不受影响，问题局限于最常见的字幕路径；200k 字符上限足以容纳 2 小时视频，长播客/讲座第二个小时起的时间戳静默退化为纯文本且无任何报错。",
    "fix": "让 core.js:61 的 fmtTime 在 `seconds >= 3600` 时输出 `H:MM:SS`（`h + ':' + pad2(m%60) + ':' + pad2(s)`），其余保持 `M:SS`——`timeToSeconds`、markdown.js:23 的可选第三段、`safeTime` 的 `(:\\d{2}){1,2}` 均已接受三段格式；同时把 html-notes.js:155/170 的正则放宽为 `/^(?:(\\d{1,2}):)?(\\d{1,2}):(\\d{2})$/` 并在秒数计算里加上小时，否则 60-99 分钟视频的笔记点击会因改成 `1:05:30` 而回退。",
-   "fixed": false,
-   "fixed_note": ""
+   "fixed": true,
+   "fixed_note": "fmtTime 满 1 小时进位为 H:MM:SS；html-notes 的两处时间戳正则放宽为可选小时段并在秒数计算中计入小时；总结 prompt 补充说明长视频的时间戳格式。"
   },
   {
    "rank": 4,

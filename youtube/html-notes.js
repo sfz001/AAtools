@@ -152,9 +152,11 @@ YTX.features.html = {
           // 向上查找，最多 3 层
           for (var i = 0; i < 3 && el && el !== doc.body; i++) {
             var text = (el.textContent || '').trim();
-            var m = text.match(/^(\d{1,2}):(\d{2})$/);
+            // 支持 M:SS 与 H:MM:SS 两种（超过 1 小时的视频走后者）
+            var m = text.match(/^(?:(\d{1,2}):)?(\d{1,2}):(\d{2})$/);
             if (m) {
-              var seconds = parseInt(m[1], 10) * 60 + parseInt(m[2], 10);
+              var seconds = (m[1] ? parseInt(m[1], 10) * 3600 : 0) +
+                parseInt(m[2], 10) * 60 + parseInt(m[3], 10);
               var video = document.querySelector('video');
               if (video) { video.currentTime = seconds; video.play(); }
               e.preventDefault();
@@ -167,7 +169,7 @@ YTX.features.html = {
         var allEls = doc.body.querySelectorAll('*');
         for (var j = 0; j < allEls.length; j++) {
           var txt = (allEls[j].textContent || '').trim();
-          if (/^\d{1,2}:\d{2}$/.test(txt) && allEls[j].children.length === 0) {
+          if (/^(?:\d{1,2}:)?\d{1,2}:\d{2}$/.test(txt) && allEls[j].children.length === 0) {
             allEls[j].style.cursor = 'pointer';
           }
         }
