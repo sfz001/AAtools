@@ -589,6 +589,10 @@ async function fastScrapeTranscriptViaPlayerAPI(videoId) {
     try {
       const urlVideoId = new URL(location.href).searchParams.get('v');
       if (urlVideoId !== videoId) return 'stale';
+      // 贴片广告期间 getPlayerResponse() 返回的是广告数据（videoId 与 captions
+      // 都属于广告），此时快速路径不可能拿到正片字幕，直接判为未就绪让调用方
+      // 尽早回退 DOM 抓取，不要空等满 5 秒
+      if (player?.classList?.contains?.('ad-showing')) return 'pending';
       const response = player && typeof player.getPlayerResponse === 'function' ? player.getPlayerResponse() : null;
       const playerVideoId = response?.videoDetails?.videoId;
       return playerVideoId === videoId ? 'ready' : 'pending';
@@ -722,14 +726,22 @@ async function scrapeTranscriptFromDOM(videoId) {
       const urlVideoId = new URL(location.href).searchParams.get('v');
       if (urlVideoId !== videoId) return 'stale';
       const knownVideoIds = [];
+      // 不采信 getPlayerResponse()：贴片广告播放期间它返回的是广告的 videoId，
+      // 会让本来已就绪的页面被判成 pending 直到超时，最终把「有字幕」误判成
+      // 「无字幕」并升级到计费的 Gemini 转录。URL 的 ?v= 加 ytd-watch-flexy
+      // 的 video-id 已足够判定 SPA 是否切走。
       const player = document.querySelector('#movie_player');
-      const response = player && typeof player.getPlayerResponse === 'function' ? player.getPlayerResponse() : null;
-      const playerVideoId = response?.videoDetails?.videoId;
-      if (playerVideoId) knownVideoIds.push(playerVideoId);
       const watchFlexy = document.querySelector('ytd-watch-flexy');
       const flexyVideoId = watchFlexy?.getAttribute?.('video-id');
       if (flexyVideoId) knownVideoIds.push(flexyVideoId);
-      if (!knownVideoIds.length) return 'pending';
+      if (!knownVideoIds.length) {
+        // 没有 flexy 属性时退回 player，但广告期间它不可信，只能当作未就绪
+        if (player?.classList?.contains?.('ad-showing')) return 'pending';
+        const response = player && typeof player.getPlayerResponse === 'function' ? player.getPlayerResponse() : null;
+        const playerVideoId = response?.videoDetails?.videoId;
+        if (!playerVideoId) return 'pending';
+        knownVideoIds.push(playerVideoId);
+      }
       return knownVideoIds.every(id => id === videoId) ? 'ready' : 'pending';
     } catch {
       return 'pending';

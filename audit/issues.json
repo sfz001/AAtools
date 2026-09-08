@@ -110,8 +110,8 @@
    ],
    "description": "background.js:717-734 的 DOM 路径 videoState() 要求 `#movie_player.getPlayerResponse().videoDetails.videoId`（725）与 `ytd-watch-flexy[video-id]` 全部等于请求的 videoId（730）；而 YouTube 播放器的 `getPlayerResponse(t)` 走 `app.lW({playerType:t})`，不传参返回“当前呈现的播放器”，客户端广告期间即广告播放器（与 `getVideoData().video_id` 返回广告 ID 同一条路径）。于是广告播放时快速路径先等 5 秒失败（606/612），DOM 路径再等 8 秒返回“当前视频页面尚未加载完成”（787-789），handleFetchTranscript 原样返回错误（569），core.js:152 抛错后 ensureTranscript 的 catch（462-468）无条件调用 `_analyzeVideoWithGemini`，对本有字幕的视频发起付费且耗时数分钟的转录（无 Key 时报“请先填入 Gemini API Key”）。82338f0c 之前 DOM 路径没有任何 player 校验，广告期间可正常抓字幕，属该提交引入的回归；触发需非 Premium 用户在剩余 ≥13 秒的客户端广告期间点击生成，服务端拼接广告不受影响。",
    "fix": "在 DOM 路径 videoState()（background.js:717-734）中去掉 `getPlayerResponse()` 的 videoId 参与判定，仅保留 URL `?v=` 与 `ytd-watch-flexy[video-id]`（已足以覆盖 SPA 切视频判定），或仅在 `player.classList.contains('ad-showing')` 为假时才把 player 不匹配视为 pending；快速路径可用 `player.getPlayerResponse(1)` 或在 ad-showing 时立即回退 DOM，并同步调整 tests/background.test.js:701。",
-   "fixed": false,
-   "fixed_note": ""
+   "fixed": true,
+   "fixed_note": "DOM 路径 videoState 改以 ytd-watch-flexy[video-id] 为准，不再采信广告期间失真的 getPlayerResponse()；快速路径遇 ad-showing 直接判未就绪，尽早回退 DOM 而不空等 5 秒。"
   },
   {
    "rank": 7,
