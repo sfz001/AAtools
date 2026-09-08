@@ -1176,7 +1176,8 @@ async function handleTranslate(message, tabId, navigationEpoch = currentNavigati
   };
   const langInstruction = langMap[targetLang] || langMap.auto;
 
-  // 判断是否为单词/短词组：英文≤3词且总长≤30字符，或中文≤4字（去掉标点和数字后）
+  // 判断是否为单词/短词组：去掉空白/标点/数字后总长≤20 字符，且英文≤3 词或中文≤4 字
+  // （translate.js 的 isDictWord 是同一套判定，两边必须一致）
   const trimmed = text.trim();
   const strippedLen = trimmed.replace(/[\s\p{P}\d]/gu, '').length;
   const wordCount = trimmed.split(/\s+/).length;

@@ -658,8 +658,8 @@
    ],
    "description": "background.js:1120 的注释写「英文≤3词且总长≤30字符」，但紧随的 1125 行实际判定为 `strippedLen <= 20`；translate.js:235 的 isDictWord 同样用 20，两份逻辑（去空白/标点/数字后 ≤20，且 CJK ≤4 字或非 CJK ≤3 词）完全一致，无功能漂移。CLAUDE.md:225 只写「CJK ≤4 字符或 Latin ≤3 单词」，未提 20 字符上限，属描述不完整。仅注释数字与代码不符，无用户可见 bug。",
    "fix": "把 background.js:1120 注释中的「总长≤30字符」改为「去掉空白/标点/数字后总长≤20字符」，可选地在 CLAUDE.md:225 补一句该上限。",
-   "fixed": false,
-   "fixed_note": ""
+   "fixed": true,
+   "fixed_note": "background.js 字典模式注释的「总长≤30字符」改为与代码一致的「去掉空白/标点/数字后总长≤20 字符」，CLAUDE.md 划词翻译章节补上该上限"
   },
   {
    "rank": 41,

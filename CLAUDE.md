@@ -231,7 +231,7 @@ YouTube SPA 切视频时旧异步操作会污染新视频结果。用四层防�
 完全独立于 YTX 命名空间的 IIFE，运行在所有页面（`<all_urls>`）。
 
 - **`isTrusted` 守卫**: 5 个真实交互入口（document mouseup、icon click、iframe mouseup、textarea Ctrl+Enter、翻译按钮 click）首行检查，合成事件无法触发翻译请求
-- **字典/句段模式判定**（background.js 和 translate.js 各有一份相同逻辑）：CJK ≤4 字符或 Latin ≤3 单词走字典格式，否则走纯翻译
+- **字典/句段模式判定**（background.js 和 translate.js 各有一份相同逻辑）：去掉空白/标点/数字后总长 ≤20 字符，且 CJK ≤4 字符或 Latin ≤3 单词，才走字典格式；否则走纯翻译
 - **语境查词**: 在翻译弹窗的原文区选中某词，自动带全文语境发送到 background
 - **iframe 支持**: MutationObserver 监听 DOM 变化，自动 hook `iframe.contentDocument` 的 mouseup 事件
 - **选区捕获**: mouseup 同步捕获 + 10ms setTimeout 回退，防 SPA 清空选区
