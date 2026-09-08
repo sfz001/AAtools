@@ -340,8 +340,8 @@
    ],
    "description": "background.js:1052 `prompt.replace('{transcript}', transcript)` 把字幕作为字符串替换值传入，String.prototype.replace 会解释其中的 `$` 特殊模式：`` $` `` 把整段 prompt 指令前缀插进字幕中间，`$&` 变成字面量 `{transcript}`，`$$` 塌缩为 `$`，`$'` 被删掉（三份默认模板都以 `{transcript}` 结尾，后缀为空；仅自定义 prompt 在占位符后还有文字时才会重复插入结尾指令），`$5` 这类价格写法不受影响。字幕来自 core.js:272 的 `YTX.transcriptData.full`（字符串），chat 路径用模板字符串拼接不受影响。触发需要人工字幕含 `$` 紧跟 `` ` ``/`&`/`$`/`'`（shell/sed/正则教学视频），后果是 prompt 被污染、字幕轻微失真。",
    "fix": "改为函数形式替换：`const fullPrompt = prompt.replace('{transcript}', () => transcript);`（或 `prompt.split('{transcript}').join(transcript)`）。",
-   "fixed": false,
-   "fixed_note": ""
+   "fixed": true,
+   "fixed_note": "background.js 的三处占位符替换改为函数形式回调（{transcript} 与两处 {langInstruction}），字幕/自定义 prompt 中的 $& $` $' $$ 不再被当作替换模式解释"
   },
   {
    "rank": 21,

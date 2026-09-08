@@ -1110,7 +1110,9 @@ async function handleSummarize(message, tabId, mode = 'SUMMARY', navigationEpoch
     return;
   }
 
-  const fullPrompt = prompt.replace('{transcript}', transcript);
+  // 函数形式替换：字幕里的 $& / $` / $' / $$ 在字符串形式下会被当作替换模式
+  // 解释，导致注入模型的字幕内容与原文不符
+  const fullPrompt = prompt.replace('{transcript}', () => transcript);
   const systemPrompt = '你是一个专业的视频内容分析助手。你必须始终使用简体中文回答，无论输入的字幕是什么语言。严禁使用繁体中文、阿拉伯语、日语、韩语或任何其他非简体中文语言。';
   const messages = [{ role: 'user', content: fullPrompt }];
 
@@ -1202,7 +1204,7 @@ async function handleTranslate(message, tabId, navigationEpoch = currentNavigati
       : '';
     if (promptDict) {
       // 使用自定义词典 prompt，替换 {langInstruction} 占位符
-      systemPrompt = promptDict.replace(/\{langInstruction\}/g, langInstruction);
+      systemPrompt = promptDict.replace(/\{langInstruction\}/g, () => langInstruction);
       // 有语境时追加语境提示
       if (context) {
         systemPrompt += '\n\n注意：用户提供了语境，请将"搭配"行替换为"📌 该词在语境中的含义：一句话解释"。';
@@ -1222,7 +1224,7 @@ ${context ? '📌 该词在语境中的含义：一句话解释' : '搭配: 词�
   } else {
     if (promptSentence) {
       // 使用自定义翻译 prompt，替换 {langInstruction} 占位符
-      systemPrompt = promptSentence.replace(/\{langInstruction\}/g, langInstruction);
+      systemPrompt = promptSentence.replace(/\{langInstruction\}/g, () => langInstruction);
     } else {
       systemPrompt = `你是翻译助手。${langInstruction}。
 规则：
