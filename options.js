@@ -656,7 +656,10 @@ function showStatus(text, type) {
 
 // ── 从官网获取最新模型列表 ──────────────────────────────────
 async function fetchLatestModels() {
-  if (currentProvider === 'chatgpt') {
+  // 快照 provider：拉取是异步的，期间用户可能切换服务商。await 之后再读全局
+  // currentProvider，会把 A 家的模型列表写进 B 家的缓存并持久化到 storage.local。
+  const provider = currentProvider;
+  if (provider === 'chatgpt') {
     showStatus('ChatGPT 订阅模式使用预置模型列表，无需在线获取', 'error');
     return;
   }
@@ -672,15 +675,15 @@ async function fetchLatestModels() {
   showStatus('正在获取模型列表...', 'success');
 
   try {
-    const fetcher = MODEL_FETCHERS[currentProvider];
+    const fetcher = MODEL_FETCHERS[provider];
     if (!fetcher) {
       showStatus('当前服务商不支持获取模型列表', 'error');
       return;
     }
     const fetched = await fetcher(key);
     // 拉取结果先剔除已退役模型，避免缓存里长期留着会 404 的名字
-    const retired = RETIRED_MODELS[currentProvider];
-    const prefix = MODEL_PREFIX[currentProvider];
+    const retired = RETIRED_MODELS[provider];
+    const prefix = MODEL_PREFIX[provider];
     let models = fetched || [];
     if (retired) models = models.filter(m => !retired.test(m.value));
     if (prefix) models = models.filter(m => prefix.test(m.value));
@@ -689,14 +692,19 @@ async function fetchLatestModels() {
       return;
     }
 
-    // 保存到本地 + 内存缓存
-    fetchedModelsCache[currentProvider] = models;
-    const storageKey = 'fetchedModels_' + currentProvider;
-    chrome.storage.local.set({ [storageKey]: models });
+    // 保存到本地 + 内存缓存（一律按快照的 provider 落位）
+    fetchedModelsCache[provider] = models;
+    chrome.storage.local.set({ ['fetchedModels_' + provider]: models });
+
+    // 用户已经切走时只落缓存，不去动当前显示的下拉框
+    if (provider !== currentProvider) {
+      showStatus('已获取 ' + models.length + ' 个模型（已存入该服务商）', 'success');
+      return;
+    }
 
     // 更新下拉框（同样与预置合并，拉不到的推荐模型不会因此消失）
     const prev = $('#model').value;
-    populateModelSelect(mergeModels(PROVIDERS[currentProvider].models, models), prev);
+    populateModelSelect(mergeModels(PROVIDERS[provider].models, models), prev);
 
     showStatus('已获取 ' + models.length + ' 个模型', 'success');
   } catch (err) {

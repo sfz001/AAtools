@@ -227,8 +227,8 @@
    ],
    "description": "options.js:642 按当时的 currentProvider 选 fetcher，但 647 行 `await fetcher(key)` 返回后 649/657/658-659/663 全部重新读取全局 currentProvider；`#providerSelect` 的 change 处理器（346-351）没有任何“拉取中”守卫，switchProvider 在 557 行同步改写 currentProvider，拉取期间只禁用了 `#fetchModelsBtn`（636-637）。于是 Claude 的 /v1/models 在途时切到 OpenAI，返回的 claude-* 列表会写入 `fetchedModelsCache.openai` 与 `storage.local.fetchedModels_openai` 并合并渲染到下拉框；由于 279-285 每次打开设置页都回灌该缓存、375-381 还随导出带走，污染持久存在且不会自动失效，只有再次在 OpenAI 下拉取才覆盖。若用户随后选中 claude-* 项，background.js:1187-1197 因前缀不符返回空串并静默回退默认模型。",
    "fix": "在 fetchLatestModels 开头快照 `const provider = currentProvider;`，642/649/657/658/663 全部改用该快照；更新下拉框前加 `if (provider !== currentProvider) return;`（缓存与 storage 仍按快照 provider 写入），可选地在拉取期间一并禁用 `#providerSelect`。",
-   "fixed": false,
-   "fixed_note": ""
+   "fixed": true,
+   "fixed_note": "fetchLatestModels 开头快照 provider，fetcher/RETIRED_MODELS/MODEL_PREFIX/缓存写入全部改用快照；拉取期间切走服务商时只落缓存不动当前下拉框。"
   },
   {
    "rank": 14,
