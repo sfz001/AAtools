@@ -116,6 +116,8 @@ function loadBackground(options = {}) {
   const context = {
     AbortController,
     DOMException,
+    atob(value) { return Buffer.from(value, 'base64').toString('binary'); },
+    crypto: require('node:crypto'),
     Map,
     Promise,
     Set,
@@ -131,7 +133,7 @@ function loadBackground(options = {}) {
     },
     indexedDB: options.indexedDB || createFakeIndexedDB(),
     setInterval,
-    setTimeout,
+    setTimeout: options.setTimeout || setTimeout,
     chrome: {
       permissions: {
         contains(query, callback) {
@@ -164,10 +166,24 @@ function loadBackground(options = {}) {
   if (options.storageGet) {
     context.chrome.storage = { sync: { get: options.storageGet } };
   }
+  if (options.localStorage) {
+    context.chrome.storage = context.chrome.storage || {};
+    context.chrome.storage.local = {
+      get(_fields, callback) { callback({ chatgptAuth: options.localStorage.chatgptAuth }); },
+      set(value, callback) { Object.assign(options.localStorage, value); callback(); },
+    };
+  }
   if (options.executeScript) {
     context.chrome.scripting = { executeScript: options.executeScript };
   }
   vm.createContext(context);
+  context.importScripts = (...files) => {
+    for (const file of files) {
+      if (file !== 'models.js') throw new Error('Unexpected importScripts: ' + file);
+      const modelSource = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
+      vm.runInContext(modelSource, context, { filename: file });
+    }
+  };
   const source = fs.readFileSync(path.join(__dirname, '..', 'background.js'), 'utf8');
   vm.runInContext(source, context, { filename: 'background.js' });
   return {
@@ -238,95 +254,53 @@ test('provider payload analysis distinguishes text, errors, and abnormal finishe
   }, 'message').text, '正文');
 });
 
-test('sanitizeModel rejects retired model names and wrong-provider prefixes', () => {
+test('sanitizeModel migrates old configurations to current models and rejects incompatible families', () => {
   const { context } = loadBackground();
-
-  // deepseek 旧模型名（2026-07-24 退役）清空回退默认模型
-  assert.equal(context.sanitizeModel('deepseek', 'deepseek-chat'), '');
-  assert.equal(context.sanitizeModel('deepseek', 'deepseek-reasoner'), '');
-  assert.equal(context.sanitizeModel('deepseek', 'deepseek-v4-flash'), 'deepseek-v4-flash');
+  const cases = [
+    ['deepseek', 'deepseek-chat', 'deepseek-flash'],
+    ['deepseek', 'deepseek-reasoner', 'deepseek-flash'],
+    ['deepseek', 'deepseek-v4-flash', 'deepseek-flash'],
+    ['claude', 'claude-3-5-haiku-20241022', 'claude-haiku-5-5'],
+    ['claude', 'claude-3-5-sonnet-20241022', 'claude-sonnet-5-5'],
+    ['claude', 'claude-opus-4-1-20250805', 'claude-opus-5-5'],
+    ['claude', 'claude-sonnet-4-0', 'claude-sonnet-5-5'],
+    ['claude', 'claude-fable-5', 'claude-fable-5-1'],
+    ['kimi', 'moonshot-v1-8k', 'kimi-k3'],
+    ['kimi', 'kimi-k2.5', 'kimi-k3'],
+    ['kimi', 'kimi-k2-thinking', 'kimi-k3'],
+    ['kimi', 'kimi-latest', 'kimi-k3'],
+    ['openai', 'gpt-4.1', 'gpt-6.1-sol'],
+    ['openai', 'gpt-5.6-terra', 'gpt-6.1-sol'],
+    ['openai', 'gpt-5.6-luna', 'gpt-6-luna'],
+    ['chatgpt', 'gpt-5.4', 'gpt-6.1-sol'],
+    ['chatgpt', 'gpt-5.4-mini', 'gpt-6-luna'],
+    ['chatgpt', 'gpt-5.6-sol', 'gpt-6.1-sol'],
+    ['minimax', 'MiniMax-M2.7-highspeed', 'MiniMax-M3'],
+    ['gemini', 'gemini-2.5-flash', 'gemini-3.8-flash'],
+    ['gemini', 'gemini-2.5-flash-lite', 'gemini-3.5-flash-lite'],
+    ['sub2api', 'gpt-5.6-sol', 'gpt-6.1-sol'],
+    ['sub2api', 'claude-sonnet-5', 'claude-sonnet-5-5'],
+    ['sub2api', 'gemini-2.5-flash', 'gemini-3.8-flash'],
+  ];
+  for (const [provider, oldModel, expected] of cases) {
+    assert.equal(context.sanitizeModel(provider, oldModel), expected, provider + ': ' + oldModel);
+  }
   assert.equal(context.sanitizeModel('deepseek', 'gpt-5.6'), '');
-  assert.equal(context.sanitizeModel('claude', 'claude-3-5-sonnet-20241022'), '');
-
-  // Claude Opus 4 / Sonnet 4（2026-06-15）与 Opus 4.1（2026-08-05）已退役：别名与带日期真名都拦；4.5+ 仍在服务
-  assert.equal(context.sanitizeModel('claude', 'claude-opus-4-1'), '');
-  assert.equal(context.sanitizeModel('claude', 'claude-opus-4-1-20250805'), '');
-  assert.equal(context.sanitizeModel('claude', 'claude-sonnet-4-0'), '');
-  assert.equal(context.sanitizeModel('claude', 'claude-opus-4-20250514'), '');
-  assert.equal(context.sanitizeModel('claude', 'claude-opus-4-5-20251101'), 'claude-opus-4-5-20251101');
-  assert.equal(context.sanitizeModel('claude', 'claude-sonnet-4-6'), 'claude-sonnet-4-6');
-  assert.equal(context.sanitizeModel('claude', 'claude-opus-5'), 'claude-opus-5');
-
-  // kimi：moonshot-v1 / kimi-k2.5（2026-08-31 下线）、旧 K2 线 kimi-k2-*、kimi-latest 都视为退役
-  assert.equal(context.sanitizeModel('kimi', 'kimi-k2.6'), 'kimi-k2.6');
-  assert.equal(context.sanitizeModel('kimi', 'kimi-k3'), 'kimi-k3');
-  assert.equal(context.sanitizeModel('kimi', 'moonshot-v1-8k'), '');
-  assert.equal(context.sanitizeModel('kimi', 'kimi-k2.5'), '');
-  assert.equal(context.sanitizeModel('kimi', 'kimi-k2-thinking'), '');
-  assert.equal(context.sanitizeModel('kimi', 'kimi-latest'), '');
   assert.equal(context.sanitizeModel('kimi', 'deepseek-v4-flash'), '');
-
-  // Codex（ChatGPT 登录）通道 2026-08-31 下线 gpt-5.4 / gpt-5.4-mini；openai 直连不受该退役表影响
-  assert.equal(context.sanitizeModel('chatgpt', 'gpt-5.4'), '');
-  assert.equal(context.sanitizeModel('chatgpt', 'gpt-5.4-mini'), '');
-  assert.equal(context.sanitizeModel('chatgpt', 'gpt-5.6-sol'), 'gpt-5.6-sol');
-  assert.equal(context.sanitizeModel('openai', 'gpt-5.4'), 'gpt-5.4');
+  assert.equal(context.sanitizeModel('openai', 'gpt-image-1'), '');
+  assert.equal(context.sanitizeModel('gemini', 'gemini-2.5-flash-image'), '');
 });
 
-test('kimi request body follows each model tier thinking contract', async () => {
-  const encoder = new TextEncoder();
-
-  async function bodyFor(model) {
-    const loaded = loadBackground({
-      fetch: async () => ({
-        ok: true,
-        body: {
-          getReader() {
-            let read = false;
-            return {
-              async read() {
-                if (read) return { done: true, value: undefined };
-                read = true;
-                return {
-                  done: false,
-                  value: encoder.encode(
-                    'data: {"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}\n\n' +
-                    'data: [DONE]\n\n'
-                  ),
-                };
-              },
-              async cancel() {},
-            };
-          },
-        },
-      }),
-    });
-    // 2048 = 划词翻译档，思考模型下最容易被吃光的那一档
-    await loaded.context.callProvider('kimi', {
-      key: 'k', systemPrompt: '', messages: [{ role: 'user', content: 'hi' }],
-      maxTokens: 2048, tabId: 1, PREFIX: 'TRANSLATE', requestId: 'r1', model,
-    });
-    return { url: loaded.fetchCalls[0][0], body: JSON.parse(loaded.fetchCalls[0][1].body) };
+test('legacy Kimi configurations all use the latest K3 request contract', async () => {
+  for (const model of ['moonshot-v1-8k', 'kimi-k2.6', 'kimi-k2.7-code', 'kimi-k3']) {
+    const result = await captureRequest('kimi', { model, PREFIX: 'TRANSLATE' });
+    assert.equal(result.url, 'https://api.moonshot.cn/v1/chat/completions');
+    assert.equal(result.body.model, 'kimi-k3');
+    assert.equal(result.body.reasoning_effort, 'low');
+    assert.equal(result.body.max_completion_tokens, 16000);
+    assert.equal(result.body.max_tokens, undefined);
+    assert.equal(result.body.thinking, undefined);
   }
-
-  // 思考可关（k2.6；k2.5 已退役由 sanitizeModel 拦截）：关掉即可，预算无需放大
-  const k26 = await bodyFor('kimi-k2.6');
-  assert.equal(k26.url, 'https://api.moonshot.cn/v1/chat/completions');
-  assert.deepEqual(k26.body.thinking, { type: 'disabled' });
-  assert.equal(k26.body.max_completion_tokens, 2048);
-  assert.equal(k26.body.max_tokens, undefined);
-
-  // 思考关不掉：压 effort 之外还必须放大预算，否则 reasoning 吃光额度、正文为空
-  const k3 = await bodyFor('kimi-k3');
-  assert.equal(k3.body.reasoning_effort, 'low');
-  assert.equal(k3.body.max_completion_tokens, 16000);
-  assert.equal(k3.body.thinking, undefined);
-
-  // k2.7-code 恒开且无 effort 档位，只能靠放大预算兜住
-  const code = await bodyFor('kimi-k2.7-code');
-  assert.equal(code.body.thinking, undefined);
-  assert.equal(code.body.reasoning_effort, undefined);
-  assert.equal(code.body.max_completion_tokens, 16000);
 });
 
 test('stream consumer requires meaningful text and a normal terminal event', async () => {
@@ -882,87 +856,269 @@ async function captureRequest(provider, { model, PREFIX = 'SUMMARY', maxTokens =
   return { url, body: JSON.parse(init.body) };
 }
 
-test('claude body keeps thinking on for fable / opus-5 with enlarged budget and translate-only effort', async () => {
+test('legacy Claude configurations use the latest family model and its thinking contract', async () => {
   const translate = await captureRequest('claude', { model: 'claude-opus-5', PREFIX: 'TRANSLATE', sse: CLAUDE_SSE });
   assert.equal(translate.url, 'https://api.anthropic.com/v1/messages');
+  assert.equal(translate.body.model, 'claude-opus-5-5');
   assert.equal(translate.body.thinking, undefined);
   assert.equal(translate.body.max_tokens, 16000);
   assert.deepEqual(translate.body.output_config, { effort: 'low' });
 
-  // 总结等长文场景沿用模型默认 effort（不传），但预算同样要放大
   const summary = await captureRequest('claude', { model: 'claude-fable-5', PREFIX: 'SUMMARY', sse: CLAUDE_SSE });
+  assert.equal(summary.body.model, 'claude-fable-5-1');
   assert.equal(summary.body.thinking, undefined);
   assert.equal(summary.body.max_tokens, 16000);
   assert.equal(summary.body.output_config, undefined);
 
-  // sonnet-5 可关思考：关掉即可，预算与 effort 都不动
   const sonnet = await captureRequest('claude', { model: 'claude-sonnet-5', PREFIX: 'TRANSLATE', sse: CLAUDE_SSE });
-  assert.deepEqual(sonnet.body.thinking, { type: 'disabled' });
+  assert.equal(sonnet.body.model, 'claude-sonnet-5-5');
+  assert.deepEqual(sonnet.body.thinking, { type: 'between_tools' });
   assert.equal(sonnet.body.max_tokens, 2048);
   assert.equal(sonnet.body.output_config, undefined);
 
-  // Opus 4.x 不传 thinking 即不思考：什么都不加
-  const opus48 = await captureRequest('claude', { model: 'claude-opus-4-8', PREFIX: 'TRANSLATE', sse: CLAUDE_SSE });
-  assert.equal(opus48.body.thinking, undefined);
-  assert.equal(opus48.body.max_tokens, 2048);
-  assert.equal(opus48.body.output_config, undefined);
+  const haiku = await captureRequest('claude', { model: 'claude-3-5-haiku-20241022', PREFIX: 'TRANSLATE', sse: CLAUDE_SSE });
+  assert.equal(haiku.body.model, 'claude-haiku-5-5');
+  assert.deepEqual(haiku.body.thinking, { type: 'disabled' });
+  assert.equal(haiku.body.max_tokens, 2048);
 });
 
-test('minimax uses the OpenAI-compatible endpoint and keeps only the final answer', async () => {
-  const m3 = await captureRequest('minimax', { model: 'MiniMax-M3', PREFIX: 'TRANSLATE' });
-  assert.equal(m3.url, 'https://api.minimax.io/v1/chat/completions');
-  assert.deepEqual(m3.body.thinking, { type: 'disabled' });
-  assert.equal(m3.body.reasoning_split, true);
-  assert.equal(m3.body.max_completion_tokens, 2048);
-  assert.equal(m3.body.max_tokens, undefined);
-
-  // M2.x 思考关不掉：思考单独走 reasoning_details（解析丢弃），并放大预算
-  const m27 = await captureRequest('minimax', { model: 'MiniMax-M2.7-highspeed', PREFIX: 'TRANSLATE' });
-  assert.equal(m27.body.thinking, undefined);
-  assert.equal(m27.body.reasoning_split, true);
-  assert.equal(m27.body.max_completion_tokens, 16000);
+test('legacy MiniMax configurations use M3 on the OpenAI-compatible endpoint', async () => {
+  for (const model of ['MiniMax-M3', 'MiniMax-M2.7-highspeed', 'MiniMax-M3.1', 'MiniMax-M3.1-preview']) {
+    const result = await captureRequest('minimax', { model, PREFIX: 'TRANSLATE' });
+    assert.equal(result.url, 'https://api.minimax.io/v1/chat/completions');
+    assert.equal(result.body.model, 'MiniMax-M3');
+    assert.deepEqual(result.body.thinking, { type: 'disabled' });
+    assert.equal(result.body.reasoning_split, true);
+    assert.equal(result.body.max_completion_tokens, 2048);
+    assert.equal(result.body.max_tokens, undefined);
+  }
 });
 
-test('translation lowers reasoning effort on gpt-5 / gemini 3 / responses api and leaves other scenes at defaults', async () => {
-  const gptTranslate = await captureRequest('openai', { model: 'gpt-5.6-sol', PREFIX: 'TRANSLATE' });
-  assert.equal(gptTranslate.url, 'https://api.openai.com/v1/chat/completions');
-  assert.equal(gptTranslate.body.reasoning_effort, 'low');
-  // gpt-5.x 思考关不掉且与正文共用预算，预算抬到 16000 防止正文被吃光
-  assert.equal(gptTranslate.body.max_completion_tokens, 16000);
+test('legacy GPT and Gemini configurations use current models and scene-specific reasoning', async () => {
+  for (const model of ['gpt-4.1', 'gpt-5.6-sol', 'gpt-5.6-terra']) {
+    const result = await captureRequest('openai', { model, PREFIX: 'TRANSLATE' });
+    assert.equal(result.url, 'https://api.openai.com/v1/chat/completions');
+    assert.equal(result.body.model, 'gpt-6.1-sol');
+    assert.equal(result.body.reasoning_effort, 'low');
+    assert.equal(result.body.max_completion_tokens, 16000);
+  }
+  const luna = await captureRequest('openai', { model: 'gpt-5.4-mini', PREFIX: 'TRANSLATE' });
+  assert.equal(luna.body.model, 'gpt-6-luna');
+  assert.equal(luna.body.reasoning_effort, 'low');
+  assert.equal(luna.body.max_completion_tokens, 16000);
   const gptSummary = await captureRequest('openai', { model: 'gpt-5.6-sol', PREFIX: 'SUMMARY' });
+  assert.equal(gptSummary.body.model, 'gpt-6.1-sol');
   assert.equal(gptSummary.body.reasoning_effort, undefined);
   assert.equal(gptSummary.body.max_completion_tokens, 16000);
-  // gpt-4.x 老模型不认 reasoning_effort，也不需要放大预算
-  const gpt41 = await captureRequest('openai', { model: 'gpt-4.1', PREFIX: 'TRANSLATE' });
-  assert.equal(gpt41.body.reasoning_effort, undefined);
-  assert.equal(gpt41.body.max_completion_tokens, 2048);
 
-  const gemTranslate = await captureRequest('gemini', { model: 'gemini-3.7-flash', PREFIX: 'TRANSLATE', sse: GEMINI_SSE });
-  assert.match(gemTranslate.url, /\/models\/gemini-3\.7-flash:streamGenerateContent/);
-  assert.deepEqual(gemTranslate.body.generationConfig, { maxOutputTokens: 2048, thinkingConfig: { thinkingLevel: 'low' } });
-  assert.deepEqual(gemTranslate.body.systemInstruction, { parts: [{ text: 'sys' }] });
+  for (const model of ['gemini-3.7-flash', 'gemini-2.5-flash']) {
+    const result = await captureRequest('gemini', { model, PREFIX: 'TRANSLATE', sse: GEMINI_SSE });
+    assert.match(result.url, /\/models\/gemini-3\.8-flash:streamGenerateContent/);
+    assert.deepEqual(result.body.generationConfig, { maxOutputTokens: 2048, thinkingConfig: { thinkingLevel: 'low' } });
+    assert.deepEqual(result.body.systemInstruction, { parts: [{ text: 'sys' }] });
+  }
   const gemSummary = await captureRequest('gemini', { model: 'gemini-3.7-flash', PREFIX: 'SUMMARY', sse: GEMINI_SSE });
   assert.deepEqual(gemSummary.body.generationConfig, { maxOutputTokens: 8096 });
-  // Flash-Lite 默认已是 minimal；2.5 只认 thinkingBudget —— 都不传 thinkingLevel
-  const lite = await captureRequest('gemini', { model: 'gemini-3.5-flash-lite', PREFIX: 'TRANSLATE', sse: GEMINI_SSE });
+  const lite = await captureRequest('gemini', { model: 'gemini-2.5-flash-lite', PREFIX: 'TRANSLATE', sse: GEMINI_SSE });
+  assert.match(lite.url, /\/models\/gemini-3\.5-flash-lite:streamGenerateContent/);
   assert.deepEqual(lite.body.generationConfig, { maxOutputTokens: 2048 });
-  const g25 = await captureRequest('gemini', { model: 'gemini-2.5-flash', PREFIX: 'TRANSLATE', sse: GEMINI_SSE });
-  assert.deepEqual(g25.body.generationConfig, { maxOutputTokens: 2048 });
+});
 
-  const respTranslate = await captureRequest('sub2api', { model: 'gpt-5.6-sol', PREFIX: 'TRANSLATE', sse: RESPONSES_SSE, baseUrl: 'https://gateway.example' });
-  assert.equal(respTranslate.url, 'https://gateway.example/v1/responses');
-  assert.equal(respTranslate.body.reasoning.effort, 'low');
-  const respSummary = await captureRequest('sub2api', { model: 'gpt-5.6-sol', PREFIX: 'SUMMARY', sse: RESPONSES_SSE, baseUrl: 'https://gateway.example' });
-  assert.equal(respSummary.body.reasoning.effort, 'medium');
+test('legacy Sub2API configurations migrate the model before choosing protocol and thinking', async () => {
+  const baseUrl = 'https://gateway.example';
+  const translate = await captureRequest('sub2api', { model: 'gpt-5.6-sol', PREFIX: 'TRANSLATE', sse: RESPONSES_SSE, baseUrl });
+  assert.equal(translate.url, baseUrl + '/v1/responses');
+  assert.equal(translate.body.model, 'gpt-6.1-sol');
+  assert.equal(translate.body.reasoning.effort, 'low');
+  const summary = await captureRequest('sub2api', { model: 'gpt-5.6-sol', PREFIX: 'SUMMARY', sse: RESPONSES_SSE, baseUrl });
+  assert.equal(summary.body.model, 'gpt-6.1-sol');
+  assert.equal(summary.body.reasoning.effort, 'medium');
 
-  // sub2api 的 gemini 槽位与直连共用 buildGeminiBody
-  const subGem = await captureRequest('sub2api', { model: 'gemini-3.7-flash', PREFIX: 'TRANSLATE', sse: GEMINI_SSE, baseUrl: 'https://gateway.example' });
-  assert.match(subGem.url, /^https:\/\/gateway\.example\/v1beta\/models\/gemini-3\.7-flash:streamGenerateContent/);
-  assert.deepEqual(subGem.body.generationConfig, { maxOutputTokens: 2048, thinkingConfig: { thinkingLevel: 'low' } });
+  const claude = await captureRequest('sub2api', { model: 'claude-sonnet-5', PREFIX: 'TRANSLATE', sse: CLAUDE_SSE, baseUrl });
+  assert.equal(claude.url, baseUrl + '/v1/messages');
+  assert.equal(claude.body.model, 'claude-sonnet-5-5');
+  assert.deepEqual(claude.body.thinking, { type: 'between_tools' });
+
+  const gemini = await captureRequest('sub2api', { model: 'gemini-2.5-flash', PREFIX: 'TRANSLATE', sse: GEMINI_SSE, baseUrl });
+  assert.equal(gemini.url, baseUrl + '/v1beta/models/gemini-3.8-flash:streamGenerateContent?alt=sse&key=k');
+  assert.deepEqual(gemini.body.generationConfig, { maxOutputTokens: 2048, thinkingConfig: { thinkingLevel: 'low' } });
+  const lite = await captureRequest('sub2api', { model: 'gemini-2.5-flash-lite', PREFIX: 'TRANSLATE', sse: GEMINI_SSE, baseUrl });
+  assert.match(lite.url, /\/models\/gemini-3\.5-flash-lite:streamGenerateContent/);
+  assert.deepEqual(lite.body.generationConfig, { maxOutputTokens: 2048 });
 });
 
 test('video transcription is pinned to gemini-3.5-flash-lite instead of a drifting alias', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'background.js'), 'utf8');
   assert.match(source, /const model = 'gemini-3\.5-flash-lite';/);
   assert.doesNotMatch(source, /gemini-flash-lite-latest'/);
+});
+
+
+test('GPT 6 translation receives the shared reasoning policy and enough output budget', async () => {
+  const translate = await captureRequest('openai', { model: 'gpt-6.1-sol', PREFIX: 'TRANSLATE' });
+  assert.equal(translate.body.model, 'gpt-6.1-sol');
+  assert.equal(translate.body.reasoning_effort, 'low');
+  assert.equal(translate.body.max_completion_tokens, 16000);
+  const summary = await captureRequest('openai', { model: 'gpt-6.1-sol', PREFIX: 'SUMMARY' });
+  assert.equal(summary.body.reasoning_effort, undefined);
+  assert.equal(summary.body.max_completion_tokens, 16000);
+});
+
+test('Claude 5.5 thinking settings distinguish Sonnet, Haiku and Opus capabilities', async () => {
+  const sonnet = await captureRequest('claude', { model: 'claude-sonnet-5-5', PREFIX: 'TRANSLATE', sse: CLAUDE_SSE });
+  assert.deepEqual(sonnet.body.thinking, { type: 'between_tools' });
+  const haiku = await captureRequest('claude', { model: 'claude-haiku-5-5', PREFIX: 'TRANSLATE', sse: CLAUDE_SSE });
+  assert.deepEqual(haiku.body.thinking, { type: 'disabled' });
+  const opus = await captureRequest('claude', { model: 'claude-opus-5-5', PREFIX: 'TRANSLATE', sse: CLAUDE_SSE });
+  assert.equal(opus.body.thinking, undefined);
+  assert.equal(opus.body.max_tokens, 16000);
+});
+
+test('truncated provider completion reaches content scripts with warning metadata', async () => {
+  const loaded = loadBackground({ fetch: sseResponse('data: {"choices":[{"delta":{"content":"partial"},"finish_reason":"length"}]}\n\n') });
+  await loaded.context.callProvider('openai', {
+    key: 'test', model: 'gpt-6.1-sol', systemPrompt: '', messages: [{ role: 'user', content: 'hi' }],
+    maxTokens: 2048, tabId: 1, PREFIX: 'SUMMARY', requestId: 'partial',
+  });
+  const done = loaded.sentMessages.at(-1).message;
+  assert.equal(done.type, 'SUMMARY_DONE');
+  assert.equal(done.truncated, true);
+  assert.match(done.warning, /finish_reason=length/);
+  assert.equal(loaded.sentMessages.filter(item => /_(DONE|ERROR)$/.test(item.message.type)).length, 1);
+});
+
+function expiredChatgptAuth() {
+  return { access_token: 'expired-token', refresh_token: 'test-refresh-token', account_id: 'test-account' };
+}
+
+test('OAuth shared refresh times out stalled headers or response body and can retry', async () => {
+  for (const phase of ['headers', 'body']) {
+    const loaded = loadBackground({
+      localStorage: { chatgptAuth: expiredChatgptAuth() },
+      setTimeout(callback, ms) { return setTimeout(callback, ms === 30000 ? 5 : ms); },
+      fetch: async () => phase === 'headers'
+        ? new Promise(() => {})
+        : { ok: true, json: () => new Promise(() => {}) },
+    });
+    const first = loaded.context.ensureChatgptAccessToken();
+    const second = loaded.context.ensureChatgptAccessToken();
+    const results = await Promise.all([first, second]);
+    assert.equal(loaded.fetchCalls.length, 1, phase + ': concurrent callers share one refresh');
+    for (const result of results) assert.match(result.error, /刷新超时/);
+    assert.equal(loaded.fetchCalls[0][1].signal.aborted, true);
+    assert.equal(vm.runInContext('chatgptRefreshInflight', loaded.context), null);
+    const retry = await loaded.context.ensureChatgptAccessToken();
+    assert.match(retry.error, /刷新超时/);
+    assert.equal(loaded.fetchCalls.length, 2, phase + ': timeout releases the refresh slot');
+  }
+});
+
+test('cancelling one OAuth caller immediately releases it without aborting the shared refresh', async () => {
+  let finishRefresh;
+  const localStorage = { chatgptAuth: expiredChatgptAuth() };
+  const loaded = loadBackground({
+    localStorage,
+    fetch: async (url) => {
+      if (url === 'https://auth.openai.com/oauth/token') {
+        return new Promise(resolve => { finishRefresh = resolve; });
+      }
+      return sseResponse(RESPONSES_SSE)();
+    },
+  });
+  const request = (requestId) => loaded.context.callProvider('chatgpt', {
+    key: 'oauth', model: 'gpt-6.1-sol', systemPrompt: '', messages: [{ role: 'user', content: 'hi' }],
+    maxTokens: 2048, tabId: 1, PREFIX: 'SUMMARY', requestId,
+  });
+  const cancelled = request('cancelled-caller');
+  const survivor = request('surviving-caller');
+  try {
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(loaded.fetchCalls.length, 1);
+    loaded.context.cancelRequestsForTab(1, 'cancelled-caller');
+    await cancelled;
+    assert.equal(loaded.fetchCalls[0][1].signal.aborted, false);
+    const cancelMessage = loaded.sentMessages.find(item => item.message.type === 'SUMMARY_ERROR').message;
+    assert.equal(cancelMessage.requestId, 'cancelled-caller');
+    assert.equal(cancelMessage.cancelled, true);
+    assert.equal(vm.runInContext('keepaliveRefCount', loaded.context), 1);
+  } finally {
+    if (finishRefresh) finishRefresh({ ok: true, json: async () => ({ access_token: 'fresh-token', refresh_token: 'rotated-token' }) });
+    await Promise.all([cancelled, survivor]);
+  }
+  assert.equal(localStorage.chatgptAuth.refresh_token, 'rotated-token');
+  assert.equal(loaded.fetchCalls.length, 2);
+  assert.equal(loaded.sentMessages.at(-1).message.requestId, 'surviving-caller');
+  assert.equal(loaded.sentMessages.at(-1).message.type, 'SUMMARY_DONE');
+  assert.equal(vm.runInContext('keepaliveRefCount', loaded.context), 0);
+});
+
+
+test('stored old models migrate at request time without writing over settings', async () => {
+  const cases = [
+    ['openai', 'gpt-5.6-sol', 'gpt-6.1-sol', OPENAI_SSE],
+    ['claude', 'claude-sonnet-5', 'claude-sonnet-5-5', CLAUDE_SSE],
+    ['minimax', 'MiniMax-M2.7', 'MiniMax-M3', OPENAI_SSE],
+    ['kimi', 'kimi-k2.6', 'kimi-k3', OPENAI_SSE],
+    ['deepseek', 'deepseek-chat', 'deepseek-flash', OPENAI_SSE],
+    ['gemini', 'gemini-2.5-flash', 'gemini-3.8-flash', GEMINI_SSE],
+    ['sub2api', 'gpt-5.6-sol', 'gpt-6.1-sol', RESPONSES_SSE],
+    ['chatgpt', 'gpt-5.4-mini', 'gpt-6-luna', RESPONSES_SSE],
+  ];
+  for (const [provider, oldModel, expected, sse] of cases) {
+    const settings = { provider, [provider + 'Model']: oldModel, [provider + 'Key']: 'test-key', sub2apiBaseUrl: 'https://gateway.example' };
+    const jwtPayload = Buffer.from(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 3600 })).toString('base64url');
+    const loaded = loadBackground({
+      storageGet(_fields, callback) { callback(settings); },
+      localStorage: { chatgptAuth: { access_token: 'header.' + jwtPayload + '.signature', account_id: 'test-account' } },
+      fetch: sseResponse(sse),
+    });
+    let settingsWrites = 0;
+    loaded.context.chrome.storage.sync.set = () => { settingsWrites++; };
+    await loaded.context.handleSummarize({ provider, transcript: 'hello', prompt: '{transcript}', requestId: 'stored-' + provider }, 1);
+    assert.equal(loaded.fetchCalls.length, 1, provider);
+    const [url, init] = loaded.fetchCalls[0];
+    const body = JSON.parse(init.body);
+    if (provider === 'gemini') assert.ok(url.includes('/models/' + expected + ':'), provider);
+    else assert.equal(body.model, expected, provider);
+    assert.equal(loaded.sentMessages[0].message.model, expected, provider + ' model badge');
+    assert.equal(loaded.sentMessages.at(-1).message.type, 'SUMMARY_DONE', provider);
+    assert.equal(settingsWrites, 0, provider + ' must not overwrite settings');
+    assert.equal(settings[provider + 'Model'], oldModel, provider + ' retains the saved value until settings migration');
+  }
+});
+
+
+test('legacy shared model settings migrate only for their original provider', async () => {
+  const cases = [
+    { savedProvider: 'sub2api', provider: 'sub2api', model: 'gpt-5.4-mini', expected: 'gpt-6-luna', sse: RESPONSES_SSE, endpoint: '/v1/responses' },
+    { savedProvider: 'sub2api', provider: 'sub2api', model: 'gemini-2.5-flash', expected: 'gemini-3.8-flash', sse: GEMINI_SSE, endpoint: '/v1beta/models/gemini-3.8-flash:' },
+    { savedProvider: 'sub2api', provider: 'sub2api', model: 'gpt-5.4-mini', providerModel: 'claude-sonnet-5', expected: 'claude-sonnet-5-5', sse: CLAUDE_SSE, endpoint: '/v1/messages' },
+    { savedProvider: 'sub2api', provider: 'openai', model: 'gpt-5.4-mini', expected: 'gpt-6.1-sol', sse: OPENAI_SSE, endpoint: '/v1/chat/completions' },
+    { savedProvider: 'openai', provider: 'sub2api', model: 'gpt-5.4-mini', expected: 'claude-fable-5-1', sse: CLAUDE_SSE, endpoint: '/v1/messages' },
+    { savedProvider: undefined, provider: 'claude', model: 'claude-sonnet-5', expected: 'claude-sonnet-5-5', sse: CLAUDE_SSE, endpoint: '/v1/messages' },
+    { savedProvider: 'invalid-provider', provider: 'claude', model: 'claude-3-5-haiku-20241022', expected: 'claude-haiku-5-5', sse: CLAUDE_SSE, endpoint: '/v1/messages' },
+  ];
+  for (const row of cases) {
+    const settings = { provider: row.savedProvider, model: row.model, [row.provider + 'Key']: 'test-key', sub2apiBaseUrl: 'https://gateway.example' };
+    if (row.providerModel) settings[row.provider + 'Model'] = row.providerModel;
+    let writes = 0;
+    const loaded = loadBackground({
+      storageGet(fields, callback) {
+        assert.ok(fields.includes('provider'));
+        assert.ok(fields.includes('model'));
+        callback(settings);
+      },
+      fetch: sseResponse(row.sse),
+    });
+    loaded.context.chrome.storage.sync.set = () => { writes++; };
+    await loaded.context.handleSummarize({ provider: row.provider, transcript: 'hello', prompt: '{transcript}', requestId: 'legacy-only' }, 1);
+    assert.equal(loaded.fetchCalls.length, 1);
+    const [url, init] = loaded.fetchCalls[0];
+    assert.ok(url.includes(row.endpoint), row.provider + ': ' + url);
+    if (!row.expected.startsWith('gemini-')) assert.equal(JSON.parse(init.body).model, row.expected);
+    assert.equal(loaded.sentMessages[0].message.model, row.expected);
+    assert.equal(loaded.sentMessages.at(-1).message.type, 'SUMMARY_DONE');
+    assert.equal(writes, 0);
+    assert.equal(settings.model, row.model);
+  }
 });

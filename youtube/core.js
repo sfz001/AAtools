@@ -56,6 +56,17 @@ YTX.parseError = function (contentEl, label, err) {
   YTX.renderError(contentEl, label + '解析失败: ' + detail + '\n可尝试重新生成');
 };
 
+// 流式正常结束也可能达到输出上限；警告必须随结果一起缓存，避免恢复后误当完整内容。
+YTX.resultWarningText = function (metadata) {
+  if (!metadata) return '';
+  if (typeof metadata.warning === 'string' && metadata.warning.trim()) return metadata.warning.trim();
+  return metadata.truncated ? '内容因达到模型输出上限而截断，结果不完整，请重新生成或缩小范围。' : '';
+};
+YTX.resultWarningHtml = function (metadata) {
+  var warning = YTX.resultWarningText(metadata);
+  return warning ? '<div class="ytx-warning ytx-result-warning" role="status" style="flex:none;padding:8px 12px;margin:6px 0;color:#92400e;background:#fef3c7;border-radius:6px">' + YTX.escapeHtml(warning) + '</div>' : '';
+};
+
 // ── 工具函数 ──────────────────────────────────────────
 
 // 满 1 小时进位为 H:MM:SS，否则 M:SS。
@@ -384,7 +395,7 @@ YTX._analyzeVideoWithGemini = async function (expectedGeneration) {
   // 只更新 transcriptData（供总结等功能使用），不重新渲染
   if (YTX._transcribeTimer) { clearInterval(YTX._transcribeTimer); YTX._transcribeTimer = null; }
   var alreadyRendered = YTX.panel && YTX.panel.querySelector('#ytx-seg-container');
-  YTX.transcriptData = { full: response.text };
+  YTX.transcriptData = { full: response.text, warning: YTX.resultWarningText(response), truncated: !!response.truncated || !!response.warning };
   // 确认拿到视频模式转录结果之后才置位，缓存写入的 videoMode 才与内容一致
   YTX.videoMode = true;
   YTX.showVideoModeBanner();
@@ -393,8 +404,8 @@ YTX._analyzeVideoWithGemini = async function (expectedGeneration) {
     // 文本是截断的——不区分的话这里会显示绿色「转录完成」，用户看不出字幕不完整
     var status = YTX.panel.querySelector('#ytx-seg-status');
     if (status) {
-      if (response.warning) {
-        status.textContent = '转录已截断（超出模型单次输出上限，字幕不完整）';
+      if (YTX.transcriptData.truncated) {
+        status.textContent = YTX.transcriptData.warning || '转录已截断（超出模型单次输出上限，字幕不完整）';
         status.style.color = '#b45309';
       } else {
         status.textContent = '转录完成';
@@ -446,7 +457,8 @@ YTX.switchToVideoMode = function () {
         YTX.cache.save(startVideoId, 'transcript', {
           segments: null,
           full: YTX.transcriptData.full,
-          truncated: false,
+          truncated: !!YTX.transcriptData.truncated,
+          warning: YTX.transcriptData.warning || '',
           videoMode: true,
         });
       }
@@ -509,6 +521,7 @@ YTX.ensureTranscript = function () {
           segments: YTX.transcriptData.segments || null,
           full: YTX.transcriptData.full,
           truncated: YTX.transcriptData.truncated || false,
+          warning: YTX.transcriptData.warning || '',
           videoMode: YTX.videoMode,
         });
       }

@@ -134,6 +134,7 @@
           segments: record.transcript.segments || null,
           full: record.transcript.full,
           truncated: record.transcript.truncated || false,
+          warning: record.transcript.warning || '',
         };
         if (record.transcript.videoMode) {
           YTX.videoMode = true;
@@ -147,6 +148,8 @@
         var s = YTX.features.summary;
         if ((s._activityVersion || 0) === activityVersions.summary && !s.isGenerating && !s.requestId && !s.text) {
           s.text = record.summary.text;
+          s.warning = YTX.resultWarningText(record.summary);
+          s.truncated = !!record.summary.truncated;
           s.renderFinal();
           YTX.btnRefresh(YTX.panel.querySelector('#ytx-summarize'));
         }
@@ -157,6 +160,8 @@
         var h = YTX.features.html;
         if ((h._activityVersion || 0) === activityVersions.html && !h.isGenerating && !h.requestId && !h.text) {
           h.text = record.html.text;
+          h.warning = YTX.resultWarningText(record.html);
+          h.truncated = !!record.html.truncated;
           h.renderContent();
           YTX.btnRefresh(YTX.panel.querySelector('#ytx-generate-html'));
         }
@@ -167,6 +172,8 @@
         var m = YTX.features.mindmap;
         if ((m._activityVersion || 0) === activityVersions.mindmap && !m.isGenerating && !m.requestId && !m.data && !m.rawText) {
           m.data = record.mindmap.data;
+          m.warning = YTX.resultWarningText(record.mindmap);
+          m.truncated = !!record.mindmap.truncated;
           // 缓存里可能是历史版本写入的坏树；render() 抛错时清空并提示，
           // 否则未捕获的 rejection 会让导图页停在占位且不显示任何错误
           try {
@@ -449,7 +456,7 @@
       // 按时间戳边界拆分（支持内联时间戳如 [00:38] 文字 [00:43] 文字）
       var raw = YTX.transcriptData.full.replace(/\n/g, ' ');
       var parts = raw.split(/(?=\[\d+:\d+(?::\d+)?\])/).filter(function (s) { return s.trim(); });
-      body.innerHTML =
+      body.innerHTML = YTX.resultWarningHtml(YTX.transcriptData) +
         '<div class="ytx-warning" style="padding:6px 12px;font-size:11px;color:#7c3aed;background:#ede9fe;border-radius:6px;margin-bottom:6px">以下为 Gemini 视频模式获取的内容</div>' +
         parts.map(function (part) {
           var seg = part.trim();
@@ -1021,7 +1028,7 @@
     if (action === 'CHUNK' && feature.onChunk) {
       feature.onChunk(message.text);
     } else if (action === 'DONE' && feature.onDone) {
-      feature.onDone();
+      feature.onDone(message);
     } else if (action === 'ERROR' && feature.onError) {
       feature.onError(message.error);
     }

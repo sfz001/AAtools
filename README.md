@@ -28,22 +28,26 @@ git clone https://github.com/sfz001/AAtools.git
 
 ### API Key
 
-| 提供商 | 推荐模型 | 获取 Key |
+| 提供商 | 可选模型（各系列当前最新版） | 获取 Key |
 |--------|----------|----------|
-| Claude | Fable 5 | [Anthropic Console](https://console.anthropic.com/settings/keys) |
-| OpenAI | GPT-5.6 | [OpenAI Platform](https://platform.openai.com/api-keys) |
-| Gemini | Gemini 3.7 Flash | [AI Studio](https://aistudio.google.com/apikey) |
+| Claude | Fable 5.1 / Opus 5.5 / Sonnet 5.5 / Haiku 5.5 | [Anthropic Console](https://console.anthropic.com/settings/keys) |
+| OpenAI | GPT-6.1 Sol / GPT-6 Astra / GPT-6 Luna | [OpenAI Platform](https://platform.openai.com/api-keys) |
+| Gemini | Gemini 3.8 Flash / 3.5 Flash-Lite / 3.1 Pro Preview | [AI Studio](https://aistudio.google.com/apikey) |
 | MiniMax | MiniMax-M3 | [MiniMax Platform](https://platform.minimax.io/console/access) |
-| DeepSeek | DeepSeek V4 Flash | [DeepSeek Platform](https://platform.deepseek.com/api_keys) |
+| DeepSeek | V4.1 Flash（`deepseek-flash`）/ V4 Pro | [DeepSeek Platform](https://platform.deepseek.com/api_keys) |
 | Kimi | Kimi K3 | [Kimi 开放平台](https://platform.kimi.com/console/api-keys) |
 
+> 模型目录核验于 2026-10-11，由 `models.js` 统一维护。所有可选型号严格限定为各系列当前最新版；设置页、已拉取列表缓存和配置导入/导出都会过滤旧型号，不追加“当前已保存”选项。更新后打开设置页初始化时，旧配置会按系列迁移到当前型号。
+>
+> Gemini 的 Flash 3.8、Flash-Lite 3.5、Pro 3.1 分别是三个系列的当前版本，数字不同不代表保留历史型号。MiniMax M3.1 Preview 限定渠道，普通 API 预置仍为正式版 M3。ChatGPT 订阅提供与 OpenAI 相同的三个 GPT 选项；Sub2API 提供上述 Claude、GPT、Gemini 系列的当前型号（包括 Haiku 5.5），均需要账号或网关支持，不保留 Gemini 2.5 选项。
+>
 > 建议同时配置 Gemini Key：当视频无字幕时，扩展会自动调用 Gemini 视频模式转录内容。
 
 ### 可选配置
 
 - **自定义 Sub2API 网关** — 填写 Base URL 后点击「授权域名」；该按钮会校验 URL 并保存（公网网关必须使用 HTTPS，localhost 可使用 HTTP）。扩展为了「重载后免刷新页面」已把 `https://*/*` + `http://*/*` 声明为必需权限，所以通常不会再弹单独的授权框
 - **导出 Obsidian** — 总结/笔记/导图可一键下载为带 YAML frontmatter 的 `.md`，直接拖进 Vault 即可
-- **设置导入/导出** — 支持将全部配置（含已拉取的模型列表）导出为 JSON 文件，方便迁移
+- **设置导入/导出** — 支持将配置（含过滤后的模型列表）导出为 JSON 文件；导入旧配置时迁移旧型号，导出不会重新带回旧型号
 
 ---
 
@@ -123,7 +127,8 @@ git clone https://github.com/sfz001/AAtools.git
 - **可配置默认状态** — 可在设置页选择 YouTube 面板默认折叠或默认打开
 - **历史缓存** — 生成结果持久化到扩展自身的 IndexedDB，再次打开同一视频自动恢复；旧版 YouTube 页面域缓存会安全迁移
 - **亮/暗色适配** — 自动跟随 YouTube 主题
-- **流式输出** — 所有 AI 生成均为流式渲染，实时显示进度
+- **流式输出** — 所有 AI 生成均为流式渲染；翻译与问答合批更新，阅读上文时保持滚动位置
+- **完整性提示** — 输出或转录达到上限时显示“不完整”提示，总结/笔记/导图/字幕缓存同时保留该状态
 - **自动保存** — 设置页所有修改 1.5 秒防抖自动保存
 
 ## 开发
@@ -138,6 +143,7 @@ git clone https://github.com/sfz001/AAtools.git
 ### 项目结构
 
 ```
+├── models.js                  # 共享模型目录、生命周期、端点筛选与参数策略
 ├── background.js              # Service Worker：API 调用、字幕抓取、视频转录、缓存
 ├── manifest.json              # Manifest V3 配置
 ├── options.html/js/css        # 设置页

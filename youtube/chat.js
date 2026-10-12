@@ -11,8 +11,14 @@ YTX.features.chat = {
   messages: [],
   replyText: '',
   isChatting: false,
+  _renderTimer: null,
+  warning: '',
+  truncated: false,
 
   reset: function () {
+    this.cancelReplyRender();
+    this.warning = '';
+    this.truncated = false;
     this.messages = [];
     this.replyText = '';
     this.isChatting = false;
@@ -50,8 +56,11 @@ YTX.features.chat = {
     if (!question) return;
 
     input.value = '';
+    this.cancelReplyRender();
     this.isChatting = true;
     this.replyText = '';
+    this.warning = '';
+    this.truncated = false;
     var sendBtn = YTX.panel.querySelector('#ytx-chat-send');
     sendBtn.disabled = true;
 
@@ -100,6 +109,7 @@ YTX.features.chat = {
       }, payload));
     } catch (err) {
       if (this.requestId !== requestId) return;
+      this.cancelReplyRender();
       // 回滚发请求前推入的这轮 user 消息：不回滚的话下一轮会带着它一起发出，
       // 变成连续两条 user，模型可能把上次失败的问题一并作答
       this.rollbackPendingQuestion();
@@ -112,17 +122,36 @@ YTX.features.chat = {
     }
   },
 
-  onChunk: function (text) {
+  cancelReplyRender: function () {
+    if (this._renderTimer !== null) clearTimeout(this._renderTimer);
+    this._renderTimer = null;
+  },
+
+  flushReply: function () {
+    this.cancelReplyRender();
+    if (!YTX.panel) return;
     var aiBubble = YTX.panel.querySelector('.ytx-chat-ai:last-child');
-    if (aiBubble) {
-      if (this.replyText === '' || aiBubble.querySelector('.ytx-loading')) {
-        aiBubble.innerHTML = '';
-      }
-      this.replyText += text;
-      aiBubble.innerHTML = YTX.renderMarkdown(this.replyText);
-      var msgContainer = YTX.panel.querySelector('#ytx-chat-messages');
-      msgContainer.scrollTop = msgContainer.scrollHeight;
-    }
+    var msgContainer = YTX.panel.querySelector('#ytx-chat-messages');
+    if (!aiBubble || !msgContainer) return;
+    var followBottom = msgContainer.scrollHeight - msgContainer.clientHeight - msgContainer.scrollTop <= 32;
+    var previousTop = msgContainer.scrollTop;
+    aiBubble.innerHTML = YTX.renderMarkdown(this.replyText) + YTX.resultWarningHtml(this);
+    msgContainer.scrollTop = followBottom ? msgContainer.scrollHeight : previousTop;
+  },
+
+  onChunk: function (text) {
+    this.replyText += text;
+    if (this._renderTimer !== null) return;
+    var self = this;
+    var requestId = this.requestId;
+    var panelAtStart = YTX.panel;
+    var renderTimer = setTimeout(function () {
+      if (self._renderTimer !== renderTimer) return;
+      self._renderTimer = null;
+      if (!self.isChatting || self.requestId !== requestId || YTX.panel !== panelAtStart) return;
+      self.flushReply();
+    }, 80);
+    this._renderTimer = renderTimer;
   },
 
   // 这轮请求失败时丢掉尾部那条尚未配对 assistant 回复的 user 消息
@@ -132,7 +161,10 @@ YTX.features.chat = {
     }
   },
 
-  onDone: function () {
+  onDone: function (metadata) {
+    this.warning = YTX.resultWarningText(metadata);
+    this.truncated = !!(metadata && metadata.truncated);
+    this.flushReply();
     this.requestId = null;
     this.messages.push({ role: 'assistant', content: this.replyText });
     this.isChatting = false;
@@ -141,6 +173,7 @@ YTX.features.chat = {
   },
 
   onError: function (error) {
+    this.cancelReplyRender();
     this.requestId = null;
     // 同 send() 的 catch：这轮没有 assistant 回复，user 消息必须回滚
     this.rollbackPendingQuestion();
@@ -151,6 +184,9 @@ YTX.features.chat = {
   },
 
   clear: function () {
+    this.cancelReplyRender();
+    this.warning = '';
+    this.truncated = false;
     if (this.requestId) YTX.cancelRequest(this.requestId);
     this.requestId = null;
     this.messages = [];

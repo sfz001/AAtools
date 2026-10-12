@@ -10,12 +10,16 @@ YTX.features.summary = {
   // 状态
   text: '',
   isGenerating: false,
+  warning: '',
+  truncated: false,
   _renderTimer: null,
 
   reset: function () {
     this._activityVersion = (this._activityVersion || 0) + 1;
     this.text = '';
     this.isGenerating = false;
+    this.warning = '';
+    this.truncated = false;
     if (this._renderTimer) { clearTimeout(this._renderTimer); this._renderTimer = null; }
     if (this.requestId) YTX.cancelRequest(this.requestId);
     this.requestId = null;
@@ -42,6 +46,8 @@ YTX.features.summary = {
     if (this.isGenerating) return Promise.resolve();
     this._activityVersion = (this._activityVersion || 0) + 1;
     this.isGenerating = true;
+    this.warning = '';
+    this.truncated = false;
     this.text = '';
 
     // 旧 deferred 让位（理论上 isGenerating 已挡住，但安全起见）
@@ -132,7 +138,9 @@ YTX.features.summary = {
     }
   },
 
-  onDone: function () {
+  onDone: function (metadata) {
+    this.warning = YTX.resultWarningText(metadata);
+    this.truncated = !!(metadata && metadata.truncated);
     this.requestId = null;
     // 清除节流计时器，立即渲染最终结果
     if (this._renderTimer) { clearTimeout(this._renderTimer); this._renderTimer = null; }
@@ -141,7 +149,7 @@ YTX.features.summary = {
     YTX.panel.querySelector('#ytx-summarize').disabled = false;
     YTX.btnRefresh(YTX.panel.querySelector('#ytx-summarize'));
     this.isGenerating = false;
-    YTX.cache.save(YTX.currentVideoId, 'summary', { text: this.text });
+    YTX.cache.save(YTX.currentVideoId, 'summary', { text: this.text, warning: this.warning, truncated: this.truncated });
     if (this._deferred) { this._deferred.resolve(); this._deferred = null; }
   },
 
@@ -155,6 +163,7 @@ YTX.features.summary = {
         '<button class="ytx-mm-tool-btn" data-action="download-md">下载 MD</button>' +
         '<button class="ytx-mm-tool-btn" data-action="export-obsidian">导出 Obsidian</button>' +
       '</div>' +
+      YTX.resultWarningHtml(this) +
       YTX.renderMarkdown(self.text);
     contentEl.scrollTop = scrollTop;
     contentEl.querySelectorAll('.ytx-mm-tool-btn').forEach(function (btn) {

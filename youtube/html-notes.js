@@ -10,11 +10,15 @@ YTX.features.html = {
   // 状态
   text: '',
   isGenerating: false,
+  warning: '',
+  truncated: false,
 
   reset: function () {
     this._activityVersion = (this._activityVersion || 0) + 1;
     this.text = '';
     this.isGenerating = false;
+    this.warning = '';
+    this.truncated = false;
     if (this.requestId) YTX.cancelRequest(this.requestId);
     this.requestId = null;
     if (this._deferred) { this._deferred.reject(new Error('视频已切换')); this._deferred = null; }
@@ -38,6 +42,8 @@ YTX.features.html = {
     if (this.isGenerating) return Promise.resolve();
     this._activityVersion = (this._activityVersion || 0) + 1;
     this.isGenerating = true;
+    this.warning = '';
+    this.truncated = false;
     this.text = '';
 
     if (this._deferred) this._deferred.reject(new Error('已被新请求覆盖'));
@@ -108,13 +114,15 @@ YTX.features.html = {
     this.text += text;
   },
 
-  onDone: function () {
+  onDone: function (metadata) {
+    this.warning = YTX.resultWarningText(metadata);
+    this.truncated = !!(metadata && metadata.truncated);
     this.requestId = null;
     this.renderContent();
     YTX.panel.querySelector('#ytx-generate-html').disabled = false;
     YTX.btnRefresh(YTX.panel.querySelector('#ytx-generate-html'));
     this.isGenerating = false;
-    YTX.cache.save(YTX.currentVideoId, 'html', { text: this.text });
+    YTX.cache.save(YTX.currentVideoId, 'html', { text: this.text, warning: this.warning, truncated: this.truncated });
     if (this._deferred) { this._deferred.resolve(); this._deferred = null; }
   },
 
@@ -137,7 +145,7 @@ YTX.features.html = {
         '<button class="ytx-mm-tool-btn" data-action="open-tab">新标签打开</button>' +
         '<button class="ytx-mm-tool-btn" data-action="download">下载 HTML</button>' +
         '<button class="ytx-mm-tool-btn" data-action="export-obsidian">导出 Obsidian</button>' +
-      '</div>';
+      '</div>' + YTX.resultWarningHtml(this);
     var iframe = document.createElement('iframe');
     iframe.sandbox = 'allow-same-origin';
     iframe.srcdoc = YTX.Export.sanitizeHtml(this.text);

@@ -1,4 +1,5 @@
 // background.js — Service Worker: 字幕获取 + 多模型 API 流式调用
+importScripts('models.js');
 
 // ── 长请求生命周期管理 ────────────────────────────────────
 // requestId 由 content script 生成；同一个 tab 内可据此真正取消上游 fetch，
@@ -941,6 +942,7 @@ function isSub2(provider) { return provider === 'sub2api'; }
 // 凭据存 storage.local（体积大且不宜跨设备同步）；access token 过期用 refresh token 刷新。
 const CHATGPT_AUTH_FIELD = 'chatgptAuth';
 const CODEX_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann'; // codex CLI 的 OAuth client_id
+const CHATGPT_REFRESH_TIMEOUT_MS = 30000;
 
 function decodeJwtClaims(token) {
   try {
@@ -970,12 +972,30 @@ function getChatgptAuth() {
 // 逼用户重新 codex login。一键生成会并行发三路请求，必须共用同一次刷新。
 let chatgptRefreshInflight = null;
 
+// 只终止当前等待者；共享的令牌刷新由它自己的超时控制。
+function waitForAbort(promise, signal) {
+  if (signal.aborted) return Promise.reject(new DOMException('Aborted', 'AbortError'));
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      signal.removeEventListener('abort', onAbort);
+      reject(new DOMException('Aborted', 'AbortError'));
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+    Promise.resolve(promise).then(
+      (value) => { signal.removeEventListener('abort', onAbort); resolve(value); },
+      (error) => { signal.removeEventListener('abort', onAbort); reject(error); }
+    );
+  });
+}
+
 async function refreshChatgptToken(auth) {
-  let resp;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), CHATGPT_REFRESH_TIMEOUT_MS);
+  const timeoutError = 'ChatGPT 令牌刷新超时，请检查网络后重试';
+  let tok;
   try {
-    // 刻意不传单个请求的 signal：这次刷新是多路请求共享的，
-    // 任一路被取消都不该把别人的令牌刷新一起中断
-    resp = await fetch('https://auth.openai.com/oauth/token', {
+    // 独立超时覆盖响应体读取；单个调用者取消不会中止其他调用者的刷新。
+    const resp = await waitForAbort(fetch('https://auth.openai.com/oauth/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -984,18 +1004,20 @@ async function refreshChatgptToken(auth) {
         refresh_token: auth.refresh_token,
         scope: 'openid profile email',
       }),
-    });
+      signal: controller.signal,
+    }), controller.signal);
+    if (!resp.ok) {
+      return { error: `ChatGPT 令牌刷新失败 (${resp.status})，请重新运行 codex login 并在扩展设置中重新粘贴 auth.json` };
+    }
+    try {
+      tok = await waitForAbort(resp.json(), controller.signal);
+    } catch {
+      return { error: controller.signal.aborted ? timeoutError : 'ChatGPT 令牌刷新响应解析失败，请稍后重试' };
+    }
   } catch {
-    return { error: 'ChatGPT 令牌刷新失败（网络错误），请检查网络后重试' };
-  }
-  if (!resp.ok) {
-    return { error: `ChatGPT 令牌刷新失败 (${resp.status})，请重新运行 codex login 并在扩展设置中重新粘贴 auth.json` };
-  }
-  let tok;
-  try {
-    tok = await resp.json();
-  } catch {
-    return { error: 'ChatGPT 令牌刷新响应解析失败，请稍后重试' };
+    return { error: controller.signal.aborted ? timeoutError : 'ChatGPT 令牌刷新失败（网络错误），请检查网络后重试' };
+  } finally {
+    clearTimeout(timeout);
   }
   // 写回前重读一次：别的上下文可能已经刷新过并轮换了 refresh_token，
   // 那份更新更靠后，不能被这次的结果覆盖回旧值
@@ -1050,7 +1072,7 @@ function missingKeyError(provider) {
 }
 function loadProviderConfig(provider) {
   return new Promise((resolve) => {
-    const fields = ['provider'];
+    const fields = ['provider', 'model'];
     if (KEY_FIELD[provider]) fields.push(KEY_FIELD[provider]);
     if (MODEL_FIELD[provider]) fields.push(MODEL_FIELD[provider]);
     if (SUB2API_BASE_FIELD[provider]) fields.push(SUB2API_BASE_FIELD[provider]);
@@ -1061,10 +1083,13 @@ function loadProviderConfig(provider) {
           return;
         }
         data = data || {};
+        const legacyProvider = Object.prototype.hasOwnProperty.call(AATModels.providers, data.provider)
+          ? data.provider : 'claude';
+        const legacyModel = legacyProvider === provider ? data.model : '';
         const cfg = {
           provider: provider,
           key: data[KEY_FIELD[provider]] || '',
-          model: data[MODEL_FIELD[provider]] || '',
+          model: data[MODEL_FIELD[provider]] || legacyModel || '',
           baseUrl: SUB2API_BASE_FIELD[provider] ? (data[SUB2API_BASE_FIELD[provider]] || '') : '',
         };
         if (provider !== 'chatgpt') { resolve(cfg); return; }
@@ -1228,78 +1253,34 @@ ${context ? '📌 该词在语境中的含义：一句话解释' : '搭配: 词�
   await callProvider(provider, { key, model, systemPrompt, messages, maxTokens: 2048, tabId, PREFIX, requestId, baseUrl: cfg.baseUrl, navigationEpoch });
 }
 
-// ── 校验 model 是否属于当前 provider，不匹配则清空让默认值生效 ──
-// 值为前缀字符串，或前缀数组（预留有多条模型线的 provider）
-const MODEL_PREFIX = { claude: 'claude-', openai: 'gpt-', gemini: 'gemini-', deepseek: 'deepseek-', kimi: 'kimi-', chatgpt: 'gpt-' };
-// 已退役模型（API 直接 404）：存量配置命中时清空、回退默认模型。options.js 有同款正则用于设置页过滤
-const RETIRED_MODELS = {
-  // Claude 2.x / 3.x / instant 全系列；Opus 4 / Sonnet 4（2026-06-15 退役）、Opus 4.1（2026-08-05 退役），
-  // 别名（claude-opus-4-0 / -4-1 / claude-sonnet-4-0）与带日期真名（claude-opus-4-20250514 等）都拦
-  claude: /^claude-(2[.-]|instant|3-|(opus|sonnet)-4-[01](-|$)|(opus|sonnet)-4-\d{8}$)/,
-  // deepseek-chat / deepseek-reasoner 旧模型名 2026-07-24 退役
-  deepseek: /^deepseek-(chat|reasoner)$/,
-  // 旧 K2 线 kimi-k2-*（2026-05-25 停服）、kimi-latest（2026-01-28 停服）；
-  // kimi-k2.5 与整条 moonshot-v1 线已对新用户关闭、2026-08-31 全平台下线
-  kimi: /^(moonshot-v1-|kimi-k2-|kimi-k2\.5(-|$)|kimi-latest$)/,
-  // Codex（ChatGPT 登录）通道 2026-08-31 下线 gpt-5.4 / gpt-5.4-mini（官方替代 gpt-5.6-terra / -luna）
-  chatgpt: /^gpt-5\.4(-mini)?$/,
-};
+// 模型生命周期与请求能力统一由 models.js 管理。
+// 旧配置在请求时迁移；后台不写回 storage，避免覆盖用户正在编辑的新设置。
 function sanitizeModel(provider, model) {
-  if (!model) return '';
-  const retired = RETIRED_MODELS[provider];
-  if (retired && retired.test(model)) return '';
-  if (!(provider in MODEL_PREFIX)) {
-    // 无前缀校验的 provider（如 minimax / sub2api）；sub2api 额外做模型名归一化
-    return isSub2(provider) ? normalizeSub2ApiModel(model) : model;
-  }
-  const prefixes = [].concat(MODEL_PREFIX[provider]);
-  return prefixes.some(p => model.startsWith(p)) ? model : '';
+  return AATModels.sanitizeModel(provider, model);
 }
 
-// 手填 sub2api 模型名常见漏写前缀连字符（gpt5.6 / GPT_5.6 → gpt-5.6）。
-// 不补的话 sub2apiFormatOf 匹配不到 gpt- 前缀会误走 /v1/messages，网关也按名字找不到模型。
-// 与 normalizeSub2ApiBase 剥离 URL 后缀同一思路：容错用户从别处复制/手敲的配置。
-function normalizeSub2ApiModel(model) {
-  return model.trim().replace(/^(gpt|claude|gemini)[\s_-]*(?=\d)/i, (m, p) => p.toLowerCase() + '-');
-}
-
-// ── Claude /v1/messages 请求体组装（direct + sub2api 共用）──
-// 新模型的 thinking 默认值差异：
-// - claude-sonnet-5*：不传 thinking 时默认开启 adaptive thinking，思考 token 计入 max_tokens，
-//   对流式摘要/翻译场景徒增延迟与费用 → 显式关闭
-// - claude-fable-5 / claude-mythos-5：thinking 恒开且显式 disabled 会 400
-// - claude-opus-5：默认 adaptive thinking；显式 disabled 虽被接受（effort ≤ high），但官方明确
-//   会偶发把 <thinking> 标签泄漏进正文，推荐做法是保持 thinking 开着、用 effort 压低深度
-//   → 这三条线都不传 thinking，把 max_tokens 放大到至少 16000 给思考留余量（思考与正文共用预算，
-//   否则划词翻译的 2048 会被思考吃光、正文为空），并按场景传 output_config.effort
-//   （effort 为空时沿用模型默认 high）
-// - Opus 4.x / Haiku：不传 thinking 即不思考，无需处理
 function buildClaudeBody(model, maxTokens, messages, systemPrompt, effort) {
-  const body = { model, max_tokens: maxTokens, stream: true, messages };
+  const policy = AATModels.getPolicy('claude', model);
+  const body = { model, max_tokens: Math.max(maxTokens, policy.minOutputTokens), stream: true, messages };
   if (systemPrompt) body.system = systemPrompt;
-  if (/^claude-(fable|mythos|opus-5)/.test(model)) {
-    body.max_tokens = Math.max(maxTokens, 16000);
-    if (effort) body.output_config = { effort };
-  } else if (/^claude-sonnet-5/.test(model)) {
-    body.thinking = { type: 'disabled' };
-  }
+  if (policy.thinkingType) body.thinking = { type: policy.thinkingType };
+  else if (policy.disableThinking) body.thinking = { type: 'disabled' };
+  const effectiveEffort = effort || policy.defaultEffort;
+  if (effectiveEffort && policy.effortField === 'output_config') body.output_config = { effort: effectiveEffort };
   return body;
 }
 
-// ── Gemini generateContent 请求体组装（direct + sub2api 共用）──
-// Gemini 3.x 默认开思考（Flash 默认 medium、Pro 默认 high），思考 token 按输出计费；
-// 划词翻译传 thinkingLevel 'low' 压到最低档（3.x 全系列都接受 'low'）。
-// Flash-Lite 默认已是 'minimal'，传 'low' 反而会抬高 → 跳过；2.5 及更早只认 thinkingBudget → 不传。
-// 3.7 起 temperature / top_p / top_k 已废弃，这里从不发采样参数
 function buildGeminiBody(model, maxTokens, messages, systemPrompt, effort) {
+  const policy = AATModels.getPolicy('gemini', model);
   const contents = messages.map(m => ({
     role: m.role === 'assistant' ? 'model' : 'user',
     parts: [{ text: m.content }],
   }));
-  const body = { contents, generationConfig: { maxOutputTokens: maxTokens } };
+  const body = { contents, generationConfig: { maxOutputTokens: Math.max(maxTokens, policy.minOutputTokens) } };
   if (systemPrompt) body.systemInstruction = { parts: [{ text: systemPrompt }] };
-  if (effort === 'low' && /^gemini-3/.test(model) && !/flash-lite/.test(model)) {
-    body.generationConfig.thinkingConfig = { thinkingLevel: 'low' };
+  const effectiveEffort = effort || policy.defaultEffort;
+  if (effectiveEffort && policy.effortField === 'thinkingLevel') {
+    body.generationConfig.thinkingConfig = { thinkingLevel: effectiveEffort };
   }
   return body;
 }
@@ -1584,7 +1565,7 @@ function buildResponsesApiBody(model, messages, systemPrompt, effort) {
     stream: true,
     store: false,
     // codex 用 'low'/'medium'/'high'/'xhigh' 等标准/扩展值；'minimal'/'none' 部分网关不识别，
-    // gpt-5.6 也已不再接受 'minimal'。effort 为空时沿用模型默认 'medium'
+    // GPT-6 不接受 'minimal'。effort 为空时沿用模型默认 'medium'
     reasoning: { effort: effort || 'medium', summary: 'auto' },
     // codex 默认会带这个让上游回传加密推理内容
     include: ['reasoning.encrypted_content'],
@@ -1604,8 +1585,8 @@ async function callProvider(provider, opts) {
   const model = sanitizeModel(provider, opts.model);
 
   // 计算实际使用的模型 ID
-  const DEFAULT_MODEL = { claude: 'claude-fable-5', openai: 'gpt-5.6-sol', gemini: 'gemini-3.7-flash', minimax: 'MiniMax-M3', deepseek: 'deepseek-v4-flash', kimi: 'kimi-k3', sub2api: 'claude-fable-5', chatgpt: 'gpt-5.6-sol' };
-  const actualModel = model || DEFAULT_MODEL[provider] || DEFAULT_MODEL.claude;
+  const actualModel = model || AATModels.defaults[provider] || AATModels.defaults.claude;
+  const policy = AATModels.getPolicy(provider, actualModel);
 
   // 思考深度按场景分档：划词翻译短小且延迟敏感，思考模型上把 effort 压到最低档
   // （Claude output_config.effort / OpenAI reasoning(_effort) / Gemini 3.x thinkingLevel）；
@@ -1658,7 +1639,7 @@ async function callProvider(provider, opts) {
     // 到 low 的 gemini-3.x 放宽首字节预算（与转录链路一致）。其余 provider 不变：
     // Claude 有 ping、Kimi/MiniMax 有 reasoning_content 流、Responses 有 summary 事件。
     const isSlowFirstByte = (provider === 'gemini' || sub2apiFmt === 'gemini') &&
-      /^gemini-3/.test(actualModel) && effort !== 'low';
+      policy.effortField === 'thinkingLevel' && effort !== 'low';
     requestContext.startAttempt(isSlowFirstByte
       ? Object.assign({}, PROVIDER_TIMEOUTS, { firstByteMs: 180000 })
       : PROVIDER_TIMEOUTS);
@@ -1679,47 +1660,13 @@ async function callProvider(provider, opts) {
         messages: apiMessages,
         stream: true,
       };
-      // DeepSeek 只认 max_tokens；OpenAI / Kimi / MiniMax 已废弃 max_tokens 改用 max_completion_tokens
-      if (provider === 'deepseek') {
-        body.max_tokens = maxTokens;
-        // V4 模型（v4-flash/v4-pro）默认开启 thinking（effort=high），思考 token 计费且计入
-        // max_tokens 预算，对流式摘要/翻译徒增延迟与费用，且本扩展会丢弃 reasoning_content
-        // → 显式关闭（与 buildClaudeBody 对 claude-sonnet-5 的处理同一思路）
-        body.thinking = { type: 'disabled' };
-      } else {
-        body.max_completion_tokens = maxTokens;
-        // 各家思考模型的处理原则相同：只保留正文。思考关不掉的模型 reasoning 与正文共用同一份
-        // max_completion_tokens 预算（官方建议 >= 16000），沿用调用方的 2048/4096/8096 会让思考
-        // 吃光额度、正文被截断甚至为空 —— 与 buildClaudeBody 对 claude-fable/mythos 放大预算是
-        // 同一个问题、同一种解法。
-        if (provider === 'openai') {
-          // gpt-5.x 默认 reasoning_effort=medium，划词翻译压到 low；gpt-4.x 老模型不认该参数，不传
-          if (effort && /^gpt-5/.test(actualModel)) body.reasoning_effort = effort;
-          // gpt-5.x 的 reasoning token 与正文共用 max_completion_tokens，且思考关不掉，
-          // 沿用调用方的 2048/4096/8096 会被思考吃光导致正文截断或为空
-          // （与 kimi k3 / minimax M2.x / claude fable 是同一问题同一解法）
-          if (/^gpt-5/.test(actualModel)) {
-            body.max_completion_tokens = Math.max(maxTokens, 16000);
-          }
-        } else if (provider === 'kimi') {
-          // - k3 恒开不可关，但 reasoning_effort 默认 'max' → 压到 'low'
-          // - k2.6 支持显式关闭（k2.5 已退役，sanitizeModel 拦截）
-          // - k2.7-code 恒开且无 effort 档位，不传任何思考参数
-          if (/^kimi-k3/.test(actualModel)) body.reasoning_effort = 'low';
-          else if (/^kimi-k2\.6/.test(actualModel)) body.thinking = { type: 'disabled' };
-          if (/^kimi-(k3|k2\.7-code)/.test(actualModel)) {
-            body.max_completion_tokens = Math.max(maxTokens, 16000);
-          }
-        } else if (provider === 'minimax') {
-          // - M3 默认 adaptive thinking，可显式关闭
-          // - M2.x 思考恒开关不掉（disabled 会被接受但无效），且默认以 <think> 标签内联在 content 里
-          //   → reasoning_split 让思考单独走 reasoning_content / reasoning_details（解析只取 content，
-          //   自然丢弃），再放大预算
-          body.reasoning_split = true;
-          if (/^minimax-m3/i.test(actualModel)) body.thinking = { type: 'disabled' };
-          else body.max_completion_tokens = Math.max(maxTokens, 16000);
-        }
-      }
+      const outputBudget = Math.max(maxTokens, policy.minOutputTokens);
+      if (provider === 'deepseek') body.max_tokens = outputBudget;
+      else body.max_completion_tokens = outputBudget;
+      if (policy.disableThinking) body.thinking = { type: 'disabled' };
+      if (policy.reasoningSplit) body.reasoning_split = true;
+      const effectiveEffort = effort || policy.defaultEffort;
+      if (effectiveEffort && policy.effortField === 'reasoning_effort') body.reasoning_effort = effectiveEffort;
       response = await fetch(endpoint, {
         method: 'POST',
         headers: {
@@ -1743,8 +1690,9 @@ async function callProvider(provider, opts) {
     } else if (provider === 'chatgpt') {
       // ChatGPT 订阅（Codex OAuth）：走 chatgpt.com 的 codex Responses 后端，
       // 消耗订阅额度而非按量计费；token 缺失/过期在这里统一处理
-      const auth = await ensureChatgptAccessToken();
-      // 刷新是多路共享的，不带本请求的 signal；刷新期间被取消要按取消上报
+      if (requestContext.signal.aborted) throw new DOMException('Aborted', 'AbortError');
+      const auth = await waitForAbort(ensureChatgptAccessToken(), requestContext.signal);
+      // 刷新多路共享；当前等待者可立即取消，共享刷新继续供其他调用者使用
       if (requestContext.signal.aborted) {
         requestContext.endAttempt();
         const abortCode = requestContext.abortReason?.code;
@@ -1887,10 +1835,10 @@ function createStreamEmitter(send, PREFIX) {
     chunk(text) {
       if (!terminalSent && text) send({ type: `${PREFIX}_CHUNK`, text });
     },
-    done() {
+    done(metadata = {}) {
       if (terminalSent) return;
       terminalSent = true;
-      send({ type: `${PREFIX}_DONE` });
+      send(Object.assign({}, metadata, { type: `${PREFIX}_DONE` }));
     },
     error(error, extra = {}) {
       if (terminalSent) return;
@@ -2165,7 +2113,7 @@ async function readSSEStream(response, provider, requestContext, streamEmitter) 
     return;
   }
   if (result.warning) console.warn('[AAtools] 流式输出不完整:', result.warning);
-  streamEmitter.done();
+  streamEmitter.done(result.warning ? { warning: result.warning, truncated: true } : undefined);
 }
 
 // ── 扩展重载/更新后重注入 content scripts（免刷新页面） ────────

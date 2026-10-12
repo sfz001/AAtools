@@ -50,7 +50,7 @@ AAtools/
 1. `chrome://extensions/` → 开启开发者模式 → 加载已解压的扩展程序（选择项目根目录）
 2. 修改代码后在扩展页点击刷新图标即可——**无需刷新已打开的页面**：`onInstalled` 时 background 会把 content scripts 重注入到所有已打开的匹配标签页（见"扩展重载免刷新"）
 3. 修改 `background.js` 后需要在扩展页重新加载 Service Worker
-4. 改完跑一遍 `node --test tests/*.test.js`——三个 `node:test` 文件用 `vm.createContext` 桩掉 `chrome.*`，覆盖协议、缓存迁移与设置页权限逻辑
+4. 改完跑一遍 `node --test tests/*.test.js`——`tests/*.test.js` 中的测试用 `vm.createContext` 桩掉 `chrome.*`，覆盖协议、缓存迁移与设置页权限逻辑
 
 ## Architecture
 
@@ -146,7 +146,7 @@ YTX.features.KEY = {
 
 `start()` 模式：设 `isGenerating=true` → 创建 `this._deferred = YTX.createDeferred()`（旧 deferred 先 reject 让位）→ **抓 `var startVideoId = YTX.currentVideoId`**（早绑定）→ 禁用按钮显示 spinner → `await YTX.ensureTranscript()` → **校验 `YTX.currentVideoId === startVideoId` 否则 `bailSilently()`（resolve deferred 静默退出）** → `getSettings()` → 再次校验 → `this.requestId = YTX.makeRequestId()` → `sendMessage` 到 background（带 requestId）→ `return deferred.promise`，等待流式回调。`isGenerating` 与 `_deferred` 在 `onDone`(resolve) / `onError`(reject) 中才清理；`reset()` 把 `requestId` 设 null 并 `reject('视频已切换')` 释放挂起的 deferred。路由层会拒绝任何 requestId 不匹配的过期 chunk（含 feature.requestId 为 null 时的旧 chunk）。这套 deferred 机制让 `generateAll` 可以直接 `Promise.all(features.map(f => f.start()))`，无需 patch handler。
 
-`onChunk` 差异：summary 用 80ms 节流批量渲染，chat 实时渲染，mindmap 仅累积原始文本在 `onDone` 中一次性 `extractJSON` + 渲染。
+`onChunk` 差异：summary/chat/translate 用 80ms 合批渲染；chat/translate 阅读上文时保持滚动位置。mindmap 仅累积原始文本，在 `onDone` 一次性解析和渲染。终态与重置必须刷新或取消旧计时器，避免跨请求污染。
 
 加载顺序由 `manifest.json` 中 `content_scripts.js` 数组决定，`panel.js` 必须最后加载（它在顶部构建 `prefixMap`）。
 
@@ -155,9 +155,9 @@ YTX.features.KEY = {
 `background.js` 中统一处理八家 API 的流式调用：
 
 - **Key 自读**: `loadProviderConfig(provider)` 从 `chrome.storage.sync` 按 provider 字段名读取 key + model；sub2api 还会额外读 `sub2apiBaseUrl`。content script（YouTube 模块 + translate）**完全不读取 `*Key` 字段**，缺 key 时由 background 在响应里回 `{PREFIX}_ERROR`
-- **模型验证**: `sanitizeModel(provider, model)` 检查模型前缀（`claude-`/`gpt-`/`gemini-`/`deepseek-`/`kimi-`；`MODEL_PREFIX` 的值可以是字符串或字符串数组），不匹配则静默回退到默认模型；前缀校验之前先过 `RETIRED_MODELS[provider]` 正则拦截已退役模型（存量配置命中时清空回退默认模型，避免 404）：claude 拦 2.x / 3.x / instant 全系列 + Opus 4 / Sonnet 4（2026-06-15 退役）+ Opus 4.1（2026-08-05 退役，别名与带日期真名都拦）；deepseek 拦 `deepseek-chat`/`deepseek-reasoner`（2026-07-24）；kimi 拦 `moonshot-v1-*` + `kimi-k2.5`（2026-08-31 全平台下线）+ 旧 K2 线 `kimi-k2-*`（2026-05-25）+ `kimi-latest`；chatgpt 拦 Codex 通道 2026-08-31 下线的 `gpt-5.4`/`gpt-5.4-mini`（openai 直连不受影响）。options.js 有同款 `RETIRED_MODELS`，设置页渲染与拉取缓存两处过滤；minimax / sub2api 跳过前缀校验（sub2api 同时支持 `claude-*` / `gemini-*` / `gpt-*`）；sub2api 额外经 `normalizeSub2ApiModel()` 归一化——补全手填模型名漏写的前缀连字符（`gpt5.6`/`GPT_5.6` → `gpt-5.6`），否则前缀路由会误走 `/v1/messages` 且网关按名字找不到模型
-- **Claude 请求体组装**: `buildClaudeBody(model, maxTokens, messages, systemPrompt, effort)` 为 Claude direct 与 sub2api claude 格式共用。处理新模型 thinking 默认值差异：`claude-sonnet-5*` 不传 thinking 时默认开 adaptive thinking（思考 token 计入 max_tokens）→ 显式传 `thinking: {type:'disabled'}`；`claude-fable-5` / `claude-mythos-5`（thinking 恒开，显式 disabled 会 400）与 `claude-opus-5`（默认 adaptive；disabled 虽被接受但官方明确会偶发把 `<thinking>` 标签泄漏进正文，推荐保持开启、用 effort 压低）→ 不传 thinking、把 max_tokens 放大到至少 16000 给思考留余量，`effort` 非空时传 `output_config: {effort}`（见下方"思考深度分档"）。Opus 4.x / Haiku 不传 thinking 即不思考，无需处理
-- **思考深度分档（effort）**: `callProvider` 按 `PREFIX` 决定 `effort`：`TRANSLATE`（划词翻译，短小且延迟敏感）→ `'low'`，其余功能 → `null`（沿用各模型默认档位，不牺牲长文质量）。各家落点：Claude fable/mythos/opus-5 → `output_config.effort`；OpenAI 直连 gpt-5.x → `reasoning_effort`（gpt-4.x 老模型不认该参数，不传）；Responses API（chatgpt / sub2api gpt）→ `reasoning.effort`（空时 `'medium'`，即模型默认；gpt-5.6 已不接受 `'minimal'`）；Gemini 3.x（Flash-Lite 除外，其默认已是 `minimal`）→ `generationConfig.thinkingConfig.thinkingLevel: 'low'`（2.5 及更早只认 `thinkingBudget`，不传）。DeepSeek / Kimi / MiniMax 的思考开关与预算处理见各自条目
+- **共享模型目录**: `models.js` 暴露 `AATModels`，由 background 的 `importScripts` 和 options.html 的前置 script 共用。`providers/defaults` 定义各系列当前最新版与默认值，`isSelectable` 严格以当前预置列表为白名单；前缀正确或仍能调用的旧型号也不可选。`sanitizeModel` 将旧配置按系列迁移到白名单型号，直连、ChatGPT 与 Sub2API 使用同一原则。设置页初始化时写回迁移后的配置，请求侧也按共享目录归一化；不得在 options/background 再复制一套型号或正则。
+- **Claude 请求体组装**: `buildClaudeBody` 从 `AATModels.getPolicy` 读取 thinking 类型、最小输出预算和 effort 字段。可选的 Sonnet 5.5 拒绝 disabled，使用 between_tools（无工具时仅正文）；Haiku 5.5 使用 disabled；Fable 5.1 / Opus 5.5 保留思考并至少分配 16000 token，翻译通过 output_config.effort=low 降低深度。模型先按当前目录归一化，再读取参数策略。
+- **思考深度分档（effort）**: 翻译传 low，其余任务默认不覆盖。`AATModels.getPolicy` 按模型能力决定参数：当前 GPT-6 系用 reasoning_effort，并为思考/正文共享预算留至少 16000 token；Gemini 3 非 Flash-Lite 用 thinkingLevel；Responses API 保持 reasoning.effort。Kimi K3 默认降到 low，其余 provider 的思考开关同样集中于 policy。`getPolicy` 只处理当前目录；非白名单型号返回空参数策略，调用方须先迁移已存型号。
 - **Sub2API 单槽位**: provider 为 `sub2api`，配置为 key/model/baseUrl 三个字段。`isSub2(provider)` 辅助函数判断（历史上曾有 sub2api2/sub2api3 三槽位，2026-08 移除，options.js 启动时一次性迁移清理残留 storage 键并撤销多余网关域名权限）
 - **baseUrl 归一化**: `normalizeSub2ApiBase()` 自动剥离用户从 codex/opencode 配置直接复制的常见路径后缀（`/v1beta` / `/v1/messages` / `/v1/chat/completions` / `/v1/responses`），避免与代码自拼路径产生 `/v1beta/v1beta/...` 这类双前缀
 - **Sub2API 路由**: `isSub2(provider)` 时按 `sub2apiFormatOf(model)` 决定走哪种格式：
@@ -166,21 +166,21 @@ YTX.features.KEY = {
   - `gpt-*` → POST `{baseUrl}/v1/responses`（**Responses API**，对应 codex `wire_api = "responses"`）。请求体贴近 codex CLI：`{model, input(typed), instructions, stream:true, store:false, reasoning:{effort:"medium"（翻译 "low"）, summary:"auto"}, include:["reasoning.encrypted_content"], tools:[], parallel_tool_calls:false, tool_choice:"auto"}`，user 消息用 `input_text`，assistant 用 `output_text`；不发 `max_output_tokens`（codex 不发，部分网关会因此拒）
   - SSE 解析按 `parseAs = sub2apiFormatOf(model)`：claude/gemini 直接对应；sub2api+openai 走 `'openai-responses'` 分支（解析 `type === 'response.output_text.delta'` 的 `delta` 字段，`response.completed`/`response.done` 结束，`error`/`response.failed` 也标记 done 避免挂死）
   - baseUrl 缺失时 `callProvider` 直接回 `{PREFIX}_ERROR`，不会发出请求
-- **ChatGPT 订阅（provider `chatgpt`）**: 不走付费 API，复用 codex CLI 的 OAuth 凭据消耗 ChatGPT 订阅额度。用户在设置页粘贴 `~/.codex/auth.json` 全文（需先 `codex login`），options.js 解析出 `access_token/refresh_token/id_token/account_id` 存入 **`chrome.storage.local.chatgptAuth`**（体积大且不宜跨设备同步，故不放 sync，也不随导入/导出走），粘贴框保存后即清空。请求 POST `https://chatgpt.com/backend-api/codex/responses`（Responses API，请求体与 sub2api 的 gpt 分支共用 `buildResponsesApiBody()`），头部带 `Authorization: Bearer` + `chatgpt-account-id` + `OpenAI-Beta: responses=experimental` + `originator: codex_cli_rs` + `session_id`；SSE 走 `'openai-responses'` 解析分支。`ensureChatgptAccessToken()` 在 access token 剩余有效期 <5 分钟时自动 POST `https://auth.openai.com/oauth/token`（codex 的 client_id `app_EMoamEEZ73f0CkXaXp7hrann`，grant_type=refresh_token）刷新并回写 storage.local；刷新失败/凭据缺失以 `{PREFIX}_ERROR` 中文提示（引导重新 `codex login` + 重新粘贴）。`loadProviderConfig('chatgpt')` 以 local 里是否存在凭据充当"已配置"标记（`key: 'chatgpt-oauth'`），模型仍从 sync 读 `chatgptModel`（默认 `gpt-5.6-sol`，前缀校验 `gpt-`）。classifyApiError 对 chatgpt 的 401/403、429 有专门文案（订阅授权失效 / 订阅额度用尽）
-- **DeepSeek**: OpenAI 兼容的 Chat Completions，POST `https://api.deepseek.com/chat/completions`，与 openai/minimax 共用同一代码分支；请求体用 `max_tokens`（DeepSeek 不认 `max_completion_tokens`），并显式传 `thinking: {type:'disabled'}` —— V4 模型（`deepseek-v4-flash`/`deepseek-v4-pro`，默认 v4-flash）默认开启 thinking（effort=high），思考 token 计费且计入 max_tokens 预算，对流式摘要/翻译徒增延迟费用且扩展会丢弃思考内容；SSE 解析同 OpenAI 分支，thinking 模式的 `delta.reasoning_content` 不取，只取正文 `delta.content`。旧模型名 `deepseek-chat`/`deepseek-reasoner` 已于 2026-07-24 退役，`RETIRED_MODELS.deepseek` 正则在 background sanitizeModel 与 options.js 两侧同款拦截（存量配置命中时清空回退默认模型）
-- **Kimi**: OpenAI 兼容 Chat Completions，POST `https://api.moonshot.cn/v1/chat/completions`，与 openai/minimax/deepseek 共用同一代码分支；用 `max_completion_tokens`（Kimi 已废弃 `max_tokens`，与 DeepSeek 相反）。思考按模型分档处理，目的同样是只保留正文：`kimi-k3` 思考恒开不可关但默认 `reasoning_effort: 'max'` → 压到 `'low'`；`kimi-k2.6` 传 `thinking: {type:'disabled'}`（k2.5 已退役，sanitizeModel 拦截）；`kimi-k2.7-code` 恒开且无 effort 档位 → 不传任何思考参数（传了会被拒）。**思考关不掉的两条线（k3 / k2.7-code）额外把 `max_completion_tokens` 抬到至少 16000** —— reasoning_content 与正文共用同一份预算（官方明确 `max_tokens` 与 `max_completion_tokens` 含义相同、建议 ≥16000），沿用调用方的 2048/4096/8096 会被思考吃光导致正文截断或为空，与 `buildClaudeBody` 对 claude-fable/mythos 的处理是同一问题同一解法。SSE 解析同 OpenAI 分支，`reasoning_content` 不取。`moonshot-v1-*` 整条线 2026-08-31 下线，`MODEL_PREFIX.kimi` 已只认 `kimi-`
-- **MiniMax**: OpenAI 兼容 Chat Completions，POST `https://api.minimax.io/v1/chat/completions`（旧 `/v1/text/chatcompletion_v2` 文档已下线，且没有 M3 的思考开关），与 openai/deepseek/kimi 共用同一代码分支；用 `max_completion_tokens`（`max_tokens` 已标记 legacy）。思考处理：`MiniMax-M3` 默认 adaptive thinking，显式传 `thinking: {type:'disabled'}` 关掉；M2.x 思考恒开（disabled 会被接受但无效）且默认以 `<think>` 标签内联在 `content` 里 → 一律传 `reasoning_split: true` 让思考单独走 `reasoning_content`/`reasoning_details`（SSE 解析只取 `content`，自然丢弃），非 M3 模型再把 `max_completion_tokens` 抬到至少 16000（思考与正文共用预算，同 Kimi k3 的处理）。模型 ID 大小写不敏感匹配（`/^minimax-m3/i`）
+- **ChatGPT 订阅（provider `chatgpt`）**: 不走付费 API，复用 codex CLI 的 OAuth 凭据消耗 ChatGPT 订阅额度。用户在设置页粘贴 `~/.codex/auth.json` 全文（需先 `codex login`），options.js 解析出 `access_token/refresh_token/id_token/account_id` 存入 **`chrome.storage.local.chatgptAuth`**（体积大且不宜跨设备同步，故不放 sync，也不随导入/导出走），粘贴框保存后即清空。请求 POST `https://chatgpt.com/backend-api/codex/responses`（Responses API，请求体与 sub2api 的 gpt 分支共用 `buildResponsesApiBody()`），头部带 `Authorization: Bearer` + `chatgpt-account-id` + `OpenAI-Beta: responses=experimental` + `originator: codex_cli_rs` + `session_id`；SSE 走 `'openai-responses'` 解析分支。`ensureChatgptAccessToken()` 在 access token 剩余有效期 <5 分钟时自动 POST `https://auth.openai.com/oauth/token`（codex 的 client_id `app_EMoamEEZ73f0CkXaXp7hrann`，grant_type=refresh_token）刷新并回写 storage.local；刷新失败/凭据缺失以 `{PREFIX}_ERROR` 中文提示（引导重新 `codex login` + 重新粘贴）。`loadProviderConfig('chatgpt')` 以 local 里是否存在凭据充当"已配置"标记（`key: 'chatgpt-oauth'`），模型仍从 sync 读 `chatgptModel`（默认 `gpt-6.1-sol`，仅接受共享目录中的当前 GPT 型号，旧配置按系列迁移）。classifyApiError 对 chatgpt 的 401/403、429 有专门文案（订阅授权失效 / 订阅额度用尽）
+- **DeepSeek**: 走 OpenAI 兼容 Chat Completions，使用 max_tokens 并显式关闭 thinking。当前 Flash 系列使用 `deepseek-flash`（V4.1 Flash），Pro 系列使用 `deepseek-v4-pro`（V4 Pro）；旧 Flash 型号归一化到前者，Pro 系列迁移到后者，旧名称不保留为选项。
+- **Kimi**: OpenAI 兼容 Chat Completions，POST `https://api.moonshot.cn/v1/chat/completions`，与 openai/minimax/deepseek 共用调用分支；用 `max_completion_tokens`。只提供 `kimi-k3`，旧 Kimi / Moonshot 配置迁移到 K3。K3 思考恒开，将 reasoning_effort 降至 low，max_completion_tokens 至少分配 16000，避免思考消耗全部正文预算；SSE 只取正文 delta.content。
+- **MiniMax**: 走 OpenAI 兼容 Chat Completions，使用 max_completion_tokens 和 reasoning_split。普通 API 只提供正式版 `MiniMax-M3`，可关闭 thinking；旧配置迁移到 M3。M3.1 Flash Preview 目前限定渠道，不进入预置、拉取结果或已存配置的可选列表。参数策略只覆盖当前 M3，不保留 M2.x 或限定渠道 M3.1 的分支。
 - **Gemini**: `buildGeminiBody(model, maxTokens, messages, systemPrompt, effort)` 为 Gemini direct 与 sub2api gemini 格式共用（`contents` + `systemInstruction` + `generationConfig.maxOutputTokens`）。Gemini 3.x 默认开思考（Flash 默认 `medium`、Pro 默认 `high`，思考 token 按输出计费），划词翻译时对非 Flash-Lite 的 3.x 传 `thinkingConfig.thinkingLevel: 'low'`；3.7 起 `temperature`/`top_p`/`top_k` 已废弃，代码从不发这些采样参数
 - **SSE 解析**: 统一由 `readSSEStream()` 处理，按 provider 提取文本：
   - Claude: `content_block_delta` → `delta.text`，`message_stop` 结束
   - OpenAI / MiniMax / DeepSeek / Kimi: `choices[0].delta.content`，`[DONE]` 行结束
   - Gemini: 拼接 `candidates[0].content.parts[]` 里所有 `text`（不是只取第一个 part）；终态看 `finishReason`——`STOP` 才算正常结束，其它值转成「异常结束（finishReason=…）」的告警，流读完却从未收到终态标记则报「流式响应意外中断」
 - **请求 ID 透传**: `callProvider` + `readSSEStream` 内定义局部 `send(msg) = safeSend(tabId, {requestId, ...msg})`，所有发往 content script 的消息自动带上 requestId
-- **终态互斥**: `createStreamEmitter()` 的闭包标志 `terminalSent` 保证 `{PREFIX}_DONE` 与 `{PREFIX}_ERROR` 只发一次且互斥，终态之后到达的 `_CHUNK` 一律丢弃
+- **终态互斥与完整性**: `createStreamEmitter` 保证 DONE/ERROR 只发一次且互斥。部分正文达到输出上限时 DONE 附带 warning/truncated，panel 透传到 feature.onDone(metadata)；总结/笔记/导图和字幕缓存保留完整性，恢复时显示警告。空正文或异常中断仍报 ERROR，不误标正常完成。
 - **安全发送**: `safeSend(tabId, msg)` 包裹 try/catch + `.catch(() => {})`，tab 关闭不会崩溃
 - **错误分类**: `classifyApiError()` 将 HTTP 状态码映射为中文提示（401→Key 无效，429+quota→余额不足，400+token→内容太长）
 - **SW 保活**: `retainServiceWorker()` 引用计数保活，`createActiveRequest` 对**所有** callProvider 流式请求都持有一份（不只是视频转录），计数归零才释放
-- **超时与中止**: 每次尝试由 `requestContext.startAttempt(timeouts)` 挂三档定时器，全部经 AbortController 中止 fetch，不靠 `reader.cancel()`。普通请求 `PROVIDER_TIMEOUTS = { firstByteMs: 90s, idleMs: 60s, totalMs: 15min }`；视频转录 `TRANSCRIBE_TIMEOUTS = { firstByteMs: 180s, idleMs: 120s, totalMs: 45min }`；Gemini 3.x 非 low 档另把首字节放宽到 180s（首 token 慢）。503/429 会退避重试
+- **超时与中止**: 普通请求首字节 90s / 空闲 60s / 总时长 15min，视频转录为 180s / 120s / 45min；Gemini 3 非 low 档首字节放宽到 180s。ChatGPT 共享 OAuth 刷新另设独立 30s 超时（覆盖 headers 和 body）；各调用者可独立取消等待，不中止其他调用者的刷新。
 
 ### 安全模型
 
@@ -328,7 +328,7 @@ YouTube SPA 切视频时旧异步操作会污染新视频结果。用四层防�
 
 **`chrome.storage.local`**（仅本地）：
 - `chatgptAuth` — ChatGPT 订阅的 OAuth 凭据 `{ access_token, refresh_token, id_token, account_id }`，来自设置页粘贴的 `~/.codex/auth.json`；token 刷新后由 background 回写。不进 sync（体积/敏感性）、不随导入导出
-- `fetchedModels_claude`, `fetchedModels_openai`, `fetchedModels_gemini`, `fetchedModels_deepseek`, `fetchedModels_kimi` — API 拉取的模型列表缓存。渲染时由 `mergeModels()` 与预置列表合并（预置在前、按 value 去重），不能直接替换预置——`/v1/models` 只返回该 key 有权访问的模型真名，权限不足时整代新模型会整批缺席，而该缓存持久化在 storage.local 会一直遮蔽推荐模型
+- `fetchedModels_claude`, `fetchedModels_openai`, `fetchedModels_gemini`, `fetchedModels_deepseek`, `fetchedModels_kimi` — API 拉取的模型列表缓存。读取、拉取、合并、导入、导出均通过 `models.js` 当前预置白名单过滤，旧型号和未知型号不得回流为选项。预置始终保留，按 value 去重；`/v1/models` 的账号权限结果不能遮蔽当前预置系列。
 
 **IndexedDB**（`AAtoolsCache` → `results` store）：
 - 库在**扩展 origin**，由 background 独占读写；content 侧的 `YTX.cache` 只是 `CACHE_*` 消息的封装，本身不开这个库
@@ -344,5 +344,32 @@ YouTube SPA 切视频时旧异步操作会污染新视频结果。用四层防�
 - 时间戳点击：面板级事件委托，匹配 `.ytx-timestamp, .ytx-ts`，设 `video.currentTime` 并 `play()`
 - 所有 AI 输出默认要求简体中文
 - options.js 设置页：所有输入 1.5s 防抖自动保存，import 需验证 `_meta.version` 为 `'AATube'` 或 `'AAtools'`
-- options.js 预置模型列表约定：**每个系列只预置最新一代**，老版本一律不留（Opus 只留 Opus 5 不留 4.8/4.6；Kimi 主线只留 K3 不留 K2.6）。当前：Claude = Fable 5 / Opus 5 / Sonnet 5 / Haiku 4.5，GPT = 5.6 的 Sol / Terra / Luna（openai 与 chatgpt 同款），Gemini = 3.7 Flash / 3.5 Flash-Lite / 3.1 Pro 预览，MiniMax = M3，DeepSeek = V4 Flash / V4 Pro，Kimi = K3，Sub2API 按路由格式列 Claude 5 系三条 + GPT-5.6 三档 + gemini-2.5-flash（sub2api 没有在线拉取，下拉框是唯一的选模型入口；gemini 槽位受 codeassist 通道限制固定 2.5）。老版本靠「从官网获取最新列表」补进来；background.js `DEFAULT_MODEL` 取各家的推荐项
-- options.js 模型下拉框：已存模型不在当前列表时会补一个「（当前已保存）」选项显示真实值——否则 UI 误显示第一项、随后任意 autoSave 会把存量配置静默改写。已退役模型（`RETIRED_MODELS[provider]` 正则，覆盖 claude / deepseek / kimi / chatgpt，与 background.js 同款）在两层过滤：拉取结果与缓存列表过滤 + 选中值命中时视为未选择（落回推荐默认，autoSave 顺势完成存储迁移）
+- 模型预置由 `models.js` 统一维护：Claude Fable 5.1 / Opus 5.5 / Sonnet 5.5 / Haiku 5.5，OpenAI 与 ChatGPT 的 GPT-6.1 Sol / GPT-6 Astra / GPT-6 Luna，Gemini 3.8 Flash / 3.5 Flash-Lite / 3.1 Pro Preview，MiniMax M3，DeepSeek V4.1 Flash / V4 Pro，Kimi K3。Sub2API 提供相同的 Claude 四系列、GPT 三系列和 Gemini 三系列最新选项，标注需要网关支持，移除 Gemini 2.5；视频转录仍固定 3.5 Flash-Lite。各系列发布节奏不同，版本数字不同不代表历史兼容选项。
+- options.js 模型下拉框：只显示共享白名单，不追加“当前已保存”选项。初始化设置页、载入本地列表缓存、在线拉取、导入与导出均保持该约束；旧配置在初始化时迁移并写回，不能宣称仅修改代码就已更新用户浏览器中的 storage。Claude 与 Gemini 拉取完整分页，出现重复游标或超过 20 页时报错、不覆盖缓存。
+
+
+### 旧模型配置迁移
+
+更新后设置页初始化时，按以下规则迁移已存型号；后台请求也使用共享归一化规则。迁移后的可选型号仍必须属于该 provider 的当前白名单。
+
+| 系列 | 当前迁移目标 |
+|---|---|
+| GPT Sol / Terra / 其他可迁移的旧 GPT 文本型号 | `gpt-6.1-sol` |
+| GPT Astra / Pro | `gpt-6-astra` |
+| GPT Luna / Mini / Nano | `gpt-6-luna` |
+| Claude Fable / Mythos / 1.x / 2.x | `claude-fable-5-1` |
+| Claude Opus / Sonnet | 各自对应的 5.5 型号 |
+| Claude Haiku / Instant | `claude-haiku-5-5` |
+| Gemini Flash / Flash-Lite / Pro | 分别为 3.8 Flash / 3.5 Flash-Lite / 3.1 Pro Preview（含 Sub2API） |
+| Kimi / Moonshot | `kimi-k3` |
+| MiniMax | `MiniMax-M3` |
+| DeepSeek Flash / Pro | 分别为 `deepseek-flash` / `deepseek-v4-pro` |
+
+无法映射到当前系列的型号回退到提供商默认值；网关自定义旧别名、已拉取列表和导入文件都不能扩展可选白名单；参数策略仅覆盖当前目录。
+
+### 设置页保存与回归验证
+
+- 授权粘贴保存可取消防抖，清除时先清输入框；授权写入/删除串行执行并带修订号，旧回调不得恢复已清除凭据或抹掉新粘贴。
+- `saveSettings()` 返回 Promise<boolean>；导出先等待当前表单落盘，失败/初始化未完成/导入中不下载旧配置。
+- `tests/options-events.test.js` 执行实际 DOMContentLoaded 事件链，覆盖授权清除、延迟保存、导出与分页；`tests/models.test.js` 验证当前型号白名单、按系列迁移与端点过滤。
+- 验证命令仍为 `node --test tests/*.test.js`，使用桩验证协议，不向真实付费 API 发请求。

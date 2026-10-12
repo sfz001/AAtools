@@ -2,105 +2,57 @@
 const ALL_PROMPT_KEYS = ['prompt', 'promptHtml', 'promptMindmap', 'promptTranslateDict', 'promptTranslateSentence'];
 
 // ── Provider 配置 ────────────────────────────────────────────
-const PROVIDERS = {
-  claude: {
-    label: 'Claude API Key',
-    keyField: 'claudeKey',
-    placeholder: 'sk-ant-api03-...',
-    helpUrl: 'https://console.anthropic.com/settings/keys',
-    // 预置约定：每个系列只留最新一代（Opus 只留 Opus 5，不留 4.8/4.6），老版本可用「从官网获取最新列表」补进来
-    models: [
-      { value: 'claude-fable-5', label: 'Fable 5 — 最强（思考恒开）' },
-      { value: 'claude-opus-5', label: 'Opus 5 — 均衡（Fable 半价、更快）' },
-      { value: 'claude-sonnet-5', label: 'Sonnet 5 — 快速低价' },
-      { value: 'claude-haiku-4-5', label: 'Haiku 4.5 — 最快最省' },
-    ]
-  },
-  openai: {
-    label: 'OpenAI API Key',
-    keyField: 'openaiKey',
-    placeholder: 'sk-...',
-    helpUrl: 'https://platform.openai.com/api-keys',
-    models: [
-      // gpt-5.6 本身只是 gpt-5.6-sol 的别名，/v1/models 列表里只有带后缀的真名
-      { value: 'gpt-5.6-sol', label: 'GPT-5.6 Sol — 最强' },
-      { value: 'gpt-5.6-terra', label: 'GPT-5.6 Terra — 均衡' },
-      { value: 'gpt-5.6-luna', label: 'GPT-5.6 Luna — 最快最省' },
-    ]
-  },
-  chatgpt: {
-    // ChatGPT 订阅（Codex OAuth）：无 API key，凭据为粘贴的 ~/.codex/auth.json（存 storage.local）
-    label: 'ChatGPT 订阅授权',
-    keyField: null,
-    placeholder: '',
-    helpUrl: 'https://developers.openai.com/codex/cli/',
-    models: [
-      { value: 'gpt-5.6-sol', label: 'GPT-5.6 Sol — 最强' },
-      { value: 'gpt-5.6-terra', label: 'GPT-5.6 Terra — 均衡' },
-      { value: 'gpt-5.6-luna', label: 'GPT-5.6 Luna — 最快最省' },
-    ]
-  },
-  gemini: {
-    label: 'Gemini API Key',
-    keyField: 'geminiKey',
-    placeholder: 'AIza...',
-    helpUrl: 'https://aistudio.google.com/apikey',
-    models: [
-      { value: 'gemini-3.7-flash', label: 'Gemini 3.7 Flash — 推荐' },
-      { value: 'gemini-3.5-flash-lite', label: 'Gemini 3.5 Flash-Lite — 最快最省' },
-      { value: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro — 最强（预览版，无免费额度）' },
-    ]
-  },
-  minimax: {
-    label: 'MiniMax API Key',
-    keyField: 'minimaxKey',
-    placeholder: 'eyJ...',
-    helpUrl: 'https://platform.minimax.io/console/access',
-    models: [
-      // M3 暂无 highspeed 版；M2.7-highspeed 思考关不掉（首字反而更慢），不列
-      { value: 'MiniMax-M3', label: 'MiniMax-M3 — 1M 上下文' },
-    ]
-  },
-  deepseek: {
-    label: 'DeepSeek API Key',
-    keyField: 'deepseekKey',
-    placeholder: 'sk-...',
-    helpUrl: 'https://platform.deepseek.com/api_keys',
-    models: [
-      { value: 'deepseek-v4-flash', label: 'DeepSeek V4 Flash — 推荐' },
-      { value: 'deepseek-v4-pro', label: 'DeepSeek V4 Pro — 更强' },
-    ]
-  },
-  kimi: {
-    label: 'Kimi API Key',
-    keyField: 'kimiKey',
-    placeholder: 'sk-...',
-    helpUrl: 'https://platform.kimi.com/console/api-keys',
-    models: [
-      // 主线只留最新一代 K3（思考恒开，background 已把 reasoning_effort 压到 low、预算抬到 16000），K2.6 不再预置；
-      // kimi-k2.7-code 是编码专用线，不适合总结/翻译；kimi-k2.5 / moonshot-v1 2026-08-31 全平台下线、旧 K2 线已停服（RETIRED_MODELS 拦截）
-      { value: 'kimi-k3', label: 'Kimi K3 — 1M 上下文' },
-    ]
-  },
-  sub2api: {
-    label: 'Sub2API API Key',
-    keyField: 'sub2apiKey',
-    placeholder: 'sk-...',
-    helpUrl: 'https://github.com/Wei-Shaw/sub2api',
-    // sub2api 没有在线拉取，下拉框是唯一的选模型入口：按三种路由格式列各系列最新一代
-    models: [
-      { value: 'claude-fable-5', label: 'Claude Fable 5（走 /v1/messages）' },
-      { value: 'claude-opus-5', label: 'Claude Opus 5（走 /v1/messages）' },
-      { value: 'claude-sonnet-5', label: 'Claude Sonnet 5（走 /v1/messages）' },
-      // 用真名而非 gpt-5.6 别名：Codex OAuth 账号背后的网关按 codex 模型 slug 找模型，别名不一定被识别
-      { value: 'gpt-5.6-sol', label: 'GPT-5.6 Sol（走 /v1/responses）' },
-      { value: 'gpt-5.6-terra', label: 'GPT-5.6 Terra（走 /v1/responses）' },
-      { value: 'gpt-5.6-luna', label: 'GPT-5.6 Luna（走 /v1/responses）' },
-      // codeassist 老通道不供给 gemini-3.x，网关槽位固定 2.5 Flash
-      { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash（走 /v1beta/...）' },
-    ]
+const PROVIDERS = AATModels.providers;
+const FETCHED_MODEL_KEYS = Object.keys(PROVIDERS).map(provider => 'fetchedModels_' + provider);
+
+function latestModel(provider, value) {
+  return AATModels.sanitizeModel(provider, value) || AATModels.defaults[provider];
+}
+
+// Return only model-field changes; startup migration must never save an
+// incompletely initialized form or rewrite keys, prompts, or feature toggles.
+function normalizeStoredModels(data, fallbackProvider) {
+  const provider = Object.prototype.hasOwnProperty.call(PROVIDERS, data.provider)
+    ? data.provider : fallbackProvider;
+  const models = {};
+  const changes = {};
+  const hasLegacy = Object.prototype.hasOwnProperty.call(data, 'model');
+  Object.keys(PROVIDERS).forEach(id => {
+    const field = id + 'Model';
+    const value = data[field] || (id === provider ? data.model : '');
+    models[id] = latestModel(id, value);
+    if ((Object.prototype.hasOwnProperty.call(data, field) || (id === provider && hasLegacy)) &&
+        data[field] !== models[id]) changes[field] = models[id];
+  });
+  if (hasLegacy && data.model !== models[provider]) changes.model = models[provider];
+  return { models, changes };
+}
+
+function filterLatestModels(provider, models) {
+  const values = new Set((Array.isArray(models) ? models : [])
+    .filter(model => model && typeof model.value === 'string' && AATModels.isSelectable(provider, model.value))
+    .map(model => model.value));
+  return PROVIDERS[provider].models.filter(model => values.has(model.value))
+    .map(model => ({ value: model.value, label: model.label }));
+}
+
+function cleanFetchedModelStorage(data) {
+  const filtered = {};
+  const changes = {};
+  FETCHED_MODEL_KEYS.forEach(key => {
+    if (!Object.prototype.hasOwnProperty.call(data, key)) return;
+    const provider = key.slice('fetchedModels_'.length);
+    filtered[key] = filterLatestModels(provider, data[key]);
+    fetchedModelsCache[provider] = filtered[key];
+    if (JSON.stringify(data[key]) !== JSON.stringify(filtered[key])) changes[key] = filtered[key];
+  });
+  if (Object.keys(changes).length) {
+    chrome.storage.local.set(changes, () => {
+      if (chrome.runtime.lastError) showStatus('旧模型缓存清理失败：' + chrome.runtime.lastError.message, 'error');
+    });
   }
-};
+  return filtered;
+}
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -206,8 +158,10 @@ function validateImportedSettings(data, settingKeys, localKeys) {
     )) {
       throw new Error('模型列表 ' + key + ' 格式无效');
     }
-    localFiltered[key] = models.map((model) => ({ value: model.value, label: model.label }));
+    const provider = key.slice('fetchedModels_'.length);
+    localFiltered[key] = filterLatestModels(provider, models);
   });
+  Object.assign(filtered, normalizeStoredModels(filtered, currentProvider).changes);
   return { filtered, localFiltered };
 }
 
@@ -282,16 +236,11 @@ document.addEventListener('DOMContentLoaded', () => {
   ];
 
   // 先加载已拉取的模型列表，再加载设置
-  chrome.storage.local.get(['fetchedModels_claude', 'fetchedModels_openai', 'fetchedModels_gemini', 'fetchedModels_minimax', 'fetchedModels_deepseek', 'fetchedModels_kimi'], (local) => {
+  chrome.storage.local.get(FETCHED_MODEL_KEYS, (local) => {
     // 读失败时 Chrome 以无参数调用回调并设置 lastError；直接解引用会抛
     // TypeError，连带跳过下面那次真正关键的 sync.get
     if (chrome.runtime.lastError || !local) local = {};
-    if (local.fetchedModels_claude) fetchedModelsCache.claude = local.fetchedModels_claude;
-    if (local.fetchedModels_openai) fetchedModelsCache.openai = local.fetchedModels_openai;
-    if (local.fetchedModels_gemini) fetchedModelsCache.gemini = local.fetchedModels_gemini;
-    if (local.fetchedModels_minimax) fetchedModelsCache.minimax = local.fetchedModels_minimax;
-    if (local.fetchedModels_deepseek) fetchedModelsCache.deepseek = local.fetchedModels_deepseek;
-    if (local.fetchedModels_kimi) fetchedModelsCache.kimi = local.fetchedModels_kimi;
+    cleanFetchedModelStorage(local);
 
     chrome.storage.sync.get(STORAGE_KEYS, (data) => {
       if (chrome.runtime.lastError || !data) {
@@ -310,14 +259,13 @@ document.addEventListener('DOMContentLoaded', () => {
       keyCache.kimiKey = data.kimiKey || '';
       keyCache.sub2apiKey = data.sub2apiKey || '';
 
-      modelCache.claude = data.claudeModel || '';
-      modelCache.openai = data.openaiModel || '';
-      modelCache.gemini = data.geminiModel || '';
-      modelCache.minimax = data.minimaxModel || '';
-      modelCache.deepseek = data.deepseekModel || '';
-      modelCache.kimi = data.kimiModel || '';
-      modelCache.sub2api = data.sub2apiModel || '';
-      modelCache.chatgpt = data.chatgptModel || '';
+      const normalized = normalizeStoredModels(data, 'claude');
+      modelCache = normalized.models;
+      if (Object.keys(normalized.changes).length) {
+        chrome.storage.sync.set(normalized.changes, () => {
+          if (chrome.runtime.lastError) showStatus('模型升级保存失败：' + chrome.runtime.lastError.message, 'error');
+        });
+      }
       sub2apiBaseUrl = data.sub2apiBaseUrl || '';
       $('#sub2apiBaseUrl').value = sub2apiBaseUrl;
 
@@ -335,9 +283,6 @@ document.addEventListener('DOMContentLoaded', () => {
       });
 
       currentProvider = Object.prototype.hasOwnProperty.call(PROVIDERS, data.provider) ? data.provider : 'claude';
-      if (!modelCache[currentProvider] && data.model) {
-        modelCache[currentProvider] = data.model;
-      }
       switchProvider(currentProvider);
 
       const panelDefaultCollapsed = data.youtubePanelDefaultCollapsed !== false;
@@ -389,14 +334,26 @@ document.addEventListener('DOMContentLoaded', () => {
     ...ALL_PROMPT_KEYS,
   ];
 
-  const LOCAL_KEYS = ['fetchedModels_claude', 'fetchedModels_openai', 'fetchedModels_gemini', 'fetchedModels_minimax', 'fetchedModels_deepseek', 'fetchedModels_kimi'];
+  const LOCAL_KEYS = FETCHED_MODEL_KEYS;
 
-  $('#exportSettings').addEventListener('click', () => {
+  $('#exportSettings').addEventListener('click', async () => {
+    if (importing) { showStatus('设置正在导入，请刷新完成后再导出', 'error'); return; }
+    autoSave.cancel();
+    if (!await saveSettings(true) || importing) return;
     chrome.storage.sync.get(SETTING_KEYS, (syncData) => {
+      if (chrome.runtime.lastError || !syncData) {
+        showStatus('设置导出失败：' + ((chrome.runtime.lastError && chrome.runtime.lastError.message) || '无法读取设置'), 'error');
+        return;
+      }
       chrome.storage.local.get(LOCAL_KEYS, (localData) => {
-        const data = Object.assign({}, syncData);
-        // 已拉取的模型列表也导出
-        LOCAL_KEYS.forEach(k => { if (localData[k]) data[k] = localData[k]; });
+        if (chrome.runtime.lastError || !localData) {
+          showStatus('设置导出失败：' + ((chrome.runtime.lastError && chrome.runtime.lastError.message) || '无法读取模型列表'), 'error');
+          return;
+        }
+        if (importing) return;
+        const data = Object.assign({}, syncData, normalizeStoredModels(syncData, currentProvider).changes);
+        // Export only current catalog models and remove stale cache entries on disk.
+        Object.assign(data, cleanFetchedModelStorage(localData));
         data._meta = { exportedAt: new Date().toISOString(), version: 'AAtools' };
         const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
         const a = document.createElement('a');
@@ -490,8 +447,48 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // ── ChatGPT 订阅授权（粘贴 ~/.codex/auth.json，存 storage.local 不同步）──
+  let chatgptAuthRevision = 0;
+  let chatgptAuthWriting = false;
+  const chatgptAuthWrites = [];
+
+  // Serialize saves and clears: a late completion from an older paste must not
+  // restore cleared credentials or clear a newer paste.
+  function queueChatgptAuthWrite(kind, auth, revision) {
+    chatgptAuthWrites.push({ kind, auth, revision });
+    drainChatgptAuthWrites();
+  }
+
+  function drainChatgptAuthWrites() {
+    if (chatgptAuthWriting) return;
+    const next = chatgptAuthWrites.shift();
+    if (!next) return;
+    if (next.kind === 'set' && next.revision !== chatgptAuthRevision) {
+      drainChatgptAuthWrites();
+      return;
+    }
+    chatgptAuthWriting = true;
+    const done = () => {
+      const error = chrome.runtime.lastError;
+      chatgptAuthWriting = false;
+      if (next.revision === chatgptAuthRevision) {
+        if (error) {
+          showStatus((next.kind === 'set' ? '授权保存失败：' : '授权清除失败：') + error.message, 'error');
+        } else {
+          if (next.kind === 'set') $('#chatgptAuthPaste').value = '';
+          refreshChatgptAuthStatus();
+          showStatus(next.kind === 'set' ? 'ChatGPT 订阅授权已保存（仅存本机）' : '已清除 ChatGPT 订阅授权', 'success');
+        }
+      }
+      drainChatgptAuthWrites();
+    };
+    if (next.kind === 'set') chrome.storage.local.set({ chatgptAuth: next.auth }, done);
+    else chrome.storage.local.remove('chatgptAuth', done);
+  }
+
   function refreshChatgptAuthStatus() {
+    const revision = chatgptAuthRevision;
     chrome.storage.local.get(['chatgptAuth'], (d) => {
+      if (revision !== chatgptAuthRevision) return;
       const el = $('#chatgptAuthStatus');
       if (!el) return;
       const auth = d && d.chatgptAuth;
@@ -528,23 +525,18 @@ document.addEventListener('DOMContentLoaded', () => {
       id_token: t.id_token || '',
       account_id: t.account_id || parsed.account_id || '',
     };
-    chrome.storage.local.set({ chatgptAuth: auth }, () => {
-      if (chrome.runtime.lastError) {
-        showStatus('授权保存失败：' + chrome.runtime.lastError.message, 'error');
-        return;
-      }
-      $('#chatgptAuthPaste').value = ''; // 保存后清空，避免 token 明文留在输入框
-      refreshChatgptAuthStatus();
-      showStatus('ChatGPT 订阅授权已保存（仅存本机）', 'success');
-    });
+    queueChatgptAuthWrite('set', auth, chatgptAuthRevision);
   }, 600);
-  $('#chatgptAuthPaste').addEventListener('input', saveChatgptAuthPaste);
+  $('#chatgptAuthPaste').addEventListener('input', () => {
+    chatgptAuthRevision++;
+    saveChatgptAuthPaste();
+  });
 
   $('#chatgptAuthClear').addEventListener('click', () => {
-    chrome.storage.local.remove('chatgptAuth', () => {
-      refreshChatgptAuthStatus();
-      showStatus('已清除 ChatGPT 订阅授权', 'success');
-    });
+    chatgptAuthRevision++;
+    saveChatgptAuthPaste.cancel();
+    $('#chatgptAuthPaste').value = '';
+    queueChatgptAuthWrite('remove', null, chatgptAuthRevision);
   });
 
   refreshChatgptAuthStatus();
@@ -573,26 +565,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // 缓存已拉取的模型列表（从 storage.local 加载）
 let fetchedModelsCache = {};
 
-// 已退役模型（与 background.js RETIRED_MODELS 同款正则）。旧缓存的拉取列表里可能还留着，渲染前过滤；
-// 存量选中值命中时视为未选择，让 UI 落到推荐默认值（与 background.js sanitizeModel 的回退行为一致）
-// 与 background.js 的 MODEL_PREFIX 同义：不匹配的模型请求时会被静默换成默认模型，
-// 所以设置页也不该把它们列出来或保留为选中值。minimax / sub2api 不做前缀校验。
-const MODEL_PREFIX = {
-  claude: /^claude-/, openai: /^gpt-/, chatgpt: /^gpt-/,
-  gemini: /^gemini-/, deepseek: /^deepseek-/, kimi: /^kimi-/,
-};
-
-const RETIRED_MODELS = {
-  // Claude 2.x / 3.x / instant 全系列，Opus 4 / Sonnet 4（2026-06-15 退役）、Opus 4.1（2026-08-05 退役）
-  claude: /^claude-(2[.-]|instant|3-|(opus|sonnet)-4-[01](-|$)|(opus|sonnet)-4-\d{8}$)/,
-  // deepseek-chat / deepseek-reasoner 旧模型名 2026-07-24 退役
-  deepseek: /^deepseek-(chat|reasoner)$/,
-  // 旧 K2 线 kimi-k2-*（2026-05-25）、kimi-latest（2026-01-28）；kimi-k2.5 与 moonshot-v1 线 2026-08-31 全平台下线
-  kimi: /^(moonshot-v1-|kimi-k2-|kimi-k2\.5(-|$)|kimi-latest$)/,
-  // Codex（ChatGPT 登录）通道 2026-08-31 下线 gpt-5.4 / gpt-5.4-mini
-  chatgpt: /^gpt-5\.4(-mini)?$/,
-};
-
+// 模型可用性、兼容别名与默认值统一由 models.js 管理。
 function switchProvider(id) {
   if (!Object.prototype.hasOwnProperty.call(PROVIDERS, id)) id = 'claude';
   currentProvider = id;
@@ -612,32 +585,11 @@ function switchProvider(id) {
   $('#chatgptAuthField').style.display = (id === 'chatgpt') ? '' : 'none';
   $('#apiKeyField').style.display = cfg.keyField ? '' : 'none';
 
-  // 预置与拉取列表合并；旧缓存里可能有已退役模型，过滤掉
-  let models = mergeModels(cfg.models, fetchedModelsCache[id]);
-  let selected = modelCache[id];
-  const retired = RETIRED_MODELS[id];
-  if (retired) {
-    models = models.filter(m => !retired.test(m.value));
-    if (retired.test(selected)) selected = '';
-  }
-  // 与 background sanitizeModel 的前缀校验保持一致：旧缓存里可能留着
-  // o 系列 / chatgpt-* / gemma-* 这类选中后会被静默替换的模型
-  const prefix = MODEL_PREFIX[id];
-  if (prefix) {
-    models = models.filter(m => prefix.test(m.value));
-    if (selected && !prefix.test(selected)) selected = '';
-  }
+  // Only the latest catalog is selectable; old saved values migrate by family.
+  const models = cfg.models;
+  const selected = latestModel(id, modelCache[id]);
+  modelCache[id] = selected;
   populateModelSelect(models, selected);
-}
-
-// 预置模型与「从官网获取」的列表合并，预置在前、按 value 去重。
-// 拉取列表不能直接替换预置：/v1/models 只返回该 key 有权访问的模型真名，既不含别名
-// （gpt-5.6 → gpt-5.6-sol），组织未获得新模型权限时整代新模型也会整批缺席。直接替换会让
-// 推荐模型从下拉里彻底消失，而且拉取结果持久缓存在 storage.local，换 key 后不重新拉取就一直被遮蔽。
-function mergeModels(preset, fetched) {
-  if (!fetched || !fetched.length) return preset;
-  const seen = new Set(preset.map(m => m.value));
-  return preset.concat(fetched.filter(m => !seen.has(m.value)));
 }
 
 function populateModelSelect(models, selected) {
@@ -649,17 +601,7 @@ function populateModelSelect(models, selected) {
     opt.textContent = m.label;
     select.appendChild(opt);
   });
-  if (selected) {
-    // 已存模型不在列表里时补一个选项显示真实值，
-    // 否则 UI 会误显示第一项，随后任意 autoSave 都会把存量配置静默改写
-    if (!models.some(m => m.value === selected)) {
-      const opt = document.createElement('option');
-      opt.value = selected;
-      opt.textContent = selected + '（当前已保存）';
-      select.appendChild(opt);
-    }
-    select.value = selected;
-  }
+  if (models.some(model => model.value === selected)) select.value = selected;
 }
 
 function showStatus(text, type) {
@@ -696,16 +638,8 @@ async function fetchLatestModels() {
       return;
     }
     const fetched = await fetcher(key);
-    // 拉取结果先剔除已退役模型，避免缓存里长期留着会 404 的名字
-    const retired = RETIRED_MODELS[provider];
-    const prefix = MODEL_PREFIX[provider];
-    let models = fetched || [];
-    if (retired) models = models.filter(m => !retired.test(m.value));
-    if (prefix) models = models.filter(m => prefix.test(m.value));
-    if (!models || models.length === 0) {
-      showStatus('未获取到可用模型', 'error');
-      return;
-    }
+    // The server may still advertise older generations; retain only this catalog.
+    const models = filterLatestModels(provider, fetched);
 
     // 保存到本地 + 内存缓存（一律按快照的 provider 落位）
     fetchedModelsCache[provider] = models;
@@ -717,11 +651,10 @@ async function fetchLatestModels() {
       return;
     }
 
-    // 更新下拉框（同样与预置合并，拉不到的推荐模型不会因此消失）
-    const prev = $('#model').value;
-    populateModelSelect(mergeModels(PROVIDERS[provider].models, models), prev);
+    const prev = latestModel(provider, $('#model').value);
+    populateModelSelect(PROVIDERS[provider].models, prev);
 
-    showStatus('已获取 ' + models.length + ' 个模型', 'success');
+    showStatus(models.length ? '已核对 ' + models.length + ' 个最新型号' : '该账户列表未返回当前目录中的最新型号', models.length ? 'success' : 'error');
   } catch (err) {
     showStatus('获取失败: ' + (err.message || err), 'error');
   } finally {
@@ -739,11 +672,15 @@ function debounce(fn, ms) {
     clearTimeout(timer);
     timer = setTimeout(() => { timer = null; fn(); }, ms);
   };
+  wrapped.cancel = function () {
+    if (timer !== null) clearTimeout(timer);
+    timer = null;
+  };
   wrapped.flush = function () {
     if (timer === null) return;
     clearTimeout(timer);
     timer = null;
-    fn();
+    return fn();
   };
   return wrapped;
 }
@@ -751,11 +688,11 @@ function debounce(fn, ms) {
 // ── 保存设置（isManual=true 显示提示，false 静默）─────────────
 function saveSettings(isManual, gatewayProvider, gatewayBaseOverride) {
   // 导入进行中：内存缓存还是导入前的旧值，写回会整体覆盖刚导入的设置
-  if (importing) return;
+  if (importing) return Promise.resolve(false);
   // 初始读取失败时缓存仍是空串占位，写回会清空全部 provider 的 key 与模型
   if (!settingsLoaded) {
     if (isManual) showStatus('设置尚未加载完成，请重新打开设置页后再保存', 'error');
-    return;
+    return Promise.resolve(false);
   }
   const cfg = PROVIDERS[currentProvider];
 
@@ -772,7 +709,10 @@ function saveSettings(isManual, gatewayProvider, gatewayBaseOverride) {
 
   // 把当前表单值同步到缓存（chatgpt 无 keyField，授权走 storage.local 单独保存）
   if (cfg.keyField) keyCache[cfg.keyField] = $('#currentKey').value.trim();
-  modelCache[currentProvider] = $('#model').value;
+  modelCache[currentProvider] = latestModel(currentProvider, $('#model').value);
+  Object.keys(PROVIDERS).forEach(provider => {
+    modelCache[provider] = latestModel(provider, modelCache[provider]);
+  });
 
   const saveData = {
     provider: currentProvider,
@@ -792,7 +732,7 @@ function saveSettings(isManual, gatewayProvider, gatewayBaseOverride) {
     sub2apiModel: modelCache.sub2api,
     chatgptModel: modelCache.chatgpt,
     sub2apiBaseUrl: sub2apiBaseUrl,
-    model: $('#model').value,
+    model: modelCache[currentProvider],
     youtubePanelDefaultCollapsed: $('#youtubePanelDefaultCollapsed').checked,
     generateAllSummary: $('#generateAllSummary').checked,
     generateAllMindmap: $('#generateAllMindmap').checked,
@@ -804,32 +744,57 @@ function saveSettings(isManual, gatewayProvider, gatewayBaseOverride) {
     gestureKeepMenu: $('#gestureKeepMenu').checked,
   };
 
-  chrome.storage.sync.set(saveData, () => {
-    if (chrome.runtime.lastError) {
-      if (gatewayProvider) setSavedGatewayBase(gatewayProvider, oldGatewayBase);
-      if (attemptedGatewayOrigin && attemptedGatewayOrigin !== oldGatewayOrigin) revokeGatewayOriginIfUnused(attemptedGatewayOrigin);
-      if (isManual) showStatus('设置保存失败：' + chrome.runtime.lastError.message, 'error');
-      return;
-    }
-    if (gatewayProvider) {
-      const newGatewayOrigin = gatewayOrigin(getSavedGatewayBase(gatewayProvider));
-      if (oldGatewayOrigin && oldGatewayOrigin !== newGatewayOrigin) revokeGatewayOriginIfUnused(oldGatewayOrigin);
-    }
-    if (isManual) showStatus('设置已保存 ✓', 'success');
+  return new Promise((resolve) => {
+    chrome.storage.sync.set(saveData, () => {
+      if (chrome.runtime.lastError) {
+        if (gatewayProvider) setSavedGatewayBase(gatewayProvider, oldGatewayBase);
+        if (attemptedGatewayOrigin && attemptedGatewayOrigin !== oldGatewayOrigin) revokeGatewayOriginIfUnused(attemptedGatewayOrigin);
+        if (isManual) showStatus('设置保存失败：' + chrome.runtime.lastError.message, 'error');
+        resolve(false);
+        return;
+      }
+      if (gatewayProvider) {
+        const newGatewayOrigin = gatewayOrigin(getSavedGatewayBase(gatewayProvider));
+        if (oldGatewayOrigin && oldGatewayOrigin !== newGatewayOrigin) revokeGatewayOriginIfUnused(oldGatewayOrigin);
+      }
+      if (isManual) showStatus('设置已保存 ✓', 'success');
+      resolve(true);
+    });
   });
+}
+
+// Claude and Gemini list APIs paginate. Reject repeated cursors instead of
+// hanging forever or persisting a partial list as a successful refresh.
+async function fetchModelPages(initialUrl, requestOptions, listKey, cursorKey, cursorParam, moreKey) {
+  const url = new URL(initialUrl);
+  const records = [];
+  const cursors = new Set();
+  for (let page = 0; page < 20; page++) {
+    const resp = await fetch(url.toString(), requestOptions);
+    if (!resp.ok) throw new Error('API 返回 ' + resp.status);
+    const data = await resp.json();
+    records.push(...(data[listKey] || []));
+    const more = moreKey ? data[moreKey] : !!data[cursorKey];
+    if (!more) return records;
+    const cursor = data[cursorKey];
+    if (typeof cursor !== 'string' || !cursor || cursors.has(cursor)) {
+      throw new Error('模型列表分页游标无效，请稍后重试');
+    }
+    cursors.add(cursor);
+    url.searchParams.set(cursorParam, cursor);
+  }
+  throw new Error('模型列表分页过多，请稍后重试');
 }
 
 const MODEL_FETCHERS = {
   async claude(key) {
-    const resp = await fetch('https://api.anthropic.com/v1/models', {
+    const records = await fetchModelPages('https://api.anthropic.com/v1/models?limit=100', {
       headers: {
         'x-api-key': key,
         'anthropic-version': '2023-06-01',
       },
-    });
-    if (!resp.ok) throw new Error('API 返回 ' + resp.status);
-    const data = await resp.json();
-    const models = (data.data || [])
+    }, 'data', 'last_id', 'after_id', 'has_more');
+    const models = records
       .filter(m => m.id && !m.id.includes('legacy'))
       .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))
       .map(m => ({ value: m.id, label: m.display_name || m.id }));
@@ -843,21 +808,21 @@ const MODEL_FETCHERS = {
     if (!resp.ok) throw new Error('API 返回 ' + resp.status);
     const data = await resp.json();
     const models = (data.data || [])
-      // 只保留 background sanitizeModel 会接受的 gpt- 前缀：o 系列 / chatgpt-* 选中后
-      // 会被静默换成默认模型，列出来只会误导
-      .filter(m => m.id && /^gpt-/.test(m.id) && !m.id.includes('instruct') && !m.id.includes('realtime') && !m.id.includes('audio'))
+      // Endpoint compatibility is filtered centrally by AATModels after fetch.
+      .filter(m => m.id)
       .sort((a, b) => a.id < b.id ? 1 : -1)
       .map(m => ({ value: m.id, label: m.id }));
     return models;
   },
 
   async gemini(key) {
-    const resp = await fetch('https://generativelanguage.googleapis.com/v1beta/models?key=' + key);
-    if (!resp.ok) throw new Error('API 返回 ' + resp.status);
-    const data = await resp.json();
-    const models = (data.models || [])
-      // 同理只留 gemini- 前缀：gemma-* 等走不通 background 的前缀校验
-      .filter(m => m.name && m.name.startsWith('models/gemini-') &&
+    const url = new URL('https://generativelanguage.googleapis.com/v1beta/models');
+    url.searchParams.set('key', key);
+    url.searchParams.set('pageSize', '100');
+    const records = await fetchModelPages(url.toString(), undefined, 'models', 'nextPageToken', 'pageToken');
+    const models = records
+      // Provider metadata supplies generation support; the registry checks model families.
+      .filter(m => m.name &&
         m.supportedGenerationMethods && m.supportedGenerationMethods.includes('generateContent'))
       .map(m => {
         const id = m.name.replace('models/', '');

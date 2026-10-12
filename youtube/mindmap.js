@@ -169,6 +169,8 @@
     data: null,
     rawText: '',
     isGenerating: false,
+    warning: '',
+    truncated: false,
     transform: { x: 0, y: 0, scale: 1 },
     collapsed: new Set(),
     alignTop: false,
@@ -179,6 +181,8 @@
       this.data = null;
       this.rawText = '';
       this.isGenerating = false;
+      this.warning = '';
+      this.truncated = false;
       if (this.requestId) YTX.cancelRequest(this.requestId);
       this.requestId = null;
       this.transform = { x: 0, y: 0, scale: 1 };
@@ -207,6 +211,8 @@
       if (this.isGenerating) return Promise.resolve();
       this._activityVersion = (this._activityVersion || 0) + 1;
       this.isGenerating = true;
+      this.warning = '';
+      this.truncated = false;
       this.rawText = '';
       this.data = null;
       this.collapsed = new Set();
@@ -279,7 +285,9 @@
       this.rawText += text;
     },
 
-    onDone: function () {
+    onDone: function (metadata) {
+      this.warning = YTX.resultWarningText(metadata);
+      this.truncated = !!(metadata && metadata.truncated);
       this.requestId = null;
       try {
         this.data = YTX.extractJSON(this.rawText, 'object');
@@ -292,11 +300,12 @@
         // ——恢复时 panel.js 会直接 render() 它，再次抛错且不显示任何提示
         this.data = null;
         YTX.parseError(YTX.panel.querySelector('#ytx-content-mindmap'), '导图', err);
+        YTX.panel.querySelector('#ytx-content-mindmap').insertAdjacentHTML('beforeend', YTX.resultWarningHtml(this));
       }
       YTX.panel.querySelector('#ytx-generate-mindmap').disabled = false;
       YTX.btnRefresh(YTX.panel.querySelector('#ytx-generate-mindmap'));
       this.isGenerating = false;
-      if (this.data) YTX.cache.save(YTX.currentVideoId, 'mindmap', { data: this.data });
+      if (this.data) YTX.cache.save(YTX.currentVideoId, 'mindmap', { data: this.data, warning: this.warning, truncated: this.truncated });
       if (this._deferred) { this._deferred.resolve(); this._deferred = null; }
     },
 
@@ -337,6 +346,7 @@
           '<button class="ytx-mm-tool-btn" data-action="export-svg">导出 SVG</button>' +
           '<button class="ytx-mm-tool-btn" data-action="export-obsidian">导出 Obsidian</button>' +
         '</div>' +
+        YTX.resultWarningHtml(this) +
         '<div class="ytx-mindmap-viewport">' +
           '<svg class="ytx-mindmap-svg" xmlns="http://www.w3.org/2000/svg">' +
             '<g class="ytx-mm-canvas">' + edgesHtml + nodesHtml + '</g>' +

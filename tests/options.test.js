@@ -61,6 +61,7 @@ function loadOptions() {
     setTimeout() { return 1; },
   };
   vm.createContext(context);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'models.js'), 'utf8'), context, { filename: 'models.js' });
   const source = fs.readFileSync(path.join(__dirname, '..', 'options.js'), 'utf8');
   vm.runInContext(source, context, { filename: 'options.js' });
   return {
@@ -167,10 +168,10 @@ test('import validation rejects invalid providers, types, URLs, and model-list s
     provider: 'sub2api',
     sub2apiBaseUrl: 'https://gateway.example:9443/api',
     enableGestures: true,
-    fetchedModels_openai: [{ value: 'gpt-test', label: 'GPT Test', extra: 'discarded' }],
+    fetchedModels_openai: [{ value: 'gpt-6.1-sol', label: 'GPT Test', extra: 'discarded' }],
   }, settingKeys, localKeys);
   assert.equal(valid.filtered.sub2apiBaseUrl, 'https://gateway.example:9443/api');
   assert.deepEqual(JSON.parse(JSON.stringify(valid.localFiltered.fetchedModels_openai)), [
-    { value: 'gpt-test', label: 'GPT Test' },
+    { value: 'gpt-6.1-sol', label: context.AATModels.providers.openai.models.find(model => model.value === 'gpt-6.1-sol').label },
   ]);
 });

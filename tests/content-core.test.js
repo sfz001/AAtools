@@ -310,3 +310,33 @@ test('generate-all invalidation prevents an old same-video run from starting fea
   assert.equal(starts, 0);
   assert.equal(allButton.innerHTML, 'reset-state');
 });
+
+
+test('Gemini partial transcription keeps completeness metadata in automatic and manual caches', async () => {
+  for (const manual of [false, true]) {
+    const loaded = loadCore({ responseFor(message) {
+      if (message.type === 'TRANSCRIBE_VIDEO') return { text: '[0:00] partial', warning: '输出达到上限', truncated: true };
+      return { ok: true };
+    } });
+    const ytx = loaded.context.YTX;
+    ytx.currentVideoId = 'abcdefghijk';
+    ytx.panel = { querySelector() { return null; } };
+    ytx.fetchTranscript = async () => { throw new Error('no captions'); };
+    ytx.renderTranscript = () => {};
+    let saved;
+    ytx.cache.save = (videoId, feature, data) => { saved = data; };
+    await (manual ? ytx.switchToVideoMode() : ytx.ensureTranscript());
+    assert.equal(ytx.transcriptData.truncated, true);
+    assert.equal(ytx.transcriptData.warning, '输出达到上限');
+    assert.equal(saved.truncated, true);
+    assert.equal(saved.warning, '输出达到上限');
+    assert.equal(saved.videoMode, true);
+
+    ytx.transcriptData = null;
+    ytx.fetchTranscript = async () => ({ full: 'complete', segments: [], truncated: false });
+    await ytx.ensureTranscript();
+    assert.equal(saved.truncated, false);
+    assert.equal(saved.warning, '');
+    assert.equal(saved.videoMode, false);
+  }
+});

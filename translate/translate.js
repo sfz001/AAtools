@@ -3,6 +3,8 @@
 (function () {
   var icon, popup, currentText, isTranslating;
   var resultText = '';
+  var resultWarning = '';
+  var resultRenderTimer = null;
   var selectionRect = null;
   var currentModel = '';
   var isPinned = false;
@@ -42,6 +44,7 @@
   try { document.dispatchEvent(new Event(GEN_EVENT)); } catch (_) {}
   document.addEventListener(GEN_EVENT, function () {
     destroyed = true;
+    cancelCurrentRequest('扩展实例已更新');
     try { iframeObserver.disconnect(); } catch (_) {}
     if (icon && icon.parentNode) icon.parentNode.removeChild(icon);
     if (popup && popup.parentNode) popup.parentNode.removeChild(popup);
@@ -190,6 +193,7 @@
   }
 
   function cancelCurrentRequest(reason) {
+    cancelResultRender();
     var requestId = currentRequestId;
     // 先清 ID，使取消过程中到达的旧 chunk 立即失效。
     currentRequestId = null;
@@ -199,6 +203,7 @@
 
   function finishCurrentRequest(requestId) {
     if (!requestId || requestId !== currentRequestId) return false;
+    cancelResultRender();
     currentRequestId = null;
     restoreIdleUi();
     return true;
@@ -289,6 +294,7 @@
     var capturedActiveEl = activeEl;
 
     setTimeout(function () {
+      if (destroyed || !featureEnabled) return;
       // 优先用立即捕获的文本，回退到延迟读取
       var text = immediateText;
       if (!text) {
@@ -370,6 +376,8 @@
     currentRequestId = requestId;
     isTranslating = true;
     resultText = '';
+    resultWarning = '';
+    cancelResultRender();
     hideIcon();
     setTranslating(true);
 
@@ -657,10 +665,47 @@
     popup.style.maxHeight = maxH + 'px';
   }
 
+  // HTTP 页没有安全上下文 Clipboard API；临时选区兜底不需要扩展权限。
+  function fallbackCopyText(text) {
+    var previous = document.activeElement;
+    var start = previous && previous.selectionStart;
+    var end = previous && previous.selectionEnd;
+    var selection = window.getSelection && window.getSelection();
+    var ranges = [];
+    if (selection) {
+      for (var i = 0; i < selection.rangeCount; i++) ranges.push(selection.getRangeAt(i).cloneRange());
+    }
+    var textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.setAttribute('aria-hidden', 'true');
+    textarea.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0';
+    (document.body || document.documentElement).appendChild(textarea);
+    try {
+      textarea.focus({ preventScroll: true });
+      textarea.select();
+      if (typeof document.execCommand !== 'function' || !document.execCommand('copy')) {
+        throw new Error('浏览器未允许复制');
+      }
+    } finally {
+      textarea.remove();
+      if (previous && previous.focus) previous.focus({ preventScroll: true });
+      if (previous && typeof start === 'number' && previous.setSelectionRange) previous.setSelectionRange(start, end);
+      if (selection && ranges.length) {
+        selection.removeAllRanges();
+        ranges.forEach(function (range) { selection.addRange(range); });
+      }
+    }
+  }
+
   // ── 复制文本 ──────────────────────────────────────────
   function copyText(text, btn) {
     if (!text) return;
-    navigator.clipboard.writeText(text).then(function () {
+    Promise.resolve().then(function () {
+      if (!navigator.clipboard || typeof navigator.clipboard.writeText !== 'function') throw new Error('Clipboard API unavailable');
+      return navigator.clipboard.writeText(text);
+    }).catch(function () {
+      fallbackCopyText(text);
+    }).then(function () {
       var orig = btn.innerHTML;
       btn.innerHTML = SVG_CHECK;
       btn.classList.add('ytx-copied');
@@ -668,7 +713,7 @@
         btn.innerHTML = orig;
         btn.classList.remove('ytx-copied');
       }, 1500);
-    }).catch(function () {});
+    }).catch(function () { setStatus('复制失败，请手动选择文本复制', false); });
   }
 
   // ── 更新状态指示 ──────────────────────────────────────
@@ -727,6 +772,7 @@
     hideIcon();
     if (popup) popup.style.display = 'none';
     resultText = '';
+    resultWarning = '';
     currentText = '';
     selectionRect = null;
     isPinned = false;
@@ -778,6 +824,23 @@
     return html;
   }
 
+  function cancelResultRender() {
+    if (resultRenderTimer !== null) clearTimeout(resultRenderTimer);
+    resultRenderTimer = null;
+  }
+
+  function renderResult(streaming) {
+    var body = popup && popup.querySelector('.ytx-translate-result-text');
+    var content = popup && popup.querySelector('.ytx-translate-content');
+    if (!body) return;
+    var followBottom = content && content.scrollHeight - content.clientHeight - content.scrollTop <= 32;
+    var previousTop = content ? content.scrollTop : 0;
+    body.innerHTML = renderMarkdown(resultText) + (resultWarning
+      ? '<div class="ytx-translate-warning" role="status" style="margin-top:8px;padding:8px;color:#92400e;background:#fef3c7;border-radius:6px">' + escapeHtml(resultWarning) + '</div>' : '');
+    if (streaming) addCursor();
+    if (content) content.scrollTop = followBottom ? content.scrollHeight : previousTop;
+  }
+
   // ── 消息监听 ──────────────────────────────────────────
   chrome.runtime.onMessage.addListener(function (msg) {
     if (destroyed) return;
@@ -795,26 +858,29 @@
 
     if (msg.type === 'TRANSLATE_CHUNK') {
       resultText += msg.text;
-      var body = popup && popup.querySelector('.ytx-translate-result-text');
-      if (body) {
-        removeCursor();
-        body.innerHTML = renderMarkdown(resultText);
-        addCursor();
-        var content = popup.querySelector('.ytx-translate-content');
-        if (content) content.scrollTop = content.scrollHeight;
+      if (resultRenderTimer === null) {
+        var requestId = currentRequestId;
+        var renderTimer = setTimeout(function () {
+          if (resultRenderTimer !== renderTimer) return;
+          resultRenderTimer = null;
+          if (destroyed || !isTranslating || currentRequestId !== requestId) return;
+          renderResult(true);
+        }, 80);
+        resultRenderTimer = renderTimer;
       }
     }
 
     if (msg.type === 'TRANSLATE_DONE') {
-      removeCursor();
-      // 最终渲染
-      var bodyDone = popup && popup.querySelector('.ytx-translate-result-text');
-      if (bodyDone) bodyDone.innerHTML = renderMarkdown(resultText);
-      setStatus('Translated', true);
+      cancelResultRender();
+      resultWarning = typeof msg.warning === 'string' ? msg.warning : '';
+      if (!resultWarning && msg.truncated) resultWarning = '翻译达到模型输出上限，内容不完整，请缩短原文后重试。';
+      renderResult(false);
+      setStatus(resultWarning ? 'Translated · 内容不完整' : 'Translated', true);
       finishCurrentRequest(msg.requestId);
     }
 
     if (msg.type === 'TRANSLATE_ERROR') {
+      cancelResultRender();
       removeCursor();
       var body = popup && popup.querySelector('.ytx-translate-result-text');
       if (body) {
