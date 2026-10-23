@@ -338,7 +338,7 @@ YouTube SPA 切视频时旧异步操作会污染新视频结果。用四层防�
 - 面板收起：保留 `YTX.panel` DOM 以继续接收流式消息，移除 resizer 恢复 YouTube 原布局；恢复时重建 resizer
 - 可调分栏：`#ytx-resizer` 拖拽手柄，默认 3:2 分割，min secondary 440px
 - 时间戳点击：面板级事件委托，匹配 `.ytx-timestamp, .ytx-ts`，设 `video.currentTime` 并 `play()`
-- 时间线列表项：`YTX.renderMarkdown` 把以时间戳开头的列表项渲染成 `<li class="ytx-ts-item">时间戳<span class="ytx-ts-body">正文</span></li>`，content.css 用 flex 把它排成「时间戳 | 正文」两列，长句换行后与正文左缘对齐。总结模板（`YTX.prompts.DEFAULT`）的「时间线」栏目正是靠这一约定排版：一句话总结（加粗）→ `## 要点` → `## 时间线`，全文限 350 字（长视频 500 字）
+- 时间线列表项：`YTX.renderMarkdown` 把以时间戳开头的列表项渲染成 `<li class="ytx-ts-item">时间戳<span class="ytx-ts-body">正文</span></li>`，content.css 用 flex 把它排成「时间戳 | 正文」两列，长句换行后与正文左缘对齐。总结模板（`YTX.prompts.DEFAULT`）的「时间线」栏目正是靠这一约定排版：1-2 句总结（加粗）→ `## 要点` 4-6 条 → `## 时间线`，全文 500-800 字（长视频 800-1200 字），各栏目条数与字数上限都写在模板里，用户嫌长/嫌短时直接调这些数字
 - 所有 AI 输出默认要求简体中文
 - options.js 设置页：所有输入 1.5s 防抖自动保存，import 需验证 `_meta.version` 为 `'AATube'` 或 `'AAtools'`
 - 模型预置由 `models.js` 统一维护：Claude Fable 5.1 / Opus 5.5 / Sonnet 5.5 / Haiku 5.5，OpenAI 与 ChatGPT 的 GPT-6.1 Sol / GPT-6 Astra / GPT-6 Luna，Gemini 3.8 Flash / 3.5 Flash-Lite / 3.1 Pro Preview，MiniMax M3，DeepSeek V4.1 Flash / V4 Pro，Kimi K3。Sub2API 提供相同的 Claude 四系列、GPT 三系列和 Gemini 三系列最新选项，标注需要网关支持，移除 Gemini 2.5；视频转录仍固定 3.5 Flash-Lite。各系列发布节奏不同，版本数字不同不代表历史兼容选项。
