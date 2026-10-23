@@ -396,11 +396,13 @@ html[dark] #ytx-resizer.ytx-resizer-active .ytx-resizer-dot,
 }
 
 #ytx-content h2 {
-  font-size: 15px;
-  font-weight: 600;
-  margin: 18px 0 6px 0;
-  padding-bottom: 4px;
-  border-bottom: 1px solid #f0f0f0;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1.3;
+  margin: 18px 0 8px 0;
+  padding-left: 8px;
+  border-left: 3px solid #7c3aed;
   color: #0f0f0f;
 }
 
@@ -429,7 +431,28 @@ html[dark] #ytx-resizer.ytx-resizer-active .ytx-resizer-dot,
 }
 
 #ytx-content li {
-  margin: 3px 0;
+  margin: 4px 0;
+}
+
+/* 以时间戳开头的列表项（总结的「时间线」，由 markdown.js 加 .ytx-ts-item）：
+   时间戳当作左侧标记、正文独立成列，长句换行后与正文左缘对齐 */
+#ytx-content li.ytx-ts-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  list-style: none;
+  margin-left: -20px; /* 抵消 ul 的 padding-left，让时间戳顶格 */
+}
+
+#ytx-content li.ytx-ts-item .ytx-timestamp {
+  flex: none;
+  margin-top: 2px;
+  margin-right: 0;
+}
+
+#ytx-content li.ytx-ts-item .ytx-ts-body {
+  flex: 1;
+  min-width: 0;
 }
 
 #ytx-content code {
@@ -863,7 +886,7 @@ html[dark] #ytx-resizer.ytx-resizer-active .ytx-resizer-dot,
   color: #e5e5e5;
 }
 [dark] #ytx-content h2 {
-  border-color: #333;
+  border-color: #a78bfa;
 }
 [dark] #ytx-content code {
   background: #333;

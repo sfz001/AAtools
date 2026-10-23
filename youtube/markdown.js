@@ -27,6 +27,14 @@ YTX.renderMarkdown = function (text) {
     return s;
   }
 
+  // 以时间戳开头的列表项（总结的「时间线」）：时间戳当作左侧标记、正文单独成列，
+  // 配合 content.css 的 .ytx-ts-item 让长句换行后仍与正文左缘对齐，而不是缩在时间戳下面
+  function listItem(html) {
+    var m = html.match(/^(<span class="ytx-timestamp"[^>]*>[^<]*<\/span>)\s*([\s\S]*)$/);
+    if (!m) return '<li>' + html + '</li>';
+    return '<li class="ytx-ts-item">' + m[1] + '<span class="ytx-ts-body">' + m[2] + '</span></li>';
+  }
+
   function collectList(startIndex, prefix) {
     var items = [];
     var idx = startIndex;
@@ -64,14 +72,14 @@ YTX.renderMarkdown = function (text) {
     // 无序列表 - 或 *
     if (/^[-*]\s+/.test(trimmed)) {
       var result = collectList(i, /^\s*[-*]\s+(.+)/);
-      out.push('<ul>' + result.items.map(function (t) { return '<li>' + t + '</li>'; }).join('') + '</ul>');
+      out.push('<ul>' + result.items.map(listItem).join('') + '</ul>');
       i = result.nextIndex; continue;
     }
 
     // 有序列表
     if (/^\d+[.)]\s+/.test(trimmed)) {
       var result = collectList(i, /^\s*\d+[.)]\s+(.+)/);
-      out.push('<ol>' + result.items.map(function (t) { return '<li>' + t + '</li>'; }).join('') + '</ol>');
+      out.push('<ol>' + result.items.map(listItem).join('') + '</ol>');
       i = result.nextIndex; continue;
     }
 
