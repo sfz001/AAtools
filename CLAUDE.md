@@ -50,7 +50,7 @@ AAtools/
 1. `chrome://extensions/` → 开启开发者模式 → 加载已解压的扩展程序（选择项目根目录）
 2. 修改代码后在扩展页点击刷新图标即可——**无需刷新已打开的页面**：`onInstalled` 时 background 会把 content scripts 重注入到所有已打开的匹配标签页（见"扩展重载免刷新"）
 3. 修改 `background.js` 后需要在扩展页重新加载 Service Worker
-4. 改完跑一遍 `node --test tests/*.test.js`——`tests/*.test.js` 中的测试用 `vm.createContext` 桩掉 `chrome.*`，覆盖协议、缓存迁移与设置页权限逻辑
+4. 改完跑一遍 `node --test tests/*.test.js`——`tests/*.test.js` 中的测试用 `vm.createContext` 桩掉 `chrome.*`，覆盖协议、缓存迁移、设置页权限逻辑与手势的右键菜单/双击策略
 
 ## Architecture
 
@@ -273,16 +273,13 @@ YouTube SPA 切视频时旧异步操作会污染新视频结果。用四层防�
 - 右键 `mousedown` 开始追踪 → `mousemove`（鼠标）/ `wheel`（Mac 触控板按住右键 + 另一指滑动会发 wheel 而非 mousemove）累计方向序列 → `mouseup` 匹配 `GESTURES` 表执行
 - **wheel 路径仅限 macOS，且假设自然滚动开启**：handler 把 `-deltaX/-deltaY` 计入方向序列，这个取反只对 macOS 默认的自然滚动成立；Windows/Linux 上按住右键滚一格会被记成方向相反的手势，所以 `startWheelTracking()` 用 `isMac` 门控。监听还按需注册：`mousedown` 进入 tracking 时挂上、`mouseup`/`blur`/关闭总开关/代际接管时摘掉——它只在 tracking 期间需要非 passive（要 `preventDefault`），常驻一个 `<all_urls>` 的阻塞型 document 级 wheel 捕获监听会让每段滚动的首个事件等待主线程
 - **totalMoved 按事件增量累加**：`prevPoint` 每次 mousemove 都前移，`lastPoint` 只作 `MIN_SEGMENT` 的分段锚点。用分段锚点算距离会把 30px 内的慢速漂移按 1+2+3+4… 叠加，把 `MIN_GESTURE` 的有效阈值压到 3-4px
-- **`gestureKeepMenu` 设置**（`chrome.storage.sync`，boolean，默认 `false`）：
-  - **`false`（默认，触控板友好）**：所有平台右键直接进手势模式，contextmenu 抑制（`suppressContext = true` 在 mousedown 时设置）。Mac 用户配"左下角=右键"后，按住左下角 + 触控板滑动即触发手势；wheel 事件 handler 把滑动按 `-deltaX/-deltaY` 计入方向序列（自然滚动取反）。**Mac 上 `Shift+右键` 是逃生口**：mousedown 守卫直接 return 不进 tracking，contextmenu 不被抑制，原生菜单照常弹
-  - **`true`（保留菜单）**：
-    - Windows/Linux：contextmenu 在 mouseup 后触发 → 短按弹菜单、拖动触发手势（mouseup 时若 `totalMoved >= MIN_GESTURE` 才置 suppressContext）
-    - macOS：contextmenu 在 mousedown 立即触发 → 普通右键放行弹菜单，**Shift+右键** 才进手势模式（mousedown 时立即 `suppressContext = true`）
-  - **统一规则（Mac）**：守卫公式 `if (isMac && keepMenu !== e.shiftKey) return;` —— Shift 翻转 keepMenu 行为（XOR），Shift 状态与 keepMenu 一致即放行菜单
-  - **双重判断**：mousedown 和 contextmenu listener 各自独立按上面公式判断。原因：Mac 上 mousedown→contextmenu 的派发顺序在不同 Chrome 版本/通道可能不一致，仅靠 mousedown 提前设 `suppressContext` 可能漏判；contextmenu listener 自己读 `e.shiftKey` 是兜底。mousedown 分支额外把 `suppressContext = false` 显式清掉，防止上次未拖动的 mouseup 残留把后续菜单吞掉
+- **右键菜单策略按平台自动决定，没有设置项**（`menuOnDown = !isWin`）：Chromium 只有 Windows 在 mouseup 之后派发 contextmenu，macOS 与 Linux 都在 mousedown 瞬间派发（Blink 注释 "On Mac/Linux, we handle it on mouse down, not up"），菜单一弹页面就收不到后续 mousemove/mouseup
+  - **Windows**：mousedown 不抑制（`suppressContext = false`），mouseup 按位移决定：`totalMoved < MIN_GESTURE` 的短按放行原生菜单，拖动出手势并置 `suppressContext = true`（200ms 窗口）吞掉随后派发的菜单。「普通右键弹菜单、拖动出手势」在这里原生可达，不需要双击
+  - **macOS / Linux**：mousedown 立即 `suppressContext = true` 进手势模式。Mac 用户配"左下角=右键"后，按住左下角 + 触控板滑动即触发手势；wheel 事件 handler 把滑动按 `-deltaX/-deltaY` 计入方向序列（自然滚动取反）。**双击右键弹原生菜单**：被吞掉菜单的短按（`totalMoved < MIN_GESTURE` 且 `suppressContext` 为 true）在 mouseup 调 `armMenu(e)` 记下 `timeStamp` 与 screen 坐标；下一次右键 mousedown 先 `isDoubleRightClick(e)`（间隔 ≤ `DOUBLE_CLICK_MS`=500ms 且位移 ≤ `DOUBLE_CLICK_DIST`=10px），命中则清 `suppressContext`（含 200ms 复位定时器）并直接 return 不进 tracking，第二次按下自带的 contextmenu 就放行了。预备状态在每次右键 mousedown 无论命中与否都消费掉；完成了手势的 mouseup 不预备（手势后紧接的右键仍是手势）。第一次的菜单在 mousedown 已被吞、无法事后补弹（content script 没有任何途径打开原生菜单，`chrome.contextMenus` 只能加项、合成事件 `isTrusted=false` 不弹、`chrome.debugger` 会常驻调试横幅），这是鼠标用户不按修饰键的唯一出路，Chrome 上的手势扩展（Smooth Gestures、crxMouse、SimpleMouseGestures 等）在 Mac 上都用这套。**`Shift+右键` 是逃生口**：mousedown 守卫 `if (menuOnDown && e.shiftKey)` 直接 return 不进 tracking，contextmenu 不被抑制，原生菜单照常弹
+  - **双重判断**：mousedown 和 contextmenu listener 各自独立读 `e.shiftKey`。原因：Mac 上 mousedown→contextmenu 的派发顺序在不同 Chrome 版本/通道可能不一致，仅靠 mousedown 提前设 `suppressContext` 可能漏判；contextmenu listener 自己读 `e.shiftKey` 是兜底。mousedown 分支额外把 `suppressContext = false` 显式清掉，防止上次未拖动的 mouseup 残留把后续菜单吞掉
 - **`isTrusted` 守卫**：mousedown/mousemove/wheel/mouseup 首行检查，合成事件不触发
 - **单段阈值** `MIN_SEGMENT = 30` 像素：超过才记一次方向
-- **总位移阈值** `MIN_GESTURE = 8` 像素：低于此值视为短按；keepMenu=true 模式下放行原生菜单（Win/Linux）
+- **总位移阈值** `MIN_GESTURE = 8` 像素：低于此值视为短按；Windows 放行原生菜单，macOS/Linux（菜单已在 mousedown 被吞）预备「双击右键」
 - **方向去重**: 连续相同方向只记一次，所以 `LL` 不存在，长拖动也只算 `L`
 - **`←↑` 不会误触发后退**: 动作只在 `mouseup` 时根据完整序列执行，一气呵成的 `←↑` 整段被识别为 `LU`
 - **抑制 contextmenu**: 拖动达到阈值后置 `suppressContext = true`（200ms 窗口），下一次右键菜单被吞掉
@@ -301,7 +298,7 @@ YouTube SPA 切视频时旧异步操作会污染新视频结果。用四层防�
 **总开关 / 设置**
 
 - `chrome.storage.sync.enableGestures`（boolean，默认 true，设置页顶部"功能开关"卡片）：手势总开关，关闭后 `mousedown` 直接 return，原生右键菜单完全不受影响
-- `chrome.storage.sync.gestureKeepMenu`（boolean，默认 false）：见上文"识别逻辑"小节
+- 曾有 `gestureKeepMenu`（保留原生右键菜单）开关，2026-10 随双击右键落地一并移除：菜单策略按平台自动决定（见上文「识别逻辑」），options.js 启动时把它加进一次性 `storage.sync.remove` 清单，导入旧配置时它不在 `STORAGE_KEYS` 里会被 `validateImportedSettings` 忽略
 - 启动时一次性读取，并监听 `chrome.storage.onChanged`：用户在设置页切换后所有页面**无需刷新**即可生效
 
 ### Prompt 模板
@@ -323,7 +320,6 @@ YouTube SPA 切视频时旧异步操作会污染新视频结果。用四层防�
 - `generateAllSummary`, `generateAllMindmap`, `generateAllHtml` — 「全部生成」是否包含对应功能（boolean，默认 true，`!== false` 判断）
 - `youtubePanelDefaultCollapsed` — YouTube 面板首次加载时是否默认折叠（boolean，默认 true，`!== false` 判断）
 - `enableYoutube`, `enableTranslate`, `enableXhs`, `enableGestures` — 四大模块总开关（boolean，默认 true，`!== false` 判断），设置页顶部「功能开关」卡片；各 content script 启动时读取并监听 `chrome.storage.onChanged` 即时生效无需刷新（YouTube 关闭时 panel.js `onNavigate` 走 `!videoId` 清理路径拆面板，重新开启立即重注入面板并恢复缓存）
-- `gestureKeepMenu` — 是否保留原生右键菜单（boolean，默认 false：右键直接走手势，Mac 上 Shift+右键 临时弹原生菜单；true 时 Mac 普通右键弹菜单、Shift+右键 进手势，Win/Linux 用 mouseup 时位移判断）
 - `mindmapAlignTop` — 导图对齐偏好
 
 **`chrome.storage.local`**（仅本地）：
@@ -372,4 +368,5 @@ YouTube SPA 切视频时旧异步操作会污染新视频结果。用四层防�
 - 授权粘贴保存可取消防抖，清除时先清输入框；授权写入/删除串行执行并带修订号，旧回调不得恢复已清除凭据或抹掉新粘贴。
 - `saveSettings()` 返回 Promise<boolean>；导出先等待当前表单落盘，失败/初始化未完成/导入中不下载旧配置。
 - `tests/options-events.test.js` 执行实际 DOMContentLoaded 事件链，覆盖授权清除、延迟保存、导出与分页；`tests/models.test.js` 验证当前型号白名单、按系列迁移与端点过滤。
+- `tests/gestures.test.js` 用假 `document`/`chrome`/定时器把 gestures.js 跑在 vm 里，按平台驱动 mousedown/mousemove/mouseup/contextmenu 序列，覆盖双击右键放行、窗口过期与距离超限、手势后不预备、Shift 逃生口、Linux 同策略、Windows 短按弹菜单/拖动吞菜单与总开关关闭。
 - 验证命令仍为 `node --test tests/*.test.js`，使用桩验证协议，不向真实付费 API 发请求。

@@ -129,7 +129,7 @@ function validateImportedSettings(data, settingKeys, localKeys) {
   const booleanKeys = new Set([
     'youtubePanelDefaultCollapsed', 'generateAllSummary', 'generateAllMindmap',
     'generateAllHtml', 'enableYoutube', 'enableTranslate', 'enableXhs', 'enableGestures',
-    'gestureKeepMenu', 'mindmapAlignTop',
+    'mindmapAlignTop',
   ]);
   const filtered = {};
   settingKeys.forEach((key) => {
@@ -220,9 +220,11 @@ function saveAuthorizedGateway(authorization) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  // 一次性迁移：移除旧版（已删除的 Notion / GitHub Gist 集成）残留 key
-  // 这些字段现在不再被读取，但老用户的 storage.sync 里仍有，会跨设备同步占空间
-  chrome.storage.sync.remove(['notionKey', 'notionPage', 'githubKey']);
+  // 一次性迁移：移除已删除功能的残留 key——旧版 Notion / GitHub Gist 集成，以及
+  // 2026-10 随「双击右键弹菜单」落地而撤掉的「保留原生右键菜单」开关（gestureKeepMenu，
+  // 菜单策略改为按平台自动决定）。这些字段不再被读取，但老用户的 storage.sync 里仍有，
+  // 会跨设备同步占空间；导入旧配置时该键不在 STORAGE_KEYS 里，会被 validateImportedSettings 忽略
+  chrome.storage.sync.remove(['notionKey', 'notionPage', 'githubKey', 'gestureKeepMenu']);
 
   const STORAGE_KEYS = [
     'provider', 'claudeKey', 'openaiKey', 'geminiKey', 'minimaxKey', 'deepseekKey', 'kimiKey', 'sub2apiKey',
@@ -231,7 +233,7 @@ document.addEventListener('DOMContentLoaded', () => {
     'youtubePanelDefaultCollapsed',
     'generateAllSummary', 'generateAllMindmap', 'generateAllHtml',
     'enableYoutube', 'enableTranslate', 'enableXhs',
-    'enableGestures', 'gestureKeepMenu',
+    'enableGestures',
     ...ALL_PROMPT_KEYS,
   ];
 
@@ -297,7 +299,6 @@ document.addEventListener('DOMContentLoaded', () => {
       $('#enableTranslate').checked = data.enableTranslate !== false;
       $('#enableXhs').checked = data.enableXhs !== false;
       $('#enableGestures').checked = data.enableGestures !== false;
-      $('#gestureKeepMenu').checked = !!data.gestureKeepMenu;
 
       var vb = document.getElementById('version-badge');
       if (vb) vb.textContent = 'v' + chrome.runtime.getManifest().version;
@@ -329,7 +330,7 @@ document.addEventListener('DOMContentLoaded', () => {
     'youtubePanelDefaultCollapsed',
     'generateAllSummary', 'generateAllMindmap', 'generateAllHtml',
     'enableYoutube', 'enableTranslate', 'enableXhs',
-    'enableGestures', 'gestureKeepMenu',
+    'enableGestures',
     'mindmapAlignTop',
     ...ALL_PROMPT_KEYS,
   ];
@@ -741,7 +742,6 @@ function saveSettings(isManual, gatewayProvider, gatewayBaseOverride) {
     enableTranslate: $('#enableTranslate').checked,
     enableXhs: $('#enableXhs').checked,
     enableGestures: $('#enableGestures').checked,
-    gestureKeepMenu: $('#gestureKeepMenu').checked,
   };
 
   return new Promise((resolve) => {

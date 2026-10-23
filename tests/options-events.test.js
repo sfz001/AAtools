@@ -305,7 +305,8 @@ test('startup migrates every stored provider model using only model-field writes
     geminiModel: 'gemini-2.5-flash', minimaxModel: 'MiniMax-M2.7', deepseekModel: 'deepseek-v4-flash',
     kimiModel: 'kimi-k2.6', chatgptModel: 'gpt-5.6-luna', sub2apiModel: 'gemini-2.5-flash',
     model: 'gpt-5.6-sol', claudeKey: 'keep-claude-key', openaiKey: 'keep-openai-key',
-    enableYoutube: false, enableTranslate: false, gestureKeepMenu: true, prompt: 'keep-custom-prompt',
+    enableYoutube: false, enableTranslate: false, enableXhs: false, prompt: 'keep-custom-prompt',
+    gestureKeepMenu: true, // 已移除的开关：启动时应被一次性清掉
   };
   const loaded = loadOptionsEvents({ sync: original });
   assert.equal(loaded.syncWrites.length, 1);
@@ -316,9 +317,10 @@ test('startup migrates every stored provider model using only model-field writes
     assert.notEqual(loaded.stored.sync[field], original[field], field);
   }
   assert.equal(loaded.stored.sync.model, loaded.stored.sync.openaiModel);
-  for (const key of ['provider', 'claudeKey', 'openaiKey', 'enableYoutube', 'enableTranslate', 'gestureKeepMenu', 'prompt']) {
+  for (const key of ['provider', 'claudeKey', 'openaiKey', 'enableYoutube', 'enableTranslate', 'enableXhs', 'prompt']) {
     assert.equal(loaded.stored.sync[key], original[key], key);
   }
+  assert.equal(Object.prototype.hasOwnProperty.call(loaded.stored.sync, 'gestureKeepMenu'), false, '已移除的 gestureKeepMenu 在启动时被清掉');
 });
 
 test('legacy model-only settings migrate to a current provider-specific field', () => {

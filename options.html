@@ -29,7 +29,8 @@
         <label class="checkbox-label"><input type="checkbox" id="enableTranslate" checked> 全网划词翻译</label>
       </div>
       <div class="field">
-        <label class="checkbox-label"><input type="checkbox" id="enableGestures" checked> 鼠标手势（右键拖拽：← 后退 / → 前进 / ↓→ 关闭 / ←↑ 恢复）</label>
+        <label class="checkbox-label"><input type="checkbox" id="enableGestures" checked> 鼠标手势（右键拖拽：← 后退 / → 前进 / ↑ 顶部 / ↓ 底部 / ↓→ 关闭 / ←↑ 恢复 / ↑↓ 强制刷新）</label>
+        <div class="hint">右键菜单与手势共存，无需设置：Mac / Linux 上<b>快速双击右键</b>（0.5 秒内原地再按一次）或 <code>Shift+右键</code> 弹原生菜单；Windows 短按弹菜单、拖动出手势</div>
       </div>
       <div class="field">
         <label class="checkbox-label"><input type="checkbox" id="enableXhs" checked> 小红书体验增强（帖子弹窗滚动修复）</label>
@@ -144,26 +145,6 @@
         </div>
         <div class="field">
           <label class="checkbox-label"><input type="checkbox" id="generateAllHtml" checked> HTML 笔记</label>
-        </div>
-      </div>
-    </div>
-
-    <!-- Card: 鼠标手势设置 -->
-    <div class="card">
-      <div class="card-header">
-        <div class="card-header-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-        </div>
-        <div>
-          <div class="card-title">鼠标手势设置</div>
-          <div class="card-desc">右键菜单行为（总开关在顶部「功能开关」卡片）</div>
-        </div>
-      </div>
-      <div class="field">
-        <label class="checkbox-label"><input type="checkbox" id="gestureKeepMenu"> 保留原生右键菜单</label>
-        <div class="hint">
-          <div><b>关闭（默认）</b>：按住右键 + 滑动直接触发手势，不弹菜单（Mac 触控板友好）；Mac 与 Linux 上 <code>Shift+右键</code> 临时弹原生菜单</div>
-          <div style="margin-top:4px"><b>开启</b>：Mac 与 Linux 普通右键弹菜单、<code>Shift+右键</code> 进手势；Windows 短按弹菜单、拖动触发手势</div>
         </div>
       </div>
     </div>
